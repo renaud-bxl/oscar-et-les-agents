@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { detectProviders, runAgent } from '../lib/providers.mjs';
+import { detectProviders, runAgent, MAX_AGENT_TIMEOUT_MS } from '../lib/providers.mjs';
 
 const fakeSource = String.raw`
 const fs = require('node:fs');
@@ -244,5 +244,24 @@ test('annulation : termine le processus dédié et son descendant, puis nettoie 
     }
     assert.equal(alive, false, 'Le descendant reçoit aussi la terminaison.');
     assert.equal((await readdir(cwd)).length, 0);
+  });
+});
+
+test('le délai maximal est de douze minutes et un délai court arrête le faux moteur sans perdre ses fichiers', async () => {
+  assert.equal(MAX_AGENT_TIMEOUT_MS, 12 * 60 * 1000);
+  await fixture(async ({ cwd }) => {
+    for (const timeoutMs of [0, -1, Infinity, MAX_AGENT_TIMEOUT_MS + 1]) await assert.rejects(runAgent({ provider: 'codex', cwd, prompt: 'Mission', timeoutMs }), /12 minutes/);
+    await writeFile(join(cwd, 'resultat-partiel.txt'), 'À conserver');
+    process.env.FAKE_MODE = 'hang';
+    await assert.rejects(runAgent({ provider: 'codex', cwd, prompt: 'Mission', schema: { type: 'object' }, timeoutMs: 600 }), error => error.name === 'TimeoutError' && /600 ms/.test(error.message) && !/quatre minutes/.test(error.message));
+    assert.equal(await readFile(join(cwd, 'resultat-partiel.txt'), 'utf8'), 'À conserver');
+    assert.equal((await readdir(cwd)).some(file => file.startsWith('.oscar-schema-')), false);
+    let workerPid;
+    try { workerPid = Number(await readFile(process.env.FAKE_PID, 'utf8')); } catch { /* A deadline during CLI startup need not create a descendant. */ }
+    if (workerPid) {
+      let alive = true;
+      for (let attempt = 0; attempt < 100; attempt++) { try { process.kill(workerPid, 0); await delay(20); } catch { alive = false; break; } }
+      assert.equal(alive, false, 'Le descendant est arrêté après le délai.');
+    }
   });
 });

@@ -1,10 +1,41 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, symlinkSync, mkdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createAtelierServer, resolveServerDataDirectory } from '../server.mjs';
 import { createHandler } from '../mcp.mjs';
+import { Publishing } from '../lib/publishing.mjs';
+const until = async predicate => { for (let i=0;i<150;i++) { if(predicate())return; await new Promise(resolve=>setTimeout(resolve,10)); } throw new Error('État HTTP attendu non atteint.'); };
+
+test('ouvrir un livrable valide son type, chaque parent et la requête locale avant toute application native', async t => {
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'oscar-native-file-'));
+  const opened = [];
+  const app = await createAtelierServer({ port: 0, dataDir, providers: [], demoDelay: 0, openFile: async file => opened.push(file) });
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await app.close(); rmSync(dataDir, { recursive: true, force: true }); });
+  const mission = app.engine.start({ provider: 'demo', prompt: 'Vérifier mes fichiers locaux' }); await app.engine.wait(mission.id);
+  const workDir = app.engine.workDir(mission.id), nested = path.join(workDir, 'Livraison'); mkdirSync(nested, { recursive: true });
+  const files = ['rapport.pdf', 'image.PNG', 'document.docx', 'tableau.xlsx', 'presentation.pptx', 'notes.md', 'donnees.json'];
+  for (const file of files) writeFileSync(path.join(nested, file), file.endsWith('.pdf') ? '%PDF-1.4\n%%EOF' : 'Fichier de test');
+  writeFileSync(path.join(nested, 'code.js'), 'Aucun code exécuté'); writeFileSync(path.join(nested, 'page.html'), '<p>Pas d’ouverture native</p>'); writeFileSync(path.join(nested, 'image.svg'), '<svg/>');
+  symlinkSync(path.join(nested, 'rapport.pdf'), path.join(workDir, 'lien.pdf'));
+  symlinkSync(nested, path.join(workDir, 'parent-lie'));
+  const outside = path.join(dataDir, 'hors-mission.pdf'); writeFileSync(outside, '%PDF-1.4'); symlinkSync(outside, path.join(workDir, 'hors-mission.pdf'));
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const route = `/api/missions/${mission.id}/open-file`;
+  const post = (body, endpoint = route) => fetch(base + endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Oscar-Client': '1' }, body: JSON.stringify(body) });
+  for (const file of files) { const response = await post({ path: 'Livraison/' + file }); assert.equal(response.status, 200, file); assert.deepEqual(await response.json(), { ok: true }); }
+  assert.deepEqual(opened, files.map(file => realpathSync(path.join(nested, file))));
+  for (const file of ['Livraison/code.js', 'Livraison/page.html', 'Livraison/image.svg']) assert.equal((await post({ path: file })).status, 400);
+  for (const file of ['../hors-mission.pdf', outside, 'lien.pdf', 'parent-lie/rapport.pdf', 'hors-mission.pdf', 'Livraison/../Livraison/rapport.pdf', 'Livraison\\rapport.pdf', 'Livraison/rapport.pdf\0']) assert.equal((await post({ path: file })).status, 403, file);
+  assert.equal((await post({ path: 'Livraison/absent.pdf' })).status, 404);
+  assert.equal((await post({ path: 'Livraison/rapport.pdf' }, '/api/missions/inconnue/open-file')).status, 404);
+  const external = await fetch(base + route, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://outside.invalid' }, body: JSON.stringify({ path: 'Livraison/rapport.pdf' }) }); assert.equal(external.status, 403);
+  const noProof = await fetch(base + route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: 'Livraison/rapport.pdf' }) }); assert.equal(noProof.status, 403);
+  assert.equal(opened.length, files.length);
+  const shell = await fetch(base + '/'); assert.match(shell.headers.get('Content-Security-Policy'), /frame-src blob:/); assert.match(shell.headers.get('Content-Security-Policy'), /object-src 'none'/);
+});
 test('HTTP et MCP : mission simulée, livraison et protection des fichiers', async t => {
   const dataDir=mkdtempSync(path.join(os.tmpdir(),'oscar-http-'));
   const app=await createAtelierServer({port:0,dataDir,providers:[],demoDelay:0,runner:()=>{throw new Error('Pas d’IA en démonstration');}});
@@ -87,4 +118,126 @@ test('ouvrir le dossier utilise uniquement le dossier de données et exige une r
   assert.deepEqual(await response.json(), { ok: true });
   assert.deepEqual(opened, [dataDir]);
   assert.equal(app.engine.demoDelay, 1800);
+});
+
+test('HTTP prépare le moteur manquant une fois et rafraîchit l’autre abonnement sans écraser les états',async t=>{
+  const dataDir=mkdtempSync(path.join(os.tmpdir(),'oscar-setup-http-'));
+  let installed=false,release,installCalls=0;const changes=[];
+  const detection=()=>[{id:'codex',name:'Codex',available:installed,auth:{loggedIn:installed,method:'chatgpt'}},{id:'claude',name:'Claude',available:true,auth:{loggedIn:true,method:'subscription'}}];
+  const app=await createAtelierServer({port:0,dataDir,providers:detection(),detect:async()=>detection(),
+    installer:async(options,deps)=>{
+      installCalls++;
+      assert.deepEqual(options,{engine:'codex',skipLogin:true,noOpen:true});
+      assert.equal(deps.root,path.resolve(import.meta.dirname,'..'));assert.equal(deps.env.OSCAR_DATA_DIR,dataDir);
+      assert.equal(typeof deps.interactive,'function');assert.equal(typeof deps.capture,'function');
+      deps.log('CONFIDENTIAL-NPM-LOG');
+      await new Promise(resolve=>{release=()=>{installed=true;resolve();};});
+    },
+    runner:({signal})=>new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(new Error('Arrêt demandé')),{once:true})),
+  });
+  app.engine.on('change',snapshot=>changes.push(snapshot));
+  await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  t.after(async()=>{await app.close();rmSync(dataDir,{recursive:true,force:true});});
+  const base=`http://127.0.0.1:${app.server.address().port}`;
+  const post=(route,body={})=>fetch(base+route,{method:'POST',headers:{'Content-Type':'application/json','X-Oscar-Client':'1'},body:JSON.stringify(body)});
+  const setup=await post('/api/providers/codex/setup');assert.equal(setup.status,202);assert.equal((await setup.json()).status,'installing');
+  await until(()=>release);assert.equal((await post('/api/providers/codex/setup')).status,202);assert.equal((await post('/api/providers/codex/login')).status,202);assert.equal(installCalls,1);
+  const refresh=await post('/api/providers/refresh');assert.equal(refresh.status,200);const refreshed=await refresh.json();
+  assert.equal(refreshed.logins.codex.status,'installing');assert.equal(refreshed.logins.claude.status,'connected');assert.equal(refreshed.providers.find(p=>p.id==='claude').auth.loggedIn,true);
+  assert.equal((await post('/api/missions',{prompt:'Attendre Codex',provider:'codex'})).status,409);
+  const other=await post('/api/missions',{prompt:'Une mission indépendante Claude',provider:'claude'});assert.equal(other.status,202);
+  assert.equal((await post('/api/providers/claude/setup')).status,409);assert.equal((await post('/api/providers/claude/login')).status,409);
+  assert.equal((await post('/api/providers/refresh')).status,200);
+  release();await until(()=>app.engine.logins.codex.status==='connected');
+  assert.equal(app.engine.logins.claude.status,'connected');assert.equal(app.engine.providers.find(p=>p.id==='codex').available,true);
+  assert.equal((await post('/api/providers/codex/setup')).status,202);await until(()=>app.engine.logins.codex.status==='connected');assert.equal(installCalls,1);
+  assert.equal(changes.some(snapshot=>snapshot.logins.codex?.status==='installing'),true);assert.equal(changes.some(snapshot=>snapshot.logins.codex?.status==='connected'),true);
+  assert(!JSON.stringify(changes).includes('CONFIDENTIAL'));
+  assert.equal(app.engine.state().activeMissions.length,1);
+});
+
+test('HTTP refresh et setup gardent les restrictions locales et une erreur de détection ne devient pas une connexion',async t=>{
+  const dataDir=mkdtempSync(path.join(os.tmpdir(),'oscar-refresh-http-'));
+  const app=await createAtelierServer({port:0,dataDir,providers:[],detect:async()=>{throw new Error('CONFIDENTIAL-DETECTION-ERROR');}});
+  await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  t.after(async()=>{await app.close();rmSync(dataDir,{recursive:true,force:true});});
+  const base=`http://127.0.0.1:${app.server.address().port}`;
+  for(const route of ['/api/providers/refresh','/api/providers/codex/setup']){
+    const response=await fetch(base+route,{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://un-autre-site.invalid'},body:'{}'});assert.equal(response.status,403);
+    const missing=await fetch(base+route,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});assert.equal(missing.status,403);
+  }
+  const refresh=await fetch(base+'/api/providers/refresh',{method:'POST',headers:{'Content-Type':'application/json','X-Oscar-Client':'1'},body:'{}'});
+  assert.equal(refresh.status,400);assert(!JSON.stringify(await refresh.json()).includes('CONFIDENTIAL'));
+  const setup=await fetch(base+'/api/providers/codex/setup',{method:'POST',headers:{'Content-Type':'application/json','X-Oscar-Client':'1'},body:'{}'});assert.equal(setup.status,202);
+  await until(()=>app.engine.logins.codex.status==='failed');assert(!JSON.stringify(app.engine.state()).includes('CONFIDENTIAL'));
+  assert.equal((await fetch(base+'/api/providers/autre/setup',{method:'POST',headers:{'Content-Type':'application/json','X-Oscar-Client':'1'},body:'{}'})).status,404);
+});
+
+test('les nouveaux modules de bienvenue et ambiance sont servis localement sans élargir les fichiers publics',async t=>{
+  const dataDir=mkdtempSync(path.join(os.tmpdir(),'oscar-static-guide-'));
+  const app=await createAtelierServer({port:0,dataDir,providers:[]});
+  await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  t.after(async()=>{await app.close();rmSync(dataDir,{recursive:true,force:true});});
+  const base=`http://127.0.0.1:${app.server.address().port}`;
+  for(const filename of ['welcome-guide.js','welcome-guide.css','ambience.js']){
+    const response=await fetch(base+'/'+filename);assert.equal(response.status,200,filename);assert.match(response.headers.get('content-type'),filename.endsWith('.css')?/text\/css/:/text\/javascript/);
+  }
+  assert.equal((await fetch(base+'/lib/auth.mjs')).status,404);
+  assert.equal((await fetch(base+'/scripts/install.mjs')).status,404);
+});
+
+test('HTTP publication : aperçu exact, confirmation, modification refusée puis transfert sans secret exposé', async t => {
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'oscar-publish-http-')); const uploads = []; let probes = 0;
+  const app = await createAtelierServer({ port: 0, dataDir, providers: [], demoDelay: 0,
+    publishingFactory: options => new Publishing({ ...options, find: async name => '/mock/' + name, run: async (binary, args, opts) => {
+      if (args.includes('user')) { probes++; return { code: 0, stdout: 'renaud' }; }
+      uploads.push({ binary, args, input: opts.input }); return { code: 0 };
+    } }),
+  });
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await app.close(); rmSync(dataDir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const post = (route, body = {}) => fetch(base + route, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Oscar-Client': '1' }, body: JSON.stringify(body) });
+  const capabilities = await fetch(base + '/api/publishing').then(response => response.json());
+  assert.equal(capabilities.github.user, 'renaud'); assert.equal(capabilities.ftp.available, true);
+  await fetch(base + '/api/publishing'); assert.equal(probes, 1);
+  const login = await post('/api/publishing/github/login'); assert.equal(login.status, 202);
+  await until(() => !app.publishing.loginJob); assert.equal(app.publishing.github.status, 'connected');
+  const mission = app.engine.start({ prompt: 'Site à publier', provider: 'demo' }); await app.engine.wait(mission.id);
+  const site = path.join(app.engine.workDir(mission.id), 'index.html'); writeFileSync(site, '<title>Site confirmé</title>');
+  const route = `/api/missions/${mission.id}/publication`;
+  assert.equal((await fetch(base + route).then(response => response.json())).status, 'idle');
+  const body = { kind: 'ftp', ftp: { host: 'ftp.exemple.be', username: 'compte-prive', password: 'HTTP-PASSWORD-SECRET', directory: '/site', publicUrl: 'https://exemple.be/' } };
+  let previewResponse = await post(route + '/preview', body); assert.equal(previewResponse.status, 200);
+  let preview = await previewResponse.json(); assert.deepEqual(preview.files.map(file => file.path), ['index.html']);
+  assert(!JSON.stringify(preview).includes('HTTP-PASSWORD')); assert(!JSON.stringify(preview).includes('compte-prive'));
+  assert.equal((await post(route, { ...body, digest: preview.digest })).status, 400);
+  writeFileSync(site, '<title>Site changé</title>');
+  assert.equal((await post(route, { ...body, confirmation: true, digest: preview.digest })).status, 409); assert.equal(uploads.length, 0);
+  preview = await post(route + '/preview', body).then(response => response.json());
+  const publication = await post(route, { ...body, confirmation: true, digest: preview.digest }); assert.equal(publication.status, 202);
+  await until(() => app.publishing.get(mission.id).status === 'completed');
+  const result = await fetch(base + route).then(response => response.json()); assert.equal(result.url, 'https://exemple.be/');
+  assert.equal(result.kind, 'ftp'); assert.equal(uploads.length, 1); assert(uploads[0].input.includes('HTTP-PASSWORD-SECRET')); assert(!uploads[0].args.join(' ').includes('HTTP-PASSWORD'));
+  assert(!JSON.stringify(result).includes('HTTP-PASSWORD')); assert(!JSON.stringify(app.engine.state()).includes('HTTP-PASSWORD'));
+  assert.equal((await post('/api/missions/inconnue/publication/preview', body)).status, 404);
+});
+
+test('HTTP publication : mission active et requêtes externes refusées, code backend non public', async t => {
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'oscar-publish-protected-'));
+  const app = await createAtelierServer({ port: 0, dataDir, providers: [{ id: 'codex', available: true }],
+    runner: ({ signal }) => new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('Arrêt demandé')), { once: true })),
+  });
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await app.close(); rmSync(dataDir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const mission = app.engine.start({ prompt: 'Une mission qui travaille encore', provider: 'codex' });
+  const previewRoute = `/api/missions/${mission.id}/publication/preview`;
+  for (const route of [previewRoute, `/api/missions/${mission.id}/publication`, '/api/publishing/github/login']) {
+    assert.equal((await fetch(base + route, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://autre.invalid' }, body: '{}' })).status, 403);
+    assert.equal((await fetch(base + route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 403);
+  }
+  const active = await fetch(base + previewRoute, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Oscar-Client': '1' }, body: JSON.stringify({ kind: 'github', repo: 'projet' }) });
+  assert.equal(active.status, 409); assert.match((await active.json()).error, /fin de cette mission/);
+  assert.equal((await fetch(base + '/lib/publishing.mjs')).status, 404);
 });

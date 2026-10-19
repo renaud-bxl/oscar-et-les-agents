@@ -613,3 +613,14 @@ dialog.office-panel[data-panel="settings"] { width: min(620px, calc(100vw - 48px
 
 .office-panel .history-empty {display:block;}
 .office-panel-error {flex:0 0 auto;margin:14px 26px 0;}
+
+/* Language stays reachable from the office, including narrow screens. */
+.hud-language {position:relative;flex-shrink:0}
+.hud-language summary {display:flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:9px;border:1px solid #e5ecf3;border-radius:12px;background:#ffffffe6;font-size:22px;cursor:pointer;list-style:none}
+.hud-language summary::-webkit-details-marker {display:none}
+.hud-language summary:focus-visible {outline:3px solid #9bb7cf;outline-offset:3px}
+.hud-language-menu {position:absolute;right:0;top:calc(100% + 12px);display:grid;gap:5px;min-width:180px;padding:9px;border:1px solid #dde6ee;border-radius:16px;background:#fff;box-shadow:0 14px 40px #263e5422;z-index:3}
+.hud-actions .hud-language-menu button {justify-content:flex-start;font-size:14px;background:#fff}
+.hud-actions .hud-language-menu button[aria-pressed="true"] {background:#eef5ec;color:#486950;border-color:#a6bda0}
+.delivery-actions {display:flex;gap:14px;flex-wrap:wrap;margin:12px 0}
+@media(max-width:420px){.hud-actions{gap:3px}.hud-actions button,.hud-language summary{min-width:36px;min-height:40px;padding:7px}.office-hud{gap:6px}.immersive-brand{font-size:14px;gap:6px}.hud-language-menu{right:-80px}.hud-actions .hud-language-menu button{min-height:44px}}

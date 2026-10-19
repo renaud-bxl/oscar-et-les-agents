@@ -1,4 +1,6 @@
 /* Original smooth illustrated office. Task state controls work; scenery never changes a mission. */
+import {getAmbience} from './ambience.js';
+import {translate} from './i18n.js';
 const W=1440,H=850,TILE=20,COLS=Math.ceil(W/TILE),ROWS=Math.ceil(H/TILE);
 const P={
   ink:'#344b48',navy:'#3e5960',blue:'#8eb5c4',wall:'#e7eeea',lightwall:'#f6f9f4',
@@ -10,10 +12,11 @@ const P={
 const ROLES={
   recherche:{name:'Lina',label:'Recherche',names:['Lina','Camille','Nora','Iris'],shirt:'#d8a18c',hair:'#674f45',skin:'#edbc99'},
   redaction:{name:'Noé',label:'Rédaction',names:['Noé','Hugo','Inès','Lou'],shirt:'#91aebd',hair:'#5e514b',skin:'#d8a583'},
-  code:{name:'Sam',label:'Développement',names:['Sam','Alex','Théo','Rémi'],shirt:'#d6bd87',hair:'#3f4a48',skin:'#e4b291'},
+  code:{name:'Sam',label:'Développement & code',names:['Sam','Alex','Théo','Rémi'],shirt:'#d6bd87',hair:'#3f4a48',skin:'#e4b291'},
   design:{name:'Alma',label:'Design',names:['Alma','Maya','Jade','Rose'],shirt:'#9ebca9',hair:'#966b52',skin:'#f0c4a2'},
   analyse:{name:'Jules',label:'Analyse',names:['Jules','Léon','Éva','Nils'],shirt:'#b4a9c6',hair:'#665a51',skin:'#c4997d'},
-  oscar:{name:'Oscar',label:'Chef d’équipe',names:['Oscar'],shirt:'#6e9780',hair:'#745c4d',skin:'#e8b993'}
+  oscar:{name:'Oscar',label:'Chef d’équipe',names:['Oscar'],shirt:'#6e9780',hair:'#745c4d',skin:'#e8b993'},
+  secretaire:{name:'Zoé',label:'Secrétariat',names:['Zoé'],shirt:'#bf9a9e',hair:'#745c4d',skin:'#e8b993'}
 };
 const ISLANDS=[
   {role:'recherche',x:170,y:350,w:220,h:90,accent:'#d5a08d'},
@@ -29,12 +32,14 @@ const DESKS=ISLANDS.flatMap((island,islandIndex)=>Array.from({length:4},(_,i)=>(
   direction:i<2?'down':'up'
 })));
 const DOOR={x:110,y:190},RECEPTION={x:130,y:270},REVIEW={x:730,y:330};
+const OSCAR_HOME={x:720,y:237},OSCAR_WELCOME={x:250,y:275},OSCAR_GATE={x:570,y:310};
+const OSCAR_VISITS={recherche:{x:430,y:370},redaction:{x:1010,y:370},code:{x:890,y:470},design:{x:530,y:640},analyse:{x:1210,y:640}};
 const REVIEW_WAIT=Array.from({length:20},(_,i)=>({x:510+(i%10)*40,y:350+Math.floor(i/10)*40}));
 const COFFEE=Array.from({length:20},(_,i)=>({x:190+(i%4)*20,y:650+Math.floor(i/4)*40}));
 const CHAT=[{x:610,y:650},{x:850,y:650},{x:610,y:690},{x:850,y:690},{x:610,y:730},{x:850,y:730},{x:610,y:770},{x:850,y:770},{x:610,y:810},{x:650,y:810},{x:690,y:810},{x:730,y:810},{x:770,y:810},{x:810,y:810},{x:850,y:810},{x:650,y:650},{x:690,y:650},{x:730,y:650},{x:770,y:650},{x:810,y:650}];
 const BUSY_TASKS=new Set(['working','revising']),EXIT_TASKS=new Set(['failed','cancelled']);
 const TRAVEL_STATES=new Set(['entering','to_desk','to_oscar','to_review_queue','to_review_wait','to_coffee','to_chat','returning','leaving']);
-const LAMPS=[{x:490,y:108},{x:720,y:64},{x:950,y:108}];
+const LAMPS=[{x:490,y:108},{x:720,y:64},{x:950,y:108},{x:550,y:520,floor:true},{x:1240,y:520,floor:true}];
 const HOTSPOTS=[
   {kind:'coffee',label:'Machine à café',x:65,y:612,w:107,h:126},
   {kind:'window',label:'Fenêtre de gauche',x:180,y:60,w:220,h:134},
@@ -43,11 +48,12 @@ const HOTSPOTS=[
   {kind:'missions',label:'Tableau des missions · ouvrir le catalogue',x:431,y:142,w:127,h:57},
   {kind:'delivery',label:'Armoire des livraisons · ouvrir les résultats',x:1260,y:636,w:126,h:80},
   {kind:'team',label:'Le collectif · rencontrer les talents',x:866,y:146,w:98,h:49},
-  ...LAMPS.map((p,index)=>({kind:'lights',label:`Suspension ${index+1}`,index,x:p.x-28,y:p.y-20,w:56,h:46})),
+  ...LAMPS.map((p,index)=>({kind:'lights',label:p.floor?`Lampadaire ${index-2}`:`Suspension ${index+1}`,index,x:p.x-28,y:p.y-20,w:56,h:p.floor?132:46})),
   {kind:'door',label:'Porte d’entrée',x:74,y:80,w:78,h:147},
   {kind:'plant',label:'Grand ficus',x:61,y:342,w:65,h:104},
   {kind:'plant',label:'Plante de droite',x:1310,y:345,w:70,h:108},
-  {kind:'cat',label:'Chat de porcelaine sur l’étagère',x:1300,y:577,w:44,h:40}
+  {kind:'cat',label:'Moka · le chat du bureau',x:1294,y:545,w:70,h:75},
+  {kind:'secretary',label:'Zoé · votre secrétaire',x:1078,y:208,w:175,h:105}
 ];
 const OBSTACLES=[
   ...ISLANDS.map(i=>({x:i.x,y:i.y,w:i.w,h:i.h})),
@@ -80,9 +86,23 @@ function cell(point) {return {x:Math.floor(point.x/TILE),y:Math.floor(point.y/TI
 function center(x,y) {return {x:x*TILE+8,y:y*TILE+8};}
 function distance(a,b) {return Math.hypot(a.x-b.x,a.y-b.y);}
 function clipped(text,max=27) {const str=String(text||'').replace(/\s+/g,' ').trim();return str.length>max?str.slice(0,max-1)+'…':str;}
+const AMBIENCE_MODES=['auto','day','sunset','night'],AMBIENCE_KEY='oscar-ambience-v1';
+function readAmbiencePreference() {
+  try {
+    const value=JSON.parse(window.localStorage.getItem(AMBIENCE_KEY)||'null');
+    if(!value||typeof value!=='object')return null;
+    return {mode:AMBIENCE_MODES.includes(value.mode)?value.mode:'auto',
+      lightsMode:value.lightsMode==='manual'?'manual':'auto',
+      lights:Array.isArray(value.lights)&&[3,LAMPS.length].includes(value.lights.length)&&value.lights.every(v=>typeof v==='boolean')?LAMPS.map((_,i)=>value.lights[i]??false):null};
+  } catch {return null;}
+}
+function blend(a,b,amount) {
+  const t=Math.max(0,Math.min(1,amount)),rgb=[1,3,5].map(i=>Math.round(parseInt(a.slice(i,i+2),16)*(1-t)+parseInt(b.slice(i,i+2),16)*t));
+  return `rgb(${rgb.join(',')})`;
+}
 
 export class PixelWorld {
-  constructor(canvas,{onSelect=()=>{},onStatus=()=>{},onEvent=()=>{},onInteract=()=>{}}={}) {
+  constructor(canvas,{onSelect=()=>{},onStatus=()=>{},onEvent=()=>{},onInteract=()=>{},onAmbience=()=>{}}={}) {
     if(!canvas?.getContext) throw new Error('Un canvas est nécessaire pour ouvrir l’atelier.');
     this.canvas=canvas;this.ctx=canvas.getContext('2d');
     if(!this.ctx) throw new Error('Le dessin de l’atelier est indisponible dans ce navigateur.');
@@ -90,24 +110,31 @@ export class PixelWorld {
     canvas.width=Math.round(W*this.pixelRatio);canvas.height=Math.round(H*this.pixelRatio);
     this.viewport={width:W,height:H,scale:1,offsetX:0,offsetY:0,dpr:this.pixelRatio};
     this.ctx.imageSmoothingEnabled=true;
-    this.onSelect=onSelect;this.onStatus=onStatus;this.onEvent=onEvent;this.onInteract=onInteract;
+    this.onSelect=onSelect;this.onStatus=onStatus;this.onEvent=onEvent;this.onInteract=onInteract;this.onAmbience=onAmbience;
     this.mission=null;this.missionId=null;this.agents=new Map();
-    this.frame=0;this.time=0;this.oscarState='idle';this._oscarBubble='Une idée ?';this._oscarBubbleUntil=4;
+    this.frame=0;this.time=0;this.oscarState='idle';this._oscarBubble='Explique-moi ce que tu veux faire';this._oscarBubbleUntil=4;
+    this.oscar={...OSCAR_WELCOME,id:'oscar',key:'oscar',role:'oscar',name:'Oscar',direction:'down',path:[],place:'welcome',destination:'welcome',nextVisitAt:18,visitUntil:0,visits:0};
     this._reviewOwner=null;this._raf=null;this._lastTick=null;this._lastPaint=0;
     this._manualPaused=false;this._destroyed=false;this._doorOpen=0;this._statusMemo='';this._lastCompleted=null;
-    this.props={windowMode:'day',lights:[true,true,true],coffeeUntil:0,clockUntil:0,doorUntil:0,catUntil:0};
+    this.props={windowMode:'day',lights:LAMPS.map(()=>true),coffeeUntil:0,clockUntil:0,doorUntil:0,catUntil:0,catStart:0};
+    const preference=readAmbiencePreference();
+    this._ambienceMode=preference?.mode||'auto';this._lightsAuto=preference?.lightsMode!=='manual'||!preference?.lights;
+    this._manualLights=preference?.lights||LAMPS.map(()=>true);this.ambience=null;this._ambienceSignature='';
+    this._refreshAmbience(true);
     this._propBubble=null;this._hoveredProp=null;this._reactions=new Map();this._clickCounts=new Map();this._selectionTimer=null;
     this._lastInteraction=null;this._lastClickedBubble=null;this._visibleBubbles=[];
     this._media=window.matchMedia?.('(prefers-reduced-motion: reduce)');
     this.reducedMotion=!!this._media?.matches;
     this._onMotion=()=>{this.reducedMotion=!!this._media?.matches;this._lastTick=null;this._draw();};
-    this._onVisibility=()=>{this._lastTick=null;this._schedule();};
+    this._onVisibility=()=>{this._lastTick=null;if(!document.hidden){this._refreshAmbience(true);this._draw();}this._schedule();};
     this._onClick=e=>this._select(e);
     this._onKey=e=>{if(e.key==='Enter'||e.key===' ') {e.preventDefault();this._selectActor({role:'oscar',id:null});}};
     this._onPointer=e=>this._pointer(e);
     this._initialTitle=canvas.title||'';
     this._onLeave=()=>{this.canvas.style.cursor='';this.canvas.title=this._initialTitle;this._hoveredProp=null;this._draw();};
     this._onResize=()=>this._resizeViewport();
+    this._onLanguage=()=>{this._background=this._makeBackground();this._draw();};
+    document.addEventListener('oscar:language',this._onLanguage);
     document.addEventListener('visibilitychange',this._onVisibility);
     this._media?.addEventListener?.('change',this._onMotion);
     canvas.addEventListener('click',this._onClick);
@@ -119,7 +146,32 @@ export class PixelWorld {
     this._resizeObserver=typeof ResizeObserver==='function'?new ResizeObserver(this._onResize):null;
     this._resizeObserver?.observe(canvas);window.addEventListener?.('resize',this._onResize);
     this._draw();this._schedule();
+    this._ambienceTimer=setInterval(()=>{if(!this._destroyed){this._refreshAmbience();if(!document.hidden)this._draw();}},30000);
+    this._ambienceTimer?.unref?.();
   }
+
+  _persistAmbiencePreference() {
+    try {window.localStorage.setItem(AMBIENCE_KEY,JSON.stringify({mode:this._ambienceMode,lightsMode:this._lightsAuto?'auto':'manual',lights:[...this.props.lights]}));} catch { /* Private browsing and blocked storage retain the session choice. */ }
+  }
+  _refreshAmbience(force=false,date=new Date()) {
+    const actual=getAmbience(date),sceneDate=new Date(date.getTime());
+    if(this._ambienceMode!=='auto')sceneDate.setHours({day:13,sunset:19,night:23}[this._ambienceMode],0,0,0);
+    const scene=this._ambienceMode==='auto'?actual:getAmbience(sceneDate);
+    this.ambience={...scene,mode:this._ambienceMode,hour:actual.hour,sceneHour:scene.hour,lightsMode:this._lightsAuto?'auto':'manual'};
+    this.props.windowMode=scene.phase;
+    this.props.lights=this._lightsAuto?LAMPS.map(()=>scene.lampsOn):[...this._manualLights];
+    const signature=JSON.stringify([this._ambienceMode,scene.phase,Math.round(actual.hour*120),Math.round(scene.daylight*1000),this._lightsAuto,...this.props.lights]);
+    if(force||signature!==this._ambienceSignature){this._ambienceSignature=signature;this.onAmbience(this._ambienceSnapshot());}
+  }
+  _ambienceSnapshot() {return {...this.ambience,sun:{...this.ambience.sun},moon:{...this.ambience.moon},lights:[...this.props.lights]};}
+  setAmbienceMode(mode) {
+    if(this._destroyed)return null;
+    if(!AMBIENCE_MODES.includes(mode))throw new RangeError('Choisissez auto, day, sunset ou night.');
+    this._ambienceMode=mode;this._refreshAmbience(true);this._persistAmbiencePreference();this._draw();
+    return this._ambienceSnapshot();
+  }
+  setSpeaking(role){this.speakingRole=role||null;this._draw();}
+  setSecretaryActivity(busy){this.secretaryBusy=!!busy;this._draw();}
 
   update(mission) {
     if(this._destroyed) return;
@@ -127,7 +179,7 @@ export class PixelWorld {
     if(nextId!==this.missionId) {
       for(const a of this.agents.values()) a.retiring=true;
       this._reviewOwner=null;this.missionId=nextId;
-      this._oscarBubble=mission?'Bienvenue, l’équipe !':'L’atelier est ouvert.';
+      this._oscarBubble=mission?'Allez, je prépare le recrutement !':'Explique-moi ce que tu veux faire';
       this._oscarBubbleUntil=this.time+3.5;
       this._lastCompleted=null;
     }
@@ -143,7 +195,7 @@ export class PixelWorld {
         const name=suppliedName||ROLES[role].names[roleIndex%ROLES[role].names.length];
         let a=this.agents.get(key);
         if(!a) {
-          if(['failed','cancelled'].includes(mission.status)||EXIT_TASKS.has(task.status)) return;
+          if(mission.status==='cancelled'||task.status==='cancelled') return;
           const random=seeded(hash(key));
           a={key,id:task.id,missionId:nextId,role,name,roleIndex,task,index,slot:-1,
             x:DOOR.x,y:DOOR.y,direction:'down',walkFrame:0,state:'waiting_entry',visible:false,
@@ -185,14 +237,19 @@ export class PixelWorld {
       for(const a of idle.slice(0,2)) this._bubble(a,a.state==='coffee'?'Mon abonnement préféré.':'Il en reste pour moi ?',3);
       if(!idle.length&&this.oscarState==='idle') {this._oscarBubble='Je supervise la mousse.';this._oscarBubbleUntil=this.time+3;}
     } else if(kind==='window') {
-      const modes=['day','sunset','night'];this.props.windowMode=modes[(modes.indexOf(this.props.windowMode)+1)%modes.length];
+      const mode=AMBIENCE_MODES[(AMBIENCE_MODES.indexOf(this._ambienceMode)+1)%AMBIENCE_MODES.length];this.setAmbienceMode(mode);
       x=1190;y=206;
       const lines={
-        day:['Grand jour, grandes idées.','Les fenêtres passent au grand jour. Les idées ont leur vitamine D.'],
-        sunset:['Le soleil rend son rapport.','Coucher de soleil : même le soleil vient de rendre son rapport.'],
-        night:['Le bureau passe en soirée.','La nuit tombe sur le bureau. Les lampes gardent les idées au chaud.']
+        auto:['La lumière suit votre horloge.','Ambiance automatique : le décor suit l’heure locale, avec un rythme de lumière progressif entre 6 h et 20 h.'],
+        day:['Grand jour, grandes idées.','Ambiance de jour choisie manuellement. Les idées ont leur vitamine D.'],
+        sunset:['Le soleil rend son rapport.','Coucher de soleil choisi manuellement : même le soleil vient de rendre son rapport.'],
+        night:['Le bureau passe en soirée.','Ambiance de nuit choisie manuellement. Les lampes gardent les idées au chaud.']
       };
-      [bubble,text]=lines[this.props.windowMode];
+      [bubble,text]=lines[mode];
+    } else if(kind==='auto') {
+      this._lightsAuto=true;this.setAmbienceMode('auto');x=720;y=120;
+      bubble='Fenêtres et lampes à l’heure locale.';
+      text='Les fenêtres et les lampes suivent à nouveau l’heure locale. La transition du décor est indicative et ne dépend ni de votre position ni de la météo.';
     } else if(kind==='clock') {
       this.props.clockUntil=this.time+2.2;x=1000;y=148;
       const hour=new Date().toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'});
@@ -203,8 +260,9 @@ export class PixelWorld {
       if(lampIndex!==null) this.props.lights[lampIndex]=!this.props.lights[lampIndex];
       else {const on=!this.props.lights.every(Boolean);this.props.lights=this.props.lights.map(()=>on);}
       const count=this.props.lights.filter(Boolean).length;
-      x=lampIndex!==null?LAMPS[lampIndex].x:720;y=165;
-      bubble=count===0?'Mode idées lumineuses.':`${count}/3 lampes. Ambiance validée.`;
+      this._lightsAuto=false;this._manualLights=[...this.props.lights];this._refreshAmbience(true);this._persistAmbiencePreference();
+      x=lampIndex!==null?LAMPS[lampIndex].x:720;y=lampIndex!==null&&LAMPS[lampIndex].floor?LAMPS[lampIndex].y-35:165;
+      bubble=count===0?'Mode idées lumineuses.':`${count}/${LAMPS.length} lampes. Ambiance validée.`;
       text=count===0?'Toutes les lampes sont éteintes. Oscar compte sur les idées lumineuses.':`${count} lampe${count>1?'s':''} allumée${count>1?'s':''}. L’ambiance vient de passer la validation d’Oscar.`;
     } else if(kind==='door') {
       this.props.doorUntil=this.time+2.8;x=144;y=238;bubble='Toc toc. Juste le courant d’air.';
@@ -213,8 +271,11 @@ export class PixelWorld {
       x=this._hoveredProp?.x?this._hoveredProp.x+32:93;y=320;bubble='Je fais pousser les idées.';
       text='La plante demande un peu d’eau et zéro réunion. Elle fait déjà pousser les idées.';
     } else if(kind==='cat') {
-      this.props.catUntil=this.time+2.7;x=1324;y=549;bubble='Miaou. J’approuve cette sieste.';
-      text='Miaou ! Le petit chat de l’étagère est responsable qualité des siestes. Son rapport : ronron.';
+      this.props.catStart=this.time;this.props.catUntil=this.time+4.5;x=1324;y=500;bubble='Miaou ! Contrôle du rebond terminé.';
+      text='Moka teste la gravité, puis reprend son poste de responsable qualité des siestes.';
+    } else if(kind==='secretary') {
+      x=1160;y=190;bubble='On fait le point sur votre journée ?';
+      text='Zoé prépare vos e-mails, votre agenda et vos priorités avec les services que vous avez connectés.';
     } else if(kind==='missions') {
       x=494;y=103;bubble='Une nouvelle idée à construire ?';
       text='Le tableau des missions : choisissez une idée dans le catalogue ou confiez votre propre projet à Oscar.';
@@ -233,9 +294,9 @@ export class PixelWorld {
 
   snapshot() {
     return {
-      missionId:this.missionId,bounds:{width:W,height:H},viewport:{...this.viewport},frame:this.frame,time:Math.round(this.time*100)/100,
-      paused:this._manualPaused||document.hidden,reducedMotion:this.reducedMotion,oscarState:this.oscarState,
-      doorOpen:this._doorOpen,reviewOwner:this._reviewOwner,
+      missionId:this.missionId,bounds:{width:W,height:H},viewport:{...this.viewport},ambience:this._ambienceSnapshot(),frame:this.frame,time:Math.round(this.time*100)/100,
+      paused:this._manualPaused||document.hidden,reducedMotion:this.reducedMotion,oscarState:this.oscarState,oscar:{x:this.oscar.x,y:this.oscar.y,place:this.oscar.place,destination:this.oscar.destination,moving:!!this.oscar.path.length,visits:this.oscar.visits},
+      doorOpen:this._doorOpen,reviewOwner:this._reviewOwner,secretary:{name:'Zoé',busy:!!this.secretaryBusy},
       bubbles:this._visibleBubbles.map(b=>({...b})),
       props:{windowMode:this.props.windowMode,lights:[...this.props.lights],coffeeSteam:this.time<this.props.coffeeUntil,
         clockGag:this.time<this.props.clockUntil,clockTime:new Date().toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'}),
@@ -258,8 +319,10 @@ export class PixelWorld {
     this._destroyed=true;
     if(this._raf!==null) cancelAnimationFrame(this._raf);
     if(this._selectionTimer!==null) clearTimeout(this._selectionTimer);
+    clearInterval(this._ambienceTimer);
     this._raf=null;
     document.removeEventListener('visibilitychange',this._onVisibility);
+    document.removeEventListener('oscar:language',this._onLanguage);
     this._media?.removeEventListener?.('change',this._onMotion);
     this._resizeObserver?.disconnect();window.removeEventListener?.('resize',this._onResize);
     this.canvas.removeEventListener('click',this._onClick);
@@ -289,7 +352,7 @@ export class PixelWorld {
       const dt=Math.min((stamp-this._lastTick)/1000,.15);
       this._lastTick=stamp;this._lastPaint=stamp;this.time+=dt;
       for(const a of this.agents.values()) this._stepAgent(a,dt);
-      this._updateOscar();
+      this._updateOscar(dt);
       const nearDoor=this.time<this.props.doorUntil||[...this.agents.values()].some(a=>a.visible&&a.x<160&&a.y<252);
       this._doorOpen=Math.max(0,Math.min(1,this._doorOpen+(nearDoor?1:-1)*dt*4));
       this._draw();
@@ -378,9 +441,9 @@ export class PixelWorld {
     } else if(state==='handoff') {
       a.direction='up';a.deadline=this.time+1.35;
       a.handoffAttempt=taskAttempt(a.task);a.handoffAttempts.add(a.handoffAttempt);
-      this._bubble(a,'À toi de vérifier !',1.6);
+      this._bubble(a,a.task.status==='failed'?'Un problème à te signaler.':'À toi de vérifier !',1.6);
       this._oscarBubble='Voyons ça…';this._oscarBubbleUntil=this.time+2;
-      this._sayStatus(`${(a.name||ROLES[a.role].name)} remet son résultat à Oscar pour validation.`);
+      this._sayStatus(a.task.status==='failed'?`${(a.name||ROLES[a.role].name)} signale le problème à Oscar. Les fichiers déjà produits sont conservés.`:`${(a.name||ROLES[a.role].name)} remet son résultat à Oscar pour validation.`);
       this._event('handoff',a);
     } else if(state==='review_queue') {a.direction=a.x<REVIEW.x?'right':'left';this._bubble(a,'Mon dossier est prêt.');}
     else if(state==='waiting_review') {a.direction='up';a.paper=false;this._bubble(a,'J’attends le retour.');}
@@ -397,7 +460,9 @@ export class PixelWorld {
 
   _stepAgent(a,dt) {
     const activeMission=a.missionId===this.missionId;
-    const exit=a.retiring||EXIT_TASKS.has(a.task.status)||(activeMission&&['failed','cancelled'].includes(this.mission?.status));
+    const pendingHandoff=['approved','reviewing','needs_review','failed'].includes(a.task.status)&&!a.handoffAttempts.has(taskAttempt(a.task));
+    const cancelled=a.task.status==='cancelled'||activeMission&&this.mission?.status==='cancelled';
+    const exit=cancelled||(!pendingHandoff&&a.state!=='handoff'&&(a.retiring||a.task.status==='failed'||activeMission&&this.mission?.status==='failed'));
     if(exit&&a.state!=='leaving') {
       this._releaseReview(a);
       if(!a.visible) {this.agents.delete(a.key);return;}
@@ -433,7 +498,7 @@ export class PixelWorld {
     }
     if(a.state==='working') {
       if(a.task.status==='queued') {this._visit(a,'waiting_task');return;}
-      if(['reviewing','approved'].includes(a.task.status)&&this.time-a.workSince>.65) {
+      if(['reviewing','approved','failed'].includes(a.task.status)&&this.time-a.workSince>.65) {
         if(!a.handoffAttempts.has(attempt)) this._startReview(a);
         else if(a.task.status==='approved') this._startCoffee(a);
         else this._travel(a,'to_review_wait',REVIEW_WAIT[a.slot%REVIEW_WAIT.length],'waiting_review');
@@ -444,9 +509,11 @@ export class PixelWorld {
       if(!this._reviewOwner) {this._reviewOwner=a.key;this._travel(a,'to_oscar',REVIEW,'handoff');}
       return;
     }
+    if(a.state==='handoff'&&this.oscar.place!=='desk'){a.deadline=Math.max(a.deadline,this.time+.7);return;}
     if(a.state==='handoff'&&this.time>=a.deadline) {
       this._releaseReview(a);a.paper=false;
-      if(a.task.status==='approved') this._startCoffee(a);
+      if(a.task.status==='failed'){a.paper=false;this._bubble(a,'Oscar a le point à vérifier.');this._travel(a,'leaving',DOOR,'gone');}
+      else if(a.task.status==='approved') this._startCoffee(a);
       else if(needsWork) this._returnToDesk(a);
       else this._travel(a,'to_review_wait',REVIEW_WAIT[a.slot%REVIEW_WAIT.length],'waiting_review');
       return;
@@ -495,13 +562,45 @@ export class PixelWorld {
     if(points.length&&distance(from,points[0])<1) points.shift();
     return points;
   }
-  _updateOscar() {
+  _oscarRoute(place,point) {
+    const a=this.oscar;
+    if(a.destination===place&&(a.path.length||a.place===place))return;
+    const route=[];
+    if(a.y<310&&a.x>560){if(a.y>240)route.push({x:570,y:310});else route.push({x:570,y:205},{...OSCAR_GATE});}
+    const from=route.at(-1)||a;
+    if(place==='desk'){
+      if(a.y<245&&a.x>570)route.length=0;
+      else route.push(...this._path(from,OSCAR_GATE),{x:570,y:205},{x:720,y:205});
+      route.push({...OSCAR_HOME});
+    }else route.push(...this._path(from,point),{...point});
+    a.path=route;a.destination=place;a.place='walking';
+    if(this.reducedMotion){Object.assign(a,point);a.path=[];this._oscarArrived();}
+  }
+  _oscarArrived(){
+    const a=this.oscar;a.place=a.destination;a.direction='down';
+    if(a.place==='desk'){
+      a.nextVisitAt=this.time+15;
+      if(this.mission&&this._oscarAnnouncedMission!==this.mission.id){this._oscarAnnouncedMission=this.mission.id;this._oscarBubble='J’engage les bons talents !';this._oscarBubbleUntil=this.time+5;this.onEvent('oscar_arrived',{missionId:this.mission.id,place:'desk'});}
+    }else if(a.place==='visit'){a.visitUntil=this.time+3.5;a.visits++;this._oscarBubble=['Tout roule ici ?','On avance ensemble.','Je fais le tour des idées.'][a.visits%3];this._oscarBubbleUntil=this.time+3.5;}
+    else if(a.place==='welcome'){this._oscarBubble='Explique-moi ce que tu veux faire';this._oscarBubbleUntil=this.time+5;}
+  }
+  _updateOscar(dt=0) {
     const live=[...this.agents.values()].filter(a=>a.visible&&!a.retiring);
     if(live.some(a=>a.state==='handoff')||this.mission?.tasks?.some(t=>t.status==='reviewing')) this.oscarState='reviewing';
     else if(this.mission?.status==='planning') this.oscarState='planning';
     else if(this.mission?.status==='completed'&&this.time<this._oscarBubbleUntil) this.oscarState='celebrating';
     else if(['running','reviewing'].includes(this.mission?.status)) this.oscarState='coordinating';
     else this.oscarState='idle';
+    const a=this.oscar,review=!!this._reviewOwner||live.some(x=>x.state==='handoff')||this.mission?.tasks?.some(t=>t.status==='reviewing');
+    const busy=['planning','running','reviewing'].includes(this.mission?.status)||review;
+    if(review)this._oscarRoute('desk',OSCAR_HOME);
+    else if(!this.mission)this._oscarRoute('welcome',OSCAR_WELCOME);
+    else if(['planning','reviewing'].includes(this.mission.status))this._oscarRoute('desk',OSCAR_HOME);
+    else if(busy&&a.place==='desk'&&this.time>=a.nextVisitAt){const workers=live.filter(x=>x.task.status==='working'),role=workers[a.visits%Math.max(1,workers.length)]?.role||'code';this._oscarRoute('visit',OSCAR_VISITS[role]);}
+    else if(a.place==='visit'&&this.time>=a.visitUntil)this._oscarRoute('desk',OSCAR_HOME);
+    else if(busy&&a.place==='welcome')this._oscarRoute('desk',OSCAR_HOME);
+    else if(!busy&&!a.path.length&&a.place==='desk'&&this.time>=a.nextVisitAt)this._oscarRoute('welcome',OSCAR_WELCOME);
+    if(dt&&a.path.length){let budget=160*dt;while(a.path.length&&budget>0){const p=a.path[0],dx=p.x-a.x,dy=p.y-a.y,d=Math.hypot(dx,dy);if(d>.01)a.direction=Math.abs(dx)>Math.abs(dy)?dx>0?'right':'left':dy>0?'down':'up';if(d<=budget){a.x=p.x;a.y=p.y;a.path.shift();budget-=d;}else{a.x+=dx/d*budget;a.y+=dy/d*budget;budget=0;}}if(!a.path.length)this._oscarArrived();}
   }
 
   _coordinates(event) {
@@ -523,11 +622,14 @@ export class PixelWorld {
   _hit(p) {
     const agents=[...this.agents.values()].filter(a=>a.visible).sort((a,b)=>b.y-a.y);
     for(const a of agents) if(Math.abs(p.x-a.x)<27&&p.y>a.y-82&&p.y<a.y+32) return a;
-    if(p.x>683&&p.x<757&&p.y>150&&p.y<270) return {role:'oscar',id:null};
+    if(Math.abs(p.x-this.oscar.x)<34&&p.y>this.oscar.y-90&&p.y<this.oscar.y+25)return {role:'oscar',id:null};
+    if(p.x>610&&p.x<830&&p.y>218&&p.y<290)return {role:'oscar',id:null,type:'desk'};
+    for(const island of ISLANDS)if(p.x>=island.x-12&&p.x<=island.x+island.w+12&&p.y>=island.y-78&&p.y<=island.y+island.h+65)return {role:island.role,id:null,type:'desk'};
     return null;
   }
   _hitProp(p) {return HOTSPOTS.find(h=>p.x>=h.x&&p.x<h.x+h.w&&p.y>=h.y&&p.y<h.y+h.h)||null;}
   _selectActor(a) {
+    if(a.type==='desk'){this.onSelect(a.role,null);return;}
     const info={...ROLES[a.role],name:a.name||ROLES[a.role].name},key=a.key||'oscar';
     const n=this._clickCounts.get(key)||0;this._clickCounts.set(key,n+1);
     let text;
@@ -575,7 +677,7 @@ export class PixelWorld {
   _shadow(c,draw,blur=18,offset=9) {c.save();c.shadowColor='#5664541c';c.shadowBlur=blur;c.shadowOffsetY=offset;draw();c.restore();}
   _text(c,text,x,y,color=P.ink,size=14,align='left',weight=500) {
     c.font=`${weight} ${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    c.textBaseline='alphabetic';c.textAlign=align;c.fillStyle=color;c.fillText(String(text),x,y);
+    c.textBaseline='alphabetic';c.textAlign=align;c.fillStyle=color;c.fillText(translate(String(text)),x,y);
   }
   _drawViewportBackdrop(c) {
     const {width,height,scale,offsetX,offsetY}=this.viewport,floorY=offsetY+209*scale;
@@ -590,9 +692,11 @@ export class PixelWorld {
       const y=offsetY+(224+row*38)*scale;this._line(c,0,y,width,y,'#cbbb9d38',Math.max(.4,scale));
       for(let j=firstCol;j<=lastCol;j++){const x=offsetX+(42+j*220+(row%2)*110)*scale;this._line(c,x,y,x,y+38*scale,'#cbbb9d2c',Math.max(.4,scale));}
     }
-    const count=this.props.lights.filter(Boolean).length,night=this.props.windowMode==='night',sunset=this.props.windowMode==='sunset';
-    const alpha=night?[.36,.28,.21,.13][count]:sunset?[.19,.14,.09,.035][count]:[.12,.08,.04,0][count];
-    if(alpha){c.fillStyle=`rgba(50,73,86,${alpha})`;c.fillRect(0,offsetY+210*scale,width,height-offsetY-210*scale);}
+    const alpha=this._ambientShade();
+    c.save();c.globalCompositeOperation='multiply';
+    if(alpha){c.fillStyle=`rgba(28,28,35,${alpha})`;c.fillRect(0,offsetY+210*scale,width,height-offsetY-210*scale);}
+    const wallShade=(1-this.ambience.daylight)*.15;if(wallShade){c.fillStyle=`rgba(45,65,101,${wallShade})`;c.fillRect(0,0,width,offsetY+210*scale);}
+    c.restore();
   }
   _makeBackground() {
     const canvas=document.createElement('canvas');canvas.width=Math.round(W*this.pixelRatio);canvas.height=Math.round(H*this.pixelRatio);
@@ -609,6 +713,9 @@ export class PixelWorld {
     }
     for(let i=0;i<32;i++){const x=90+(i*137)%1250,y=250+(i*71)%520;this._line(c,x,y,x+22+(i%4)*5,y+1,'#f5ecdc50',2);}
     c.restore();
+    // Cache furnishings separately: nighttime belongs to the room and windows,
+    // while desk colors, signs and characters remain crisp under their lamps.
+    c.clearRect(0,0,W,H);
     // A real entrance, a quiet cabinet, and a place for Oscar's plans.
     this._shadow(c,()=>this._round(c,73,78,81,149,12,'#b09b80'),14,5);
     this._round(c,80,85,67,136,7,'#4b6866');this._round(c,86,91,55,122,5,'#678d86');
@@ -627,7 +734,6 @@ export class PixelWorld {
     // Books, an original porcelain companion, and the studio's small everyday objects.
     this._shadow(c,()=>this._round(c,1280,611,80,11,5,'#c5a282'),9,5);
     for(let i=0;i<4;i++)this._round(c,1289+i*8,590-i%2*7,6,21+i%2*7,2,[P.coral,P.mint,P.gold,P.blue][i]);
-    this._companion(c,false);
     return canvas;
   }
   _island(c,island) {
@@ -662,8 +768,9 @@ export class PixelWorld {
     const g=c.createLinearGradient(x,y,x+20,y+24);g.addColorStop(0,working?'#d0e5d7':'#e3e9df');g.addColorStop(1,working?'#b7d5cc':'#cad8d3');
     this._round(c,x-19,y,38,20,3,g);
     if(working) {
-      const t=this.reducedMotion?0:Math.floor(this.time*2)%4;
+      const t=this.reducedMotion?0:Math.floor(this.time*4+seat.id)%4;
       this._round(c,x-14,y+4,14+t*2,2,1,'#8faea0');this._round(c,x-14,y+9,24-t,2,1,'#a2beb2');this._round(c,x-14,y+14,11+t,2,1,'#a2beb2');
+      if(!this.reducedMotion&&Math.floor(this.time*3+seat.id)%2===0)this._round(c,x+8+t,y+14,2,3,1,'#6d9e8d');
     } else {this._ellipse(c,x,y+10,4,4,'#ffffff80');}
   }
   _oscarDesk(c,frontOnly=false) {
@@ -730,28 +837,40 @@ export class PixelWorld {
     c.restore();
   }
   _drawWindows(c) {
-    const mode=this.props.windowMode;
+    const scene=this.ambience,daylight=scene.daylight;
     for(const [i,x] of [180,1080].entries()) {
       this._shadow(c,()=>this._round(c,x-6,59,232,134,16,'#d0d8ca'),13,5);
       this._round(c,x,62,220,123,11,'#fefdf7');
       c.save();c.beginPath();c.roundRect(x+8,70,204,106,7);c.clip();
-      const sky=c.createLinearGradient(0,70,0,176);sky.addColorStop(0,mode==='night'?'#516d89':mode==='sunset'?'#edbead':'#d8edef');sky.addColorStop(1,mode==='night'?'#8ca2ab':mode==='sunset'?'#f6debb':'#f4f5df');
+      const skyTop=blend('#35516b','#d8edef',daylight),skyBottom=blend('#8296a3','#f4f5df',daylight);
+      const sky=c.createLinearGradient(0,70,0,176);sky.addColorStop(0,skyTop);sky.addColorStop(1,skyBottom);
       c.fillStyle=sky;c.fillRect(x+8,70,204,106);
-      if(mode==='night') {
-        this._ellipse(c,x+166,93,13,13,'#fff2cc');this._ellipse(c,x+159,88,12,12,'#5d7690');
-        for(let n=0;n<11;n++){const sx=x+17+(n*27)%186,sy=79+(n*13)%58;this._ellipse(c,sx,sy,(this.reducedMotion||Math.floor(this.time+n)%4)?1.3:2,1.3,'#fff5dc');}
-      } else {
-        this._ellipse(c,x+(mode==='sunset'?143:166),mode==='sunset'?142:95,mode==='sunset'?20:14,'#ebd6a1');
-        const shift=this.reducedMotion?0:Math.sin(this.time*.06+i)*10;
-        for(const [cx,cy,s] of [[x+44+shift,98,1],[x+106-shift,118,.8]]){this._ellipse(c,cx,cy,22*s,7*s,'#ffffff70');this._ellipse(c,cx-7*s,cy-5*s,11*s,7*s,'#ffffff70');}
+      if(scene.warmth>0){c.save();c.globalAlpha=scene.warmth*.52;const warmth=c.createLinearGradient(0,70,0,176);warmth.addColorStop(0,'#e4aba8');warmth.addColorStop(1,'#f4d7ad');c.fillStyle=warmth;c.fillRect(x+8,70,204,106);c.restore();}
+      if(scene.stars>.03) {
+        for(let n=0;n<14;n++) {
+          const sx=x+17+(n*27)%186,sy=79+(n*13)%58,twinkle=this.reducedMotion ? .8 :.72+Math.sin(this.time*.8+n*2.7)*.28;
+          c.save();c.globalAlpha=scene.stars*twinkle;this._ellipse(c,sx,sy,n%4===0?1.7:1.2,1.2,'#fff4db');c.restore();
+        }
       }
-      c.beginPath();c.moveTo(x,174);c.bezierCurveTo(x+40,119,x+75,175,x+118,144);c.bezierCurveTo(x+160,116,x+185,163,x+230,137);c.lineTo(x+230,185);c.lineTo(x,185);c.fillStyle=mode==='night'?'#6a8685':mode==='sunset'?'#b2b6a1':'#adc8ad';c.fill();
-      c.beginPath();c.moveTo(x,181);c.bezierCurveTo(x+70,143,x+137,174,x+220,153);c.lineTo(x+220,190);c.lineTo(x,190);c.fillStyle=mode==='night'?'#527475':'#94b69a';c.fill();
+      if(scene.moon.visible){c.save();c.globalAlpha=scene.moon.opacity;const mx=x+8+scene.moon.x*204,my=70+scene.moon.y*106;const halo=c.createRadialGradient(mx,my,7,mx,my,25);halo.addColorStop(0,'#fff2cc25');halo.addColorStop(1,'#fff2cc00');this._ellipse(c,mx,my,25,25,halo);this._ellipse(c,mx,my,12,12,'#f8ecd2');this._ellipse(c,mx-5,my-4,11,11,skyTop);c.restore();}
+      if(scene.sun.visible){c.save();c.globalAlpha=scene.sun.opacity;const sx=x+8+scene.sun.x*204,sy=70+scene.sun.y*106;const halo=c.createRadialGradient(sx,sy,4,sx,sy,31);halo.addColorStop(0,'#f5dda742');halo.addColorStop(1,'#f5dda700');this._ellipse(c,sx,sy,31,31,halo);this._ellipse(c,sx,sy,15+scene.warmth*3,15+scene.warmth*3,'#edd39b');c.restore();}
+      const shift=this.reducedMotion?0:Math.sin(this.time*.025+i)*14;
+      c.save();c.globalAlpha=.18+daylight*.55;
+      for(const [cx,cy,size] of [[x+44+shift,98,1],[x+106-shift,118,.8]]){this._ellipse(c,cx,cy,22*size,7*size,'#fff8e9');this._ellipse(c,cx-7*size,cy-5*size,11*size,7*size,'#fff8e9');}
       c.restore();
-      this._round(c,x+104,67,7,111,2,'#fdfcf5');this._round(c,x+5,121,211,6,2,'#fdfcf5');
-      this._round(c,x-9,182,238,12,5,'#ebe6d6');
-      if(mode==='sunset'){c.save();c.globalAlpha=.18;const g=c.createLinearGradient(x,212,x+130,330);g.addColorStop(0,'#f2c985');g.addColorStop(1,'#f2c98500');c.fillStyle=g;c.beginPath();c.moveTo(x+10,218);c.lineTo(x+210,218);c.lineTo(x+305,335);c.lineTo(x+70,335);c.fill();c.restore();}
+      c.beginPath();c.moveTo(x,174);c.bezierCurveTo(x+40,119,x+75,175,x+118,144);c.bezierCurveTo(x+160,116,x+185,163,x+230,137);c.lineTo(x+230,185);c.lineTo(x,185);c.fillStyle=blend('#607b7d','#adc8ad',daylight);c.fill();
+      c.beginPath();c.moveTo(x,181);c.bezierCurveTo(x+70,143,x+137,174,x+220,153);c.lineTo(x+220,190);c.lineTo(x,190);c.fillStyle=blend('#466c70','#94b69a',daylight);c.fill();
+      c.restore();
+      this._round(c,x+104,67,7,111,2,'#fdfcf5');this._round(c,x+5,121,211,6,2,'#fdfcf5');this._round(c,x-9,182,238,12,5,'#ebe6d6');
+      if(scene.sun.visible&&daylight>.08){c.save();c.globalAlpha=.025+daylight*.055;const lean=(.5-scene.sun.progress)*170,g=c.createLinearGradient(x,212,x+lean,380);g.addColorStop(0,'#f2d49c');g.addColorStop(1,'#f2d49c00');c.fillStyle=g;c.beginPath();c.moveTo(x+10,218);c.lineTo(x+210,218);c.lineTo(x+210+lean,380);c.lineTo(x+10+lean,380);c.fill();c.restore();}
     }
+  }
+  _drawSunShadows(c) {
+    const {sun,daylight}=this.ambience;if(!sun.visible||daylight<.08)return;
+    const lean=(.5-sun.progress)*92,stretch=(1-sun.altitude)*24;
+    c.save();c.globalAlpha=daylight*.11;
+    for(const island of ISLANDS)this._ellipse(c,island.x+island.w/2+lean,island.y+island.h+18+stretch,island.w*.55,14+stretch,'#697c65');
+    this._ellipse(c,720+lean,306+stretch,121,16+stretch,'#697c65');c.restore();
   }
   _drawClock(c) {
     const x=1003,y=106;this._shadow(c,()=>this._ellipse(c,x,y,29,29,'#d5c3a5'),8,4);this._ellipse(c,x,y,26,26,'#fdf9ef');
@@ -766,18 +885,32 @@ export class PixelWorld {
   }
   _drawLamps(c) {
     for(const [i,lamp] of LAMPS.entries()) {
+      if(lamp.floor){
+        this._ellipse(c,lamp.x,lamp.y+113,24,5,'#62735a1a');
+        this._round(c,lamp.x-18,lamp.y+102,36,7,4,'#6e7c72');
+        this._line(c,lamp.x,lamp.y+104,lamp.x,lamp.y+3,'#8b9b8d',4);
+        this._line(c,lamp.x+2,lamp.y+100,lamp.x+2,lamp.y+8,'#c7d1bf',1.5);
+        this._ellipse(c,lamp.x,lamp.y+2,22,7,'#c6baa0');
+        this._ellipse(c,lamp.x,lamp.y-1,21,5,this.props.lights[i]?'#fff3ce':'#a4b2a5');
+        this._round(c,lamp.x-3,lamp.y+55,6,9,2,this.props.lights[i]?'#e5c482':'#64776c');
+        continue;
+      }
       this._line(c,lamp.x,29,lamp.x,lamp.y-13,'#adbaac',2);
       this._shadow(c,()=>{c.beginPath();c.moveTo(lamp.x-8,lamp.y-17);c.bezierCurveTo(lamp.x-20,lamp.y-15,lamp.x-25,lamp.y-1,lamp.x-25,lamp.y+5);c.quadraticCurveTo(lamp.x,lamp.y+19,lamp.x+25,lamp.y+5);c.bezierCurveTo(lamp.x+25,lamp.y-1,lamp.x+20,lamp.y-15,lamp.x+8,lamp.y-17);c.closePath();c.fillStyle=i===1?'#a9bdac':'#dac5a5';c.fill();},9,3);
       this._ellipse(c,lamp.x,lamp.y+5,23,7,this.props.lights[i]?'#fff1c9':'#b6b7a5');
       if(this.props.lights[i]) {this._ellipse(c,lamp.x,lamp.y+5,9,4,'#fff9e6');const g=c.createRadialGradient(lamp.x,lamp.y+13,2,lamp.x,lamp.y+20,50);g.addColorStop(0,'#fff2c420');g.addColorStop(1,'#fff2c400');this._ellipse(c,lamp.x,lamp.y+20,50,37,g);}
     }
   }
+  _ambientShade() {return Math.max(0,(1-this.ambience.daylight)*(.34-this.props.lights.filter(Boolean).length*.012));}
   _drawAtmosphere(c) {
-    const count=this.props.lights.filter(Boolean).length,night=this.props.windowMode==='night',sunset=this.props.windowMode==='sunset';
-    const alpha=night?[.36,.28,.21,.13][count]:sunset?[.19,.14,.09,.035][count]:[.12,.08,.04,0][count];
-    if(alpha){c.fillStyle=`rgba(50,73,86,${alpha})`;c.fillRect(0,210,W,H-210);}
+    const alpha=this._ambientShade(),nightness=1-this.ambience.daylight;
+    // Small pools of warm light never overlap the whole office.
     for(const [i,lamp] of LAMPS.entries()) if(this.props.lights[i]) {
-      const g=c.createRadialGradient(lamp.x,355,10,lamp.x,355,280);g.addColorStop(0,night?'#fff1c41b':'#fff1c409');g.addColorStop(1,'#fff1c400');this._ellipse(c,lamp.x,355,280,300,g);
+      const strength=this._lightsAuto ? .2+nightness*.8 : 1;
+      c.save();c.globalAlpha=strength;
+      const y=lamp.floor?lamp.y-48:lamp.y+75,r=lamp.floor?125:155;
+      const glow=c.createRadialGradient(lamp.x,y,6,lamp.x,y,r);glow.addColorStop(0,'#fff0c31c');glow.addColorStop(.45,'#ffe6ac10');glow.addColorStop(1,'#fff0c300');this._ellipse(c,lamp.x,y,r,r*.9,glow);
+      c.restore();
     }
   }
   _drawCoffeeSteam(c) {
@@ -789,14 +922,30 @@ export class PixelWorld {
     }
     if(active){this._line(c,107,631,107,641,'#ad8563',2);this._text(c,'pshhh…',149,616,'#afad94',11,'left');}
   }
+  _drawSecretary(c) {
+    const x=1160,y=258;
+    this._ellipse(c,x,y+43,81,12,'#66785e14');
+    this._round(c,x-68,y-12,136,62,18,'#d9b795');
+    this._sprite(c,{x,y,id:'zoe',key:'zoe',role:'secretaire',roleIndex:1,direction:'down',state:this.secretaryBusy?'working':'idle'});
+    this._round(c,x-83,y+1,166,42,14,'#dfbf9e');
+    this._round(c,x-79,y+2,158,8,5,'#efd9bc');
+    this._round(c,x-30,y-17,51,27,5,'#809b8a');this._round(c,x-26,y-13,43,19,3,this.secretaryBusy?'#def1df':'#e4eee3');
+    this._line(c,x-5,y+10,x-5,y+14,'#93a88f',3);
+    this._round(c,x+37,y+9,24,16,3,'#faf5e7');this._line(c,x+39,y+10,x+49,y+18,'#c2b59b',1);this._line(c,x+59,y+10,x+49,y+18,'#c2b59b',1);
+    this._round(c,x-33,y+26,72,18,8,'#fff9ed');this._text(c,'Zoé · Secrétariat',x+3,y+38,'#83626a',8.5,'center',650);
+  }
   _companion(c,reacting) {
-    const x=1324,y=608;this._ellipse(c,x,y+3,18,4,'#8b987d17');this._ellipse(c,x,y-9,13,17,'#ede5d2');
+    const elapsed=this.time-(this.props.catStart||0),hop=reacting&&!this.reducedMotion?Math.abs(Math.sin(elapsed*Math.PI*1.25))*38*Math.max(0,1-elapsed/5):0;
+    const x=1324+(reacting&&!this.reducedMotion?Math.sin(elapsed*4)*7:0),y=608-hop;
+    this._ellipse(c,1324,611,Math.max(9,18-hop*.15),4,'#6a765e25');this._ellipse(c,x,y-9,13,17,'#ede5d2');
     this._ellipse(c,x-2,y-25,13,11,'#f5edda');
     c.beginPath();c.moveTo(x-13,y-29);c.quadraticCurveTo(x-18,y-48,x-4,y-35);c.moveTo(x+5,y-34);c.quadraticCurveTo(x+18,y-47,x+10,y-26);c.fillStyle='#f5edda';c.fill();
-    const blink=reacting||!this.reducedMotion&&Math.floor(this.time*3)%16===0;
+    const blink=!this.reducedMotion&&Math.floor(this.time*5)%23===0;
     if(blink){this._line(c,x-8,y-25,x-4,y-26,'#8e9c85',1.5);this._line(c,x+2,y-26,x+6,y-25,'#8e9c85',1.5);}else{this._ellipse(c,x-6,y-26,1.5,2,'#7c8c77');this._ellipse(c,x+4,y-26,1.5,2,'#7c8c77');}
     this._ellipse(c,x-1,y-21,2,1.5,'#d5aa95');
-    c.beginPath();c.moveTo(x+8,y);c.bezierCurveTo(x+30,y+4,x+35,y-16,x+24,y-17);c.strokeStyle='#e7decb';c.lineWidth=7;c.lineCap='round';c.stroke();
+    const swish=this.reducedMotion?0:Math.sin(this.time*(reacting?7:1.8))*(reacting?10:3);
+    c.beginPath();c.moveTo(x+8,y);c.bezierCurveTo(x+30,y+4,x+35+swish,y-16,x+24+swish,y-17);c.strokeStyle='#e7decb';c.lineWidth=7;c.lineCap='round';c.stroke();
+    this._ellipse(c,x-8,y+3,5,3,'#f5edda');this._ellipse(c,x+4,y+3,5,3,'#f5edda');
     if(reacting&&!this.reducedMotion)this._heart(c,x+27,y-43+Math.sin(this.time*2)*3,P.coral);
   }
   _sprite(c,actor,oscar=false) {
@@ -804,8 +953,10 @@ export class PixelWorld {
     const moving=TRAVEL_STATES.has(actor.state),working=['working','planning','coordinating','reviewing'].includes(actor.state);
     const variant=actor.roleIndex||0,walk=moving&&!this.reducedMotion?Math.sin(this.time*9+variant):0;
     const jump=reacting&&reaction.kind==='jump'&&!this.reducedMotion?Math.max(0,Math.sin((this.time-reaction.start)*Math.PI*3))*8:0;
-    const bob=!this.reducedMotion?(moving?Math.abs(walk)*2:working?Math.sin(this.time*2.8+variant)*.6:Math.sin(this.time*1.8+variant)*.5):0;
-    const x=actor.x,y=actor.y-jump-bob,up=actor.direction==='up'&&!reacting,side=['left','right'].includes(actor.direction)&&!reacting,left=actor.direction==='left';
+    const phase=(hash(actor.id||'oscar')%100)/13;
+    const bob=!this.reducedMotion?(moving?Math.abs(walk)*2:working?Math.sin(this.time*4.2+phase)*1.35:Math.sin(this.time*1.8+variant)*.8):0;
+    const glance=working&&!this.reducedMotion&&Math.floor(this.time+phase)%19<2;
+    const x=actor.x+(working&&!this.reducedMotion?Math.sin(this.time*2.1+phase)*.7:0),y=actor.y-jump-bob,up=actor.direction==='up'&&!reacting&&!glance,side=['left','right'].includes(actor.direction)&&!reacting,left=actor.direction==='left';
     const skin=['#edbd9a','#d8a07c','#efc7a7','#bc8c6b'][oscar?0:variant%4],hair=['#634f43','#9c7257','#3c4845','#7f6254'][oscar?0:variant%4];
     this._ellipse(c,x,actor.y+1,20,6.5,'#62735a1e');
     c.save();c.translate(x,y);c.scale(1.1,1.1);
@@ -817,21 +968,28 @@ export class PixelWorld {
     const body=c.createLinearGradient(-13,-40,13,-15);body.addColorStop(0,info.shirt);body.addColorStop(1,oscar?'#638d77':info.shirt);
     this._round(c,-14,-40,28,26,[11,11,8,8],body);
     this._line(c,-14,-31,-18,-18+walk*3,skin,6);this._line(c,14,-31,18,-18-walk*3,skin,6);
-    if(working&&!moving){const t=this.reducedMotion?0:Math.sin(this.time*7)*2;this._ellipse(c,-16,-20+t,4,4,skin);this._ellipse(c,16,-20-t,4,4,skin);}
+    if(working&&!moving){
+      const keyY=actor.direction==='down'&&!oscar?8:-20,t=this.reducedMotion?0:Math.sin(this.time*(10+variant)+phase)*3;
+      this._round(c,-22,keyY-2,44,13,4,'#e7ead9','#acbba1');
+      for(let row=0;row<2;row++)for(let col=0;col<7;col++)this._round(c,-17+col*5,keyY+1+row*4,3,2,1,(col+row+Math.floor(this.time*7+phase))%7===0?'#92b29b':'#c2cdb8');
+      this._line(c,-13,-31,-10,keyY+t/2,skin,5);this._line(c,13,-31,10,keyY-t/2,skin,5);
+      this._ellipse(c,-10,keyY+t/2,4.3,3.1,skin);this._ellipse(c,10,keyY-t/2,4.3,3.1,skin);
+    }
     if(variant%4===1&&!oscar){this._ellipse(c,0,-56,16,16,hair);this._ellipse(c,-11,-67,7,7,hair);}
     this._round(c,-4,-45,8,10,3,skin);
     this._ellipse(c,0,-53,14,16,skin);
     if(up){this._ellipse(c,0,-56,14,14,hair);this._ellipse(c,0,-47,12,7,hair);}
     else {
       c.beginPath();c.moveTo(-14,-53);c.bezierCurveTo(-19,-75,10,-77,14,-61);c.bezierCurveTo(13,-60,5,-65,0,-63);c.bezierCurveTo(-7,-60,-9,-63,-12,-53);c.fillStyle=hair;c.fill();
-      const dx=side?(left?-3:3):0,blink=reacting&&reaction.kind==='wink'||!this.reducedMotion&&Math.floor(this.time*23+hash(actor.id||'oscar')%83)%119<3;
+      const dx=side?(left?-3:3):glance?Math.sin(this.time*1.8+phase)*2:0,blink=reacting&&reaction.kind==='wink'||!this.reducedMotion&&Math.floor(this.time*23+hash(actor.id||'oscar')%83)%119<4;
       for(const sx of [-5,5]) {
         if(blink&&(sx===5||!reacting))this._line(c,sx+dx-2,-52,sx+dx+2,-52,'#3b5142',1.7);
         else {this._ellipse(c,sx+dx,-52,2.1,2.7,'#314d3d');this._ellipse(c,sx+dx-.4,-52.8,.65,.8,'#fffaf0');}
       }
       this._ellipse(c,-9+dx,-47,3,1.6,'#d9957e50');this._ellipse(c,9+dx,-47,3,1.6,'#d9957e50');
-      c.beginPath();c.moveTo(-3+dx,-43);c.quadraticCurveTo(dx,working?-41.5:-39.7,4+dx,-43);c.strokeStyle='#98634f';c.lineWidth=1.5;c.lineCap='round';c.stroke();
-      if(variant%4===0&&!oscar){for(const sx of [-6,6]){c.beginPath();c.ellipse(sx+dx,-52,5,4,0,0,Math.PI*2);c.strokeStyle='#60776a';c.lineWidth=1.65;c.stroke();}this._line(c,-1+dx,-52,1+dx,-52,'#60776a',1.5);}
+      if(this.speakingRole===actor.role&&!this.reducedMotion){this._ellipse(c,dx,-42,3.4,1.8+Math.abs(Math.sin(this.time*13))*2,'#98634f');}
+      else{c.beginPath();c.moveTo(-3+dx,-43);c.quadraticCurveTo(dx,working?-41.5:-39.7,4+dx,-43);c.strokeStyle='#98634f';c.lineWidth=1.5;c.lineCap='round';c.stroke();}
+      if((variant%4===0||actor.role==='secretaire')&&!oscar){for(const sx of [-6,6]){c.beginPath();c.ellipse(sx+dx,-52,5,4,0,0,Math.PI*2);c.strokeStyle='#60776a';c.lineWidth=1.65;c.stroke();}this._line(c,-1+dx,-52,1+dx,-52,'#60776a',1.5);}
       if(variant%4===2&&!oscar){c.beginPath();c.moveTo(-11,-44);c.quadraticCurveTo(0,-31,11,-44);c.quadraticCurveTo(0,-38,-11,-44);c.fillStyle=`${hair}85`;c.fill();}
     }
     if(actor.role==='code'&&variant%2===1){this._round(c,-15,-71,30,9,[7,7,2,2],'#829b94');this._round(c,-17,-64,34,3,1.5,'#6e8880');}
@@ -852,7 +1010,7 @@ export class PixelWorld {
     c.save();c.translate(x,y);c.beginPath();c.moveTo(0,3);c.bezierCurveTo(-12,-6,-8,-14,0,-8);c.bezierCurveTo(8,-14,12,-6,0,3);c.fillStyle=color;c.fill();c.restore();
   }
   _bubbleDraw(c,text,x,y,accent=P.green,layout=null) {
-    if(!text)return;const str=clipped(text,39);c.font='500 13px -apple-system, BlinkMacSystemFont, sans-serif';
+    if(!text)return;const str=clipped(translate(text),39);c.font='500 13px -apple-system, BlinkMacSystemFont, sans-serif';
     const width=layout?.w??Math.min(300,c.measureText(str).width+26),bx=layout?.x??Math.max(48,Math.min(W-width-48,x-width/2)),by=layout?.y??Math.max(45,y);
     this._shadow(c,()=>this._round(c,bx,by,width,34,13,'#fffdf5'),10,4);
     const pin=Math.max(bx+13,Math.min(bx+width-13,x));
@@ -861,24 +1019,24 @@ export class PixelWorld {
   }
   _drawBubbles(c,live) {
     const clicked=this._lastClickedBubble?.until>this.time?this._lastClickedBubble.key:null;
-    const focused=live.find(a=>a.key===clicked)||{x:720,y:237};
+    const focused=live.find(a=>a.key===clicked)||this.oscar;
     const candidates=[];
     for(const a of live) if(this.time<a.bubbleUntil) candidates.push({
       id:a.key,kind:clicked===a.key?'reaction':'ambient',priority:clicked===a.key?0:2,
       text:a.bubble,x:a.x,y:a.y-126,accent:ROLES[a.role].shirt,
       distance:distance(a,focused)
     });
-    if(this.time<this._oscarBubbleUntil)candidates.push({id:'oscar',kind:clicked==='oscar'?'reaction':'oscar',priority:clicked==='oscar'?0:1,text:this._oscarBubble,x:720,y:108,accent:P.green,distance:0});
+    if(this.time<this._oscarBubbleUntil||!this.mission)candidates.push({id:'oscar',kind:clicked==='oscar'?'reaction':'oscar',priority:clicked==='oscar'?0:1,text:!this.mission&&this.time>=this._oscarBubbleUntil?'Explique-moi ce que tu veux faire':this._oscarBubble,x:this.oscar.x,y:this.oscar.y-126,accent:P.green,distance:0});
     if(this._propBubble&&this.time<this._propBubble.until)candidates.push({id:'prop',kind:'prop',priority:.5,text:this._propBubble.text,x:this._propBubble.x,y:this._propBubble.y,accent:P.coral,distance:0});
     candidates.sort((a,b)=>a.priority-b.priority||a.distance-b.distance);
     // Speech should never hide a face, a name, another speech bubble, or the studio title.
-    const bodies=[{x:686,y:150,w:69,h:122},...live.map(a=>({x:a.x-28,y:a.y-85,w:56,h:118})),{x:600,y:24,w:240,h:28}];
+    const bodies=[{x:this.oscar.x-34,y:this.oscar.y-90,w:69,h:122},...live.map(a=>({x:a.x-28,y:a.y-85,w:56,h:118})),{x:600,y:24,w:240,h:28}];
     const placed=[];
     const overlaps=(a,b,pad=7)=>a.x<b.x+b.w+pad&&a.x+a.w+pad>b.x&&a.y<b.y+b.h+pad&&a.y+a.h+pad>b.y;
     c.font='500 13px -apple-system, BlinkMacSystemFont, sans-serif';
     for(const candidate of candidates) {
       if(placed.length>=3)break;
-      const width=Math.min(300,c.measureText(clipped(candidate.text,39)).width+26);
+      const width=Math.min(300,c.measureText(clipped(translate(candidate.text),39)).width+26);
       let box=null;
       const positions=[];
       for(const dy of [0,-45,-90,-140])for(const dx of [0,-width*.6,width*.6])positions.push({x:Math.max(48,Math.min(W-width-48,candidate.x-width/2+dx)),y:Math.max(56,candidate.y+dy),w:width,h:45});
@@ -903,26 +1061,25 @@ export class PixelWorld {
     if(this._destroyed)return;
     const c=this.ctx,v=this.viewport;c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,this.canvas.width,this.canvas.height);
     c.setTransform(v.dpr,0,0,v.dpr,0,0);c.imageSmoothingEnabled=true;this._drawViewportBackdrop(c);
-    c.translate(v.offsetX,v.offsetY);c.scale(v.scale,v.scale);c.drawImage(this._background,0,0,W,H);
-    this._drawWindows(c);
+    c.translate(v.offsetX,v.offsetY);c.scale(v.scale,v.scale);
+    this._drawWindows(c);this._drawSunShadows(c);this._drawAtmosphere(c);c.drawImage(this._background,0,0,W,H);
     const open=this._doorOpen;
     if(open>.01){this._round(c,80,85,67,136,7,'#5d746c');this._round(c,83,88,Math.max(6,61*(1-open)),128,5,'#91afa0');}
-    this._drawClock(c);this._drawCoffeeSteam(c);
+    this._drawClock(c);this._drawCoffeeSteam(c);this._drawSecretary(c);
     const live=[...this.agents.values()].filter(a=>a.visible);
     for(const a of live)if(a.slot>=0)this._screen(c,DESKS[a.slot],a.state==='working');
-    const oscar={id:'oscar',role:'oscar',name:'Oscar',x:720,y:237,state:this.oscarState,direction:'down',walkFrame:0,paper:this.oscarState==='reviewing',mug:this.oscarState==='idle'&&Math.floor(this.time/13)%3===1,roleIndex:0};
-    this._sprite(c,oscar,true);this._oscarDesk(c,true);
-    live.sort((a,b)=>a.y-b.y||a.x-b.x);for(const a of live)this._sprite(c,a);
+    const oscar={...this.oscar,state:this.oscar.path.length?'entering':this.oscarState,paper:this.oscarState==='reviewing',mug:this.oscarState==='idle'&&Math.floor(this.time/13)%3===1,roleIndex:0};
+    if(this.oscar.y<290)this._sprite(c,oscar,true);this._oscarDesk(c,true);
+    const ordered=[...live,...(this.oscar.y>=290?[oscar]:[])].sort((a,b)=>a.y-b.y||a.x-b.x);for(const a of ordered)this._sprite(c,a,a.role==='oscar');
     for(const a of live) {
       if(a.state==='working'&&!this.reducedMotion&&Math.floor(this.time*2+a.slot)%5===0){this._ellipse(c,a.x+26,a.y-57,2,2,P.gold);this._ellipse(c,a.x+31,a.y-63,1.5,1.5,P.gold);}
       if(a.task.status==='approved'&&['resting','coffee','chat'].includes(a.state)){this._ellipse(c,a.x+20,a.y-39,5,5,'#e3edd8');this._line(c,a.x+18,a.y-39,a.x+20,a.y-37,'#81a477',1.5);this._line(c,a.x+20,a.y-37,a.x+23,a.y-42,'#81a477',1.5);}
     }
-    this._drawAtmosphere(c);this._drawLamps(c);this._drawPropFeedback(c);
+    this._drawLamps(c);this._drawPropFeedback(c);
     this._drawBubbles(c,live);
     const count=live.filter(a=>!a.retiring&&a.missionId===this.missionId).length;
-    this._round(c,1180,239,177,31,15,'#fffaf0c9');this._ellipse(c,1197,255,3,3,this.mission?.provider==='demo'?'#c9a878':'#93b291');
-    this._text(c,this.mission?.provider==='demo'?`Démonstration · ${count} talents`:`${count} talent${count>1?'s':''} · 20 places`,1210,259,'#8b9981',11);
-    if(!this.mission&&!live.length)this._bubbleDraw(c,'Votre prochaine idée a de la place.',720,346,P.coral);
+    this._round(c,865,214,177,27,13,'#fffaf0e8');this._ellipse(c,879,228,3,3,this.mission?.provider==='demo'?'#c9a878':'#93b291');
+    this._text(c,this.mission?.provider==='demo'?`Démonstration · ${count} talents`:`${count} talent${count>1?'s':''} · 20 places`,891,232,'#667a62',11);
     if(this._manualPaused){this._shadow(c,()=>this._round(c,575,367,290,63,20,'#fffdf4f5'),18,6);this._round(c,600,387,5,22,2,P.green);this._round(c,610,387,5,22,2,P.green);this._text(c,'Le bureau prend une pause',630,404,P.green,15);}
     this.frame++;
   }

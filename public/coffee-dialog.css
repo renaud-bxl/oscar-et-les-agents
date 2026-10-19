@@ -1,50 +1,103 @@
 .coffee-dialog {
-  --coffee-ink:#33445b;
-  --coffee-cream:#fffdf9;
-  --coffee-warm:#f4e9dc;
-  width:min(480px,calc(100% - 32px));
-  max-height:calc(100dvh - 36px);
-  overflow:auto;
-  padding:30px 32px 24px;
-  border:1px solid #e8e6e1;
-  border-radius:26px;
-  background:var(--coffee-cream);
-  box-shadow:0 30px 120px #22314a35;
-  color:var(--coffee-ink);
-  text-align:center;
-  font-family:inherit;
-  overscroll-behavior:contain;
+  --coffee-ink: #33445b;
+  --coffee-muted: #6b7788;
+  --coffee-cream: #fffdf9;
+  width: min(590px, calc(100% - 32px));
+  max-height: calc(100dvh - 36px);
+  overflow: auto;
+  padding: 31px 31px 24px;
+  border: 1px solid #f0ece5;
+  border-radius: 27px;
+  background: var(--coffee-cream);
+  box-shadow: 0 30px 120px #22314a35;
+  color: var(--coffee-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: left;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #dcd9d1 transparent;
 }
-.coffee-dialog::backdrop {background:#24344d70;backdrop-filter:blur(7px);}
-.coffee-close {position:absolute;top:14px;right:14px;display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;border-radius:50%;background:#f2f1ef;color:#657180;font:25px/1 system-ui;}
-.coffee-close:hover {background:#e5e8eb;}
-.coffee-art {position:relative;width:164px;height:145px;margin:0 auto 12px;}
-.coffee-cup {position:absolute;z-index:1;top:55px;left:37px;width:78px;height:66px;border:3px solid #716a62;border-radius:8px 8px 28px 28px;background:linear-gradient(110deg,#fff 20%,#f8eee0);box-shadow:inset 0 -7px #eee1ce,0 8px 10px #b9a48620;}
-.coffee-cup::before {position:absolute;top:9px;right:-25px;width:23px;height:30px;border:6px solid #716a62;border-left:0;border-radius:0 18px 18px 0;content:"";}
-.coffee-cup::after {position:absolute;top:-3px;left:0;right:0;height:13px;border:2px solid #716a62;border-radius:50%;background:radial-gradient(ellipse at 45% 45%,#a8744d 20%,#785139 85%);content:"";}
-.coffee-eyes {position:absolute;top:28px;left:18px;width:4px;height:6px;border-radius:50%;background:#4d4c48;box-shadow:27px 0 #4d4c48;}
-.coffee-smile {position:absolute;top:36px;left:29px;width:14px;height:9px;border-bottom:2px solid #79584e;border-radius:0 0 50% 50%;}
-.coffee-saucer {position:absolute;bottom:9px;left:24px;width:119px;height:13px;border:2px solid #c5b8a7;border-radius:50%;background:#f7eddd;box-shadow:0 8px 10px #aaa08a15;}
-.coffee-steam {position:absolute;top:13px;width:14px;height:36px;border-left:3px solid #c4b6a6;border-radius:50%;opacity:.7;animation:coffee-steam-rise 2.8s ease-in-out infinite;}
-.coffee-steam-1 {left:51px;}.coffee-steam-2 {left:76px;top:6px;animation-delay:-.8s;}.coffee-steam-3 {left:101px;animation-delay:-1.5s;}
-.coffee-heart {position:absolute;top:30px;right:5px;width:18px;height:18px;background:#df947c;transform:rotate(-45deg);border-radius:3px;}
-.coffee-heart::before,.coffee-heart::after {position:absolute;width:18px;height:18px;border-radius:50%;background:inherit;content:"";}
-.coffee-heart::before {top:-9px;left:0;}.coffee-heart::after {top:0;left:9px;}
-.coffee-eyebrow {margin:0 0 8px;color:#a18161;font-size:11px;font-weight:650;letter-spacing:1px;text-transform:uppercase;}
-.coffee-title {margin:0;font:700 29px/1.3 system-ui;letter-spacing:-.9px;}
-.coffee-intro {max-width:340px;margin:12px auto 17px;color:#7a7f86;font-size:14px;line-height:1.7;}
-.coffee-price {display:inline-block;margin:0 0 20px;padding:8px 22px;border:1px solid #e8d4b8;border-radius:14px;background:#f6ecd9;color:#80694c;font-size:27px;font-weight:750;line-height:1.4;}
-.coffee-recipient {margin:0 0 16px;padding:12px;border:1px solid #eee7dd;border-radius:12px;background:#faf7f1;}
-.coffee-recipient-label {display:block;margin-bottom:4px;color:#978875;font-size:11px;}
-.coffee-recipient-email {display:block;color:#5a5e66;font-size:14px;font-weight:600;overflow-wrap:anywhere;}
-.coffee-note {margin:0 0 18px;color:#7c8189;font-size:12px;line-height:1.8;}
-.coffee-actions {display:grid;gap:8px;}
-.coffee-paypal,.coffee-decline {display:block;width:100%;min-height:46px;padding:12px 14px;border:0;border-radius:12px;font:600 14px/1.5 system-ui;text-align:center;text-decoration:none;}
-.coffee-paypal {background:#4c6685;color:#fff;box-shadow:0 4px 12px #4c66851c;}
-.coffee-paypal:hover {background:#3c5573;color:#fff;}
-.coffee-decline {min-height:38px;background:transparent;color:#8a8e95;font-weight:400;}.coffee-decline:hover {background:#f2f0eb;}
-.coffee-close:focus-visible,.coffee-paypal:focus-visible,.coffee-decline:focus-visible {outline:3px solid #a3bad2;outline-offset:3px;}
-.coffee-continuity {margin:12px 0 0;color:#a0a2a6;font-size:11px;line-height:1.7;}
-@keyframes coffee-steam-rise {0%,100% {transform:translateY(3px) rotate(-8deg);opacity:.45;}50% {transform:translateY(-6px) rotate(6deg);opacity:.8;}}
-@media(max-width:480px){.coffee-dialog {padding:26px 22px 20px;}.coffee-title {font-size:26px;}}
-@media(prefers-reduced-motion:reduce){.coffee-steam {animation:none;}}
+
+.coffee-dialog::backdrop { background: #24344d64; -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px); }
+.coffee-close { position: absolute; top: 11px; right: 11px; z-index: 1; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #8490a0; font: 25px/1 system-ui; }
+.coffee-close:hover { background: #f1f1ed; color: #526881; }
+.coffee-hero { display: flex; align-items: center; gap: 17px; padding-right: 21px; }
+.coffee-hero-art { display: grid; place-items: center; flex: 0 0 77px; width: 77px; height: 80px; border: 1px solid #efe3d0; border-radius: 25px; background: linear-gradient(145deg, #fff7e9, #f1e3cd); }
+.coffee-hero-art svg { display: block; width: 67px; height: 67px; }
+.coffee-hero-copy { min-width: 0; }
+.coffee-eyebrow { margin: 0 0 7px; color: #9b7b58; font-size: 9px; font-weight: 550; line-height: 1.7; letter-spacing: 1px; text-transform: uppercase; }
+.coffee-title { margin: 0; color: #3d4c61; font-size: 25px; font-weight: 550; line-height: 1.3; letter-spacing: -.75px; }
+.coffee-intro { margin: 19px 0 22px; color: var(--coffee-muted); font-size: 13px; line-height: 1.8; }
+.coffee-options { min-width: 0; margin: 0 0 19px; padding: 0; border: 0; }
+.coffee-options legend { display: block; width: 100%; margin: 0 0 12px; padding: 0; color: #697a91; font-size: 12px; font-weight: 500; line-height: 1.6; }
+.coffee-option-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.coffee-option { position: relative; display: grid; grid-template-columns: 48px minmax(0, 1fr) 18px; align-items: center; gap: 11px; min-width: 0; min-height: 92px; padding: 14px 13px; border: 1px solid #e6e9ed; border-radius: 16px; background: #ffffff; color: #52657d; cursor: pointer; transition: border-color .16s, background-color .16s; }
+.coffee-option:hover { border-color: #c8d8eb; background: #f9fbfe; }
+.coffee-option[data-selected="true"] { border-color: #9bb6d6; background: #f0f6fe; box-shadow: 0 0 0 1px #c9d9ed2e; }
+.coffee-option:focus-within { outline: 3px solid #96b5dc; outline-offset: 3px; }
+.coffee-option-art { display: grid; place-items: center; width: 48px; height: 53px; border-radius: 15px; background: #faf2e5; }
+.coffee-option-art svg { display: block; width: 46px; height: 46px; }
+.coffee-option-sandwich .coffee-option-art { background: #f2f5e8; }
+.coffee-option-snack .coffee-option-art { background: #fbefdf; }
+.coffee-option-resto .coffee-option-art { background: #eaf2f5; }
+.coffee-option-copy { min-width: 0; }
+.coffee-option-name { display: block; color: #65778e; font-size: 13px; font-weight: 500; line-height: 1.6; }
+.coffee-option-amount { display: block; margin-top: 3px; color: #415a7a; font-size: 22px; font-weight: 550; line-height: 1.3; letter-spacing: -.5px; }
+.coffee-option-input { width: 18px; height: 18px; margin: 0; accent-color: #6287b4; cursor: pointer; }
+.coffee-option-input:focus-visible { outline: none; }
+.coffee-summary { display: flex; justify-content: space-between; align-items: center; gap: 15px; margin-bottom: 13px; padding: 13px 16px; border: 1px solid #e4eaf2; border-radius: 13px; background: #f7f9fc; }
+.coffee-selection-label { display: block; margin-bottom: 4px; color: #738298; font-size: 10px; line-height: 1.6; }
+.coffee-selection-name { display: block; color: #526c8d; font-size: 13px; font-weight: 500; line-height: 1.4; }
+.coffee-price { flex: 0 0 auto; color: #466486; font-size: 25px; font-weight: 550; line-height: 1.5; letter-spacing: -.6px; }
+.coffee-recipient { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 17px; padding: 0 2px; }
+.coffee-recipient-label { color: #778396; font-size: 11px; line-height: 1.6; }
+.coffee-recipient-email { color: #5a6d85; font-size: 12px; font-weight: 500; line-height: 1.6; overflow-wrap: anywhere; }
+.coffee-symbolic { margin: 0 0 10px; color: #707c8d; font-size: 11px; line-height: 1.8; }
+.coffee-note { margin: 0 0 19px; color: #707c8d; font-size: 11px; line-height: 1.8; }
+.coffee-actions { display: grid; gap: 7px; }
+.coffee-paypal, .coffee-decline { display: block; width: 100%; min-height: 46px; padding: 12px 14px; border: 0; border-radius: 12px; font: 500 13px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: center; text-decoration: none; }
+.coffee-paypal { background: #4e729e; color: #ffffff; box-shadow: 0 4px 14px #4c66851a; }
+.coffee-paypal:hover { background: #3f628d; color: #ffffff; }
+.coffee-decline { min-height: 42px; background: transparent; color: #6e7c90; font-size: 12px; font-weight: 400; }
+.coffee-decline:hover { background: #f1f2f2; color: #526881; }
+.coffee-close:focus-visible, .coffee-paypal:focus-visible, .coffee-decline:focus-visible { outline: 3px solid #96b5dc; outline-offset: 3px; }
+.coffee-continuity { margin: 10px 0 0; color: #8591a1; font-size: 10px; line-height: 1.7; text-align: center; }
+
+@media (max-width: 480px) {
+  .coffee-dialog { width: calc(100% - 22px); max-height: calc(100dvh - 24px); padding: 24px 20px 20px; border-radius: 22px; }
+  .coffee-hero { gap: 13px; padding-right: 14px; }
+  .coffee-hero-art { flex-basis: 61px; width: 61px; height: 66px; border-radius: 20px; }
+  .coffee-hero-art svg { width: 56px; height: 56px; }
+  .coffee-eyebrow { font-size: 8px; letter-spacing: .8px; }
+  .coffee-title { font-size: 22px; letter-spacing: -.6px; }
+  .coffee-intro { margin-top: 17px; margin-bottom: 20px; font-size: 12px; }
+  .coffee-option-grid { gap: 9px; }
+  .coffee-option { grid-template-columns: 38px minmax(0, 1fr); gap: 9px; min-height: 92px; padding: 12px 11px; }
+  .coffee-option-art { width: 38px; height: 45px; border-radius: 13px; }
+  .coffee-option-art svg { width: 39px; height: 39px; }
+  .coffee-option-name { font-size: 12px; }
+  .coffee-option-amount { font-size: 21px; }
+  .coffee-option-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); opacity: 0; }
+  .coffee-summary { padding: 12px 14px; }
+  .coffee-recipient { margin-bottom: 15px; }
+  .coffee-recipient-email { font-size: 12px; }
+  .coffee-symbolic, .coffee-note { font-size: 11px; }
+  .coffee-paypal { font-size: 12px; }
+}
+
+@media (max-width: 350px) {
+  .coffee-dialog { padding-right: 16px; padding-left: 16px; }
+  .coffee-hero { gap: 11px; padding-right: 12px; }
+  .coffee-hero-art { flex-basis: 49px; width: 49px; height: 55px; border-radius: 17px; }
+  .coffee-hero-art svg { width: 48px; height: 48px; }
+  .coffee-title { font-size: 20px; }
+  .coffee-option { grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 8px; min-height: 126px; }
+  .coffee-option-art { width: 40px; height: 40px; }
+  .coffee-option-copy { display: flex; flex-direction: column; }
+  .coffee-option-name { font-size: 12px; }
+  .coffee-option-amount { font-size: 21px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coffee-option { transition: none; }
+}

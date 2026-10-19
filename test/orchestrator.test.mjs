@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, symlinkSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Atelier, validatePlan, ROLES, PLAN_SCHEMA } from '../lib/orchestrator.mjs';
+import { Atelier, validatePlan, ROLES, PLAN_SCHEMA, readableMissionFolderName } from '../lib/orchestrator.mjs';
 const plan = { title: 'Un message utile', approach: 'Rédaction puis contrôle.', tasks: [{ role: 'redaction', title: 'Rédiger le message', instruction: 'Écrire un message complet.', criteria: 'Un message prêt à envoyer.', deliverables: [] }] };
 function setup(t, runner, options = {}) {
   const dataDir = mkdtempSync(path.join(os.tmpdir(), 'oscar-test-'));
@@ -264,4 +264,41 @@ test('l’état public est indépendant des objets des missions et les préfére
   snapshot.activeMissions[0].prompt = 'Modification extérieure';
   assert.equal(app.get(mission.id).prompt, 'Démo');
   await app.wait(mission.id);
+});
+
+test('les dossiers portent une date et un nom lisible ; les collisions ne montrent aucun UUID',async t=>{
+ const app=setup(t,async()=>{throw new Error('Pas de modèle');});
+ const first=app.start({prompt:'Mon café à Bruxelles',provider:'demo'}),second=app.start({prompt:'Mon café à Bruxelles',provider:'demo'});
+ await Promise.all([app.wait(first.id),app.wait(second.id)]);
+ const name=path.basename(app.missionDir(first.id));assert.match(name,/^\d{4}-\d{2}-\d{2} — Mon café à Bruxelles$/);assert.equal(path.basename(app.missionDir(second.id)),name+' (2)');assert(!name.includes(first.id));
+ assert.equal(readFileSync(path.join(app.workDir(first.id),'Demonstration.md'),'utf8'),app.get(first.id).result);
+ const restored=new Atelier({dataDir:app.dataDir,runAgent:()=>{throw new Error('Pas de modèle');}});assert.equal(restored.get(first.id).id,first.id);assert.equal(restored.workDir(first.id),app.workDir(first.id));
+});
+
+test('les noms neutralisent traversée, points et contrôles en conservant accents et taille sûre',()=>{
+ const name=readableMissionFolderName(' ../Été/../../Café\\ : nom?\0\u202e\nLigne ignorée',new Date(2026,9,19).getTime());
+ assert.equal(name,'2026-10-19 — Été Café nom');assert(!/[./\\\x00]/.test(name));
+ const long=readableMissionFolderName('🎨'.repeat(200));assert(Buffer.byteLength(long,'utf8')<240);assert.match(readableMissionFolderName('.../..'),/ — Mission$/);
+});
+
+function seedMissionFolder(root,id,{status='completed',title='Ancien café à Liège',createdAt=new Date(2026,9,18).getTime(),folder=id}={}){
+ const dir=path.join(root,'missions',folder);mkdirSync(path.join(dir,'travail'),{recursive:true});const value={id,title,prompt:title,status,provider:'demo',createdAt,updatedAt:createdAt,tasks:[],events:[],files:[{path:'preuve.txt',size:8}],result:'Livraison existante'};writeFileSync(path.join(dir,'state.json'),JSON.stringify(value));writeFileSync(path.join(dir,'travail','preuve.txt'),'PRÉSERVÉ');return dir;
+}
+
+test('migration au démarrage : anciens UUID terminés, état et livrables conservés sans écraser un homonyme',t=>{
+ const root=mkdtempSync(path.join(os.tmpdir(),'oscar-readable-migration-'));t.after(()=>rmSync(root,{recursive:true,force:true}));
+ const id='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222';
+ const existing=readableMissionFolderName('Ancien café à Liège',new Date(2026,9,18).getTime());seedMissionFolder(root,other,{folder:existing});const old=seedMissionFolder(root,id);
+ const app=new Atelier({dataDir:root});assert.equal(path.basename(app.missionDir(id)),existing+' (2)');assert(!existsSync(old));assert.equal(readFileSync(path.join(app.workDir(id),'preuve.txt'),'utf8'),'PRÉSERVÉ');assert.equal(readFileSync(path.join(app.workDir(other),'preuve.txt'),'utf8'),'PRÉSERVÉ');assert.equal(app.get(id).id,id);
+ const again=new Atelier({dataDir:root});assert.equal(again.workDir(id),app.workDir(id));assert.equal(again.get(id).result,'Livraison existante');
+});
+
+test('un ancien dossier peut encore être utilisé : son chemin actif ne change pas au redémarrage',t=>{
+ const root=mkdtempSync(path.join(os.tmpdir(),'oscar-readable-active-'));t.after(()=>rmSync(root,{recursive:true,force:true}));const id='33333333-3333-4333-8333-333333333333';const old=seedMissionFolder(root,id,{status:'running'});const app=new Atelier({dataDir:root});assert.equal(app.missionDir(id),old);assert.equal(app.get(id).status,'cancelled');assert.equal(readFileSync(path.join(old,'travail','preuve.txt'),'utf8'),'PRÉSERVÉ');
+});
+
+test('les missions actives gardent leur dossier quand Oscar change le titre ; les liens symboliques ne sont pas suivis',async t=>{
+ let release;const app=setup(t,({signal})=>new Promise((resolve,reject)=>{release=resolve;signal.addEventListener('abort',()=>reject(new Error('Arrêt')),{once:true});}));const m=app.start({prompt:'Titre initial'}),before=app.workDir(m.id);app.missions.get(m.id).title='Titre final d’Oscar';app.save(app.missions.get(m.id));assert.equal(app.workDir(m.id),before);app.stop(m.id);await app.wait(m.id);
+ const outside=mkdtempSync(path.join(os.tmpdir(),'oscar-folder-link-'));t.after(()=>rmSync(outside,{recursive:true,force:true}));const expected=readableMissionFolderName('Mission liée');symlinkSync(outside,path.join(app.dataDir,'missions',expected));const linked=app.start({prompt:'Mission liée',provider:'demo'});await app.wait(linked.id);assert.equal(path.basename(app.missionDir(linked.id)),expected+' (2)');assert.deepEqual(readdirSync(outside),[]);
+ const malicious='44444444-4444-4444-8444-444444444444';symlinkSync(outside,path.join(app.dataDir,'missions',malicious));const restored=new Atelier({dataDir:app.dataDir});assert.equal(restored.get(malicious),null);
 });

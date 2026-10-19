@@ -1,0 +1,62 @@
+.clock-dialog {
+  width: min(500px, calc(100vw - 28px));
+  max-width: 500px;
+  max-height: calc(100svh - 28px);
+  box-sizing: border-box;
+  padding: 0;
+  margin: auto;
+  overflow: auto;
+  border: 1px solid #d9ddce;
+  border-radius: 28px;
+  background: #fcfaf3;
+  color: #425d50;
+  box-shadow: 0 28px 100px #2b45394d, 0 5px 18px #2b453919;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color-scheme: light;
+}
+.clock-dialog::backdrop { background: #34483f65; backdrop-filter: blur(5px); }
+.clock-dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 25px 28px 0; }
+.clock-eyebrow { color: #9b9e84; font-size: 10px; font-weight: 700; letter-spacing: .17em; }
+.clock-title { margin: 6px 0 0; color: #425d50; font-size: clamp(23px, 5vw, 29px); font-weight: 650; letter-spacing: -.04em; line-height: 1.15; }
+.clock-close { display: grid; place-items: center; flex: 0 0 35px; width: 35px; height: 35px; padding: 0; border: 1px solid #e1e3d6; border-radius: 50%; background: #f5f5ec; color: #6d806f; font-size: 25px; line-height: 1; cursor: pointer; }
+.clock-close:hover { background: #e8eee2; }
+.clock-face { width: min(268px, 66vw); margin: 12px auto 0; }
+.clock-dial { display: block; width: 100%; height: auto; overflow: visible; filter: drop-shadow(0 8px 14px #798b7212); }
+.clock-digital { margin-top: -3px; text-align: center; }
+.clock-time { display: inline-flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; font-family: ui-rounded, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.clock-hours { color: #496650; font-size: clamp(49px, 11vw, 63px); font-weight: 550; line-height: 1; letter-spacing: -.06em; }
+.clock-seconds { color: #b38b72; font-size: 25px; font-weight: 450; letter-spacing: -.035em; }
+.clock-date { margin: 9px 12px 0; color: #798673; font-size: 14px; line-height: 1.45; }
+.clock-live { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; color: #99a28c; font-size: 10px; font-weight: 550; }
+.clock-live-dot { width: 5px; height: 5px; border-radius: 50%; background: #91ad85; animation: oscarClockPulse 2s ease-in-out infinite; }
+.clock-oscar { display: flex; align-items: flex-start; gap: 13px; margin: 23px 28px 0; padding: 17px 18px; border: 1px solid #e9e6d7; border-radius: 18px; background: #f2f3e8; }
+.clock-oscar-avatar { position: relative; display: block; flex: 0 0 41px; width: 41px; height: 43px; margin-top: 1px; overflow: hidden; border: 1px solid #d5b798; border-radius: 45% 45% 43% 43%; background: #edc19f; box-shadow: 0 4px 0 #bed0b3; }
+.clock-oscar-hair { position: absolute; top: -4px; left: -1px; width: 42px; height: 17px; border-radius: 50% 50% 40% 25%; background: #80664e; transform: rotate(-6deg); }
+.clock-oscar-eyes { position: absolute; top: 22px; left: 11px; width: 3px; height: 4px; border-radius: 50%; background: #5c6350; box-shadow: 15px 0 #5c6350; }
+.clock-oscar-smile { position: absolute; top: 28px; left: 17px; width: 9px; height: 6px; border: 0 solid #a36b54; border-width: 0 0 2px; border-radius: 0 0 10px 10px; }
+.clock-thought { flex: 1; width: 0; min-width: 0; overflow-wrap: anywhere; }
+.clock-oscar-name { display: block; margin-bottom: 4px; color: #668063; font-size: 11px; font-weight: 650; }
+.clock-quip { margin: 0; color: #5c725d; font-size: 14px; line-height: 1.5; }
+.clock-another { display: inline-block; margin: 7px 0 0; padding: 0; border: 0; background: none; color: #8b9378; font: inherit; font-size: 10px; line-height: 1.5; text-align: left; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.clock-another:hover { color: #526f55; }
+.clock-footer { display: flex; align-items: center; gap: 16px; padding: 17px 28px 23px; }
+.clock-note { flex: 1; margin: 0; color: #9a9f8b; font-size: 10px; line-height: 1.6; }
+.clock-back { flex: 0 0 auto; max-width: 48%; padding: 10px 15px; border: 1px solid #cad5bf; border-radius: 11px; background: #e6eddd; color: #5b7557; font: inherit; font-size: 11px; font-weight: 600; line-height: 1.4; cursor: pointer; }
+.clock-back:hover { background: #dce7d2; }
+.clock-dialog button:focus-visible { outline: 3px solid #a7ba95; outline-offset: 3px; }
+@keyframes oscarClockPulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@media (max-height: 760px) and (min-width: 481px) {
+  .clock-dialog-header { padding-top: 20px; }
+  .clock-face { width: 220px; margin-top: 8px; }
+  .clock-hours { font-size: 53px; }
+  .clock-oscar { margin-top: 17px; padding: 13px 16px; }
+  .clock-footer { padding-bottom: 20px; }
+}
+@media (max-width: 380px) {
+  .clock-dialog-header { padding: 22px 21px 0; }
+  .clock-face { width: 220px; }
+  .clock-oscar { margin-right: 20px; margin-left: 20px; padding: 13px; }
+  .clock-footer { padding-right: 21px; padding-left: 21px; }
+  .clock-back { padding-right: 10px; padding-left: 10px; }
+}
+@media (prefers-reduced-motion: reduce) { .clock-live-dot { animation: none; } }

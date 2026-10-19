@@ -1,19 +1,40 @@
 import { CoffeeDialog } from '/coffee-dialog.js';
 import { PixelWorld } from '/pixel-world.js';
 import { MISSION_TEMPLATES, MISSION_CATEGORIES, MissionWizard } from '/mission-catalog.js';
+import { WelcomeGuide, withTeamPreference } from '/welcome-guide.js';
+import { startI18n, withLocaleInstruction, translate, getLocale, setLocale } from '/i18n.js';
+import { PublicationDialog } from '/publication-dialog.js';
+import { OfficeSpeech } from '/office-speech.js';
+import { ClockDialog } from '/clock-dialog.js';
+import { CreativeStudio } from '/creative-studio.js';
+import { ConnectorsDialog } from '/connectors-dialog.js';
+import { AutomationsDialog } from '/automations-dialog.js';
+import { ArtifactViewer } from '/artifact-viewer.js';
+import { CompletionDialog } from '/completion-dialog.js';
+import { SecretaryDialog } from '/secretary-dialog.js';
+import { VoiceDialog } from '/voice-dialog.js';
 'use strict';
 
 const $ = (id) => document.getElementById(id);
 const roleInfo = {
+  secretaire: {name:'Zoé',label:'Secrétariat',initial:'Z',intro:'Zoé prépare vos e-mails, votre agenda et vos priorités avec les services que vous avez connectés.'},
   oscar: {name: 'Oscar', label: 'Chef d’équipe', initial: 'O', intro: 'Oscar transforme votre idée en plan de travail, confie chaque tâche au bon spécialiste, puis vérifie et assemble les résultats.'},
   recherche: {name: 'Lina', label: 'Recherche', initial: 'L', intro: 'Lina explore le sujet, recoupe les informations et rassemble des sources utiles à votre projet.'},
   redaction: {name: 'Noé', label: 'Rédaction', initial: 'N', intro: 'Noé trouve les mots justes et donne une structure claire aux contenus de votre mission.'},
-  code: {name: 'Sam', label: 'Développement', initial: 'S', intro: 'Sam construit et vérifie le code, les outils et les pages qui donnent vie à votre projet.'},
+  code: {name: 'Sam', label: 'Développement & code', initial: 'S', intro: 'Sam construit et vérifie le code, les outils et les pages qui donnent vie à votre projet.'},
   design: {name: 'Alma', label: 'Design', initial: 'A', intro: 'Alma travaille la forme, les idées visuelles et la lisibilité de vos créations.'},
   analyse: {name: 'Jules', label: 'Analyse', initial: 'J', intro: 'Jules organise les données, évalue les options et fait ressortir ce qui aide à décider.'}
 };
 const missionStatus = {planning:'Oscar prépare le plan',running:'L’équipe est au travail',reviewing:'Oscar vérifie les résultats',completed:'Mission livrée',needs_review:'Votre attention est nécessaire',failed:'La mission a rencontré un problème',cancelled:'Mission arrêtée'};
 const taskStatus = {queued:'À venir',working:'En cours',reviewing:'Vérification',revising:'À améliorer',approved:'Validé',needs_review:'À vérifier',failed:'Interrompu',cancelled:'Arrêté'};
+const ROLE_DETAILS={
+  oscar:['Il découpe votre objectif en tâches, choisit les métiers et recrute les spécialistes utiles.','Un plan de travail, des retours sur chaque tâche et une livraison assemblée.','La cohérence du projet, les fichiers attendus et les points qui demandent votre attention.'],
+  recherche:['L’équipe recherche des informations, compare les sources et prépare des dossiers thématiques ou parlementaires.','Des sources citées, une chronologie, des références officielles et des synthèses documentées.','Les dates, les liens, la distinction entre faits et interprétations et les limites de la recherche.'],
+  redaction:['Les écrivains et rédacteurs structurent vos idées et adaptent le ton au public : livres, articles, discours ou réseaux sociaux.','Un plan éditorial, des chapitres, des textes révisés ou un calendrier de contenus.','La clarté, la structure, le respect du brief et les faits qui doivent être sourcés.'],
+  code:['Les développeurs construisent des sites, des jeux, des logiciels et des outils. Ils travaillent le fonctionnement et expliquent leurs vérifications.','Du code, des fichiers utilisables, des tests adaptés et un mode d’emploi.','Les fichiers livrés, les erreurs rencontrées, les tests exécutés et ce qui reste à vérifier.'],
+  design:['Les designers cherchent une direction visuelle, dessinent les interfaces et organisent les éléments pour rendre le projet agréable à utiliser.','Des maquettes, des palettes, des interfaces HTML/CSS/SVG et des éléments graphiques.','La lisibilité, les contrastes, la cohérence visuelle et l’adaptation aux écrans.'],
+  analyse:['Les analystes organisent les données, calculent, comparent les options et font ressortir les éléments utiles à une décision.','Des tableaux, des comparatifs, des indicateurs et des conclusions argumentées.','Les hypothèses, les unités, les calculs et la différence entre une mesure et une estimation.'],
+};
 const runningStatuses = new Set(['planning','running','reviewing']);
 let state = {providers:[], missions:[], active:null};
 const routeParams = new URLSearchParams(location.search);
@@ -35,6 +56,21 @@ let pixelWorld = null;
 let animationPaused = false;
 let missionWizard = null;
 let coffeeDialog = null;
+let welcomeGuide = null;
+let publicationDialog = null;
+let officeSpeech = null;
+let clockDialog = null;
+let creativeStudio = null;
+let connectorsDialog = null;
+let automationsDialog = null;
+let artifactViewer = null;
+let completionDialog = null;
+let secretaryDialog = null;
+let voiceDialog = null;
+const completionStatuses = new Map(),pendingCompletions = new Map();
+let completionTimer = null;
+let lastNarrated = null;
+let statusTimer = null;
 let activePanel = null;
 let panelReturnFocus = null;
 let memberReturnPanel = null;
@@ -51,7 +87,7 @@ function node(tag, className, value) {
   if (value !== undefined && value !== null) el.textContent = String(value);
   return el;
 }
-const PANEL_LABELS = {catalog:['Les missions','36 points de départ pour vos idées'],brief:['Parlez à Oscar','Votre prochaine mission'],team:['Votre équipe','Les talents de cette mission'],delivery:['Votre livraison','Fichiers et comptes rendus'],progress:['Le suivi du projet','Du brief à la livraison'],history:['Mes missions','Jusqu’à quatre bureaux en même temps'],settings:['Les réglages','Votre connexion et votre bureau']};
+const PANEL_LABELS = {catalog:['Les missions',`${MISSION_TEMPLATES.length} points de départ pour vos idées`],brief:['Parlez à Oscar','Votre prochaine mission'],team:['Votre équipe','Les talents de cette mission'],delivery:['Votre livraison','Fichiers et comptes rendus'],progress:['Le suivi du projet','Du brief à la livraison'],history:['Mes missions','Jusqu’à quatre bureaux en même temps'],settings:['Les réglages','Votre connexion et votre bureau']};
 function restorePanel() {
   const content=$('office-panel-body').firstElementChild;
   if(content) $('office-panel-storage').append(content);
@@ -129,14 +165,16 @@ function openAnotherOffice(templateId){if(activeMissions().length>=4){showError(
 function openGuidedTemplate(template){wizardReturnPanel='catalog';closeOfficePanel({restoreFocus:false});$('guided-provider').value=$('provider-select').value;$('mission-wizard-dialog').showModal();missionWizard.open(template.id);}
 function dateLabel(value) {
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('fr-BE',{day:'numeric',month:'short'});
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString({fr:'fr-BE',en:'en-GB',nl:'nl-BE'}[getLocale()],{day:'numeric',month:'short'});
 }
 function timeLabel(value) {
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'});
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString({fr:'fr-BE',en:'en-GB',nl:'nl-BE'}[getLocale()],{hour:'2-digit',minute:'2-digit'});
 }
 function announce(message) { if(message && message !== lastAnnouncement) { $('live-announcement').textContent = message; lastAnnouncement = message; } }
 function showError(message) { $('global-error').textContent = message; $('global-error').hidden = !message;$('panel-error').textContent=message;$('panel-error').hidden=!message; }
+function hideWorldStatus(){clearTimeout(statusTimer);$('office-toast').hidden=true;}
+function showWorldStatus(message){clearTimeout(statusTimer);$('pixel-world-status').textContent=String(message).slice(0,200);$('office-toast').hidden=false;statusTimer=setTimeout(hideWorldStatus,7000);}
 async function request(url, options) {
   const response = await fetch(url, {credentials:'same-origin',...options});
   let data;
@@ -168,6 +206,28 @@ function renderProviders() {
   guided.value = guidedChoice;
   updateForm();
 }
+function connectionState(id) {
+  const provider=state.providers.find(p=>p.id===id);
+  const login=state.logins?.[id];
+  return {provider,login,pending:['installing','connecting'].includes(login?.status),active:activeMissions().some(m=>m.provider===id)};
+}
+async function startProviderConnection(id,{renew=false}={}) {
+  const {provider,pending,active}=connectionState(id);
+  if(pending)return;
+  if(active)throw new Error('Une mission utilise ce moteur. Attendez sa fin avant de modifier sa connexion.');
+  if(provider?.available&&provider.auth?.loggedIn===true&&!renew)return;
+  const action=provider?.available?'login':'setup';
+  await request(`/api/providers/${encodeURIComponent(id)}/${action}`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  await refreshState();
+}
+async function refreshProviders(){await acceptState(await request('/api/providers/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}));}
+function updateGuidedConnection(){
+  const {provider,login,pending,active}=connectionState($('guided-provider').value);
+  const connected=provider?.available&&provider.auth?.loggedIn===true;
+  $('guided-connect').disabled=pending||active||connected;
+  $('guided-connect').textContent=pending?login.status==='installing'?'Préparation en cours…':'Connexion en cours…':connected?'Compte connecté ✓':provider?.available?'Connecter mon compte ↗':'Préparer et connecter ↗';
+  $('guided-login-message').textContent=login?.message||(connected?'Votre abonnement local est prêt.':provider?.available?'Connexion officielle dans votre navigateur. Vos réponses restent ici.':'Le moteur sera installé puis connecté. Vos réponses restent ici.');
+}
 function updateForm() {
   const provider = state.providers.find(p => p.id === $('provider-select').value);
   const available = provider?.available;
@@ -177,7 +237,7 @@ function updateForm() {
   const message = provider?.message || (available ? `${provider.name || providerName(provider.id)}${provider.version ? ` ${provider.version}` : ''} · ${authMessage}` : state.providers.length ? 'Ce moteur n’est pas disponible. Connectez-vous à son application, puis relancez l’atelier.' : 'Vérification de vos outils locaux…');
   $('provider-message').textContent = message;
   $('brief-provider-name').textContent = provider?.name || 'Choisir mon moteur';
-  $('office-onboarding').hidden = onboardingDismissed || !!mission || creating;
+  $('office-onboarding').hidden = true;
   $('provider-message').classList.toggle('unavailable', !available || provider?.auth?.loggedIn === false);
   $('launch-button').disabled = creating || !available || active || atCapacity;
   $('launch-button').firstElementChild.textContent = creating ? 'Oscar prépare le bureau…' : active ? 'Cette mission est en cours' : atCapacity ? 'Quatre équipes déjà au travail' : 'Confier la mission à Oscar';
@@ -187,12 +247,13 @@ function updateForm() {
   $('office-capacity').textContent = `${activeMissions().length} / 4 missions en cours`;
   $('provider-select').disabled = creating || active;
   $('mission-input').disabled = creating;
-  const login = state.logins?.[provider?.id];
-  $('connect-provider').hidden = !provider?.available;
-  $('connect-provider').disabled = login?.status === 'connecting' || active;
-  $('connect-provider').textContent = login?.status === 'connecting' ? 'Connexion en cours dans le navigateur…' : provider?.auth?.loggedIn ? 'Renouveler la connexion ↗' : 'Se connecter dans le navigateur ↗';
+  const {login,pending,active:engineActive}=connectionState(provider?.id);
+  $('connect-provider').hidden = false;
+  $('connect-provider').disabled = !provider || pending || engineActive;
+  $('connect-provider').textContent = pending ? login.status==='installing'?'Préparation du moteur officiel…':'Connexion en cours dans le navigateur…' : !provider?.available ? 'Préparer et connecter ↗' : provider?.auth?.loggedIn ? 'Renouveler la connexion ↗' : 'Se connecter dans le navigateur ↗';
   $('login-message').hidden = !login?.message;
   $('login-message').textContent = login?.message || '';
+  updateGuidedConnection();welcomeGuide?.updateState();
 }
 function renderHistory() {
   $('mission-count').textContent = state.missions.length;
@@ -211,7 +272,8 @@ function renderHistory() {
     if(item.id === selectedId) button.setAttribute('aria-current','true');
     button.append(node('i'));
     const copy = node('span');
-    copy.append(node('strong','',item.title || item.prompt || 'Nouvelle mission'),node('small','',`${dateLabel(item.createdAt)}${item.provider ? ` · ${providerName(item.provider)}` : ''}`));
+    const title=node('strong','',item.title || item.prompt || 'Nouvelle mission');title.setAttribute('data-no-translate','');
+    copy.append(title,node('small','',`${dateLabel(item.createdAt)}${item.provider ? ` · ${providerName(item.provider)}` : ''}`));
     button.append(copy);
     button.addEventListener('click',()=>selectMission(item.id,{fromHistory:true}));
     history.append(button);
@@ -223,8 +285,10 @@ function renderScene() {
   if (!pixelWorld) {
     pixelWorld = new PixelWorld($('pixel-canvas'), {
       onSelect: (role, taskId) => openMember(role, taskId),
-      onStatus: text => { $('pixel-world-status').textContent = String(text).slice(0, 150); },
-      onInteract: (kind) => { if(kind==='coffee'){closeOfficePanel({restoreFocus:false});coffeeDialog?.open();}else if(kind==='missions')openPanel('catalog');else if(kind==='delivery')openPanel('delivery');else if(kind==='team')openPanel('team'); }
+      onStatus: showWorldStatus,
+      onEvent: (kind,data)=>{if(kind==='oscar_arrived'&&data.missionId===mission?.id&&isRunning(mission))officeSpeech?.speak('oscar','Je suis à mon bureau ! J’engage les spécialistes adaptés à votre idée. Chacun aura une tâche, et je vérifierai le résultat.',{automatic:true});},
+      onAmbience: ambience => {const phases={dawn:'Aube',day:'Journée',sunset:'Coucher de soleil',night:'Nuit'};$('ambience-mode').value=ambience.mode;$('ambience-status').textContent=`${ambience.mode==='auto'?'Heure locale':'Ambiance manuelle'} · ${phases[ambience.phase]||ambience.phase}`;document.body.dataset.ambience=ambience.phase;},
+      onInteract: (kind) => { if(kind==='coffee'){closeOfficePanel({restoreFocus:false});coffeeDialog?.open();}else if(kind==='clock'){closeOfficePanel({restoreFocus:false});hideWorldStatus();clockDialog?.open();}else if(kind==='secretary'){closeOfficePanel({restoreFocus:false});secretaryDialog?.open();officeSpeech?.speak('secretaire','On fait le point sur votre journée ?');}else if(kind==='missions')openPanel('catalog');else if(kind==='delivery')openPanel('delivery');else if(kind==='team')openPanel('team'); }
     });
     window.__oscarWorld = pixelWorld;
   }
@@ -239,7 +303,7 @@ function renderScene() {
 
 function renderTeam() {
   const tasks=mission?.tasks || [];
-  $('office-mission-title').textContent=mission?.title || 'Une idée à transformer en projet ?';
+  $('office-mission-title').toggleAttribute('data-no-translate',!!mission?.title);$('office-mission-title').textContent=mission?.title || 'Une idée à transformer en projet ?';
   $('stat-agents').textContent=tasks.length;
   $('stat-working').textContent=tasks.filter(t=>['working','revising'].includes(t.status)).length;
   $('stat-approved').textContent=tasks.filter(t=>t.status==='approved').length;
@@ -321,6 +385,8 @@ function renderDeliveries() {
   const files=mission?.files || [];
   const reports=(mission?.tasks || []).filter(t=>t.report);
   const result=mission?.result;
+  $('open-work-folder').hidden=!mission;
+  $('review-completion').hidden=!mission||!['completed','needs_review'].includes(mission.status);
   const signature=JSON.stringify([mission?.id,mission?.status,mission?.provider,mission?.error,files,result,reports.map(t=>[t.id,t.title,t.agentName,t.report,t.review])]);
   if($('file-list').dataset.signature===signature)return;$('file-list').dataset.signature=signature;
   $('delivery-empty').hidden=!!(result || files.length || reports.length || mission?.error);
@@ -334,10 +400,11 @@ function renderDeliveries() {
     if(!file || typeof file.path !== 'string') continue;
     const link=node('a','file-link');
     link.href=`/api/missions/${encodeURIComponent(mission.id)}/files/${file.path.split('/').map(encodeURIComponent).join('/')}`;
-    link.target='_blank';link.rel='noopener noreferrer';
+    const deliveredMission=mission;
+    link.addEventListener('click',event=>{event.preventDefault();closeOfficePanel({restoreFocus:false});artifactViewer?.open(deliveredMission,file);});
     link.append(node('i','','▤'));
     const text=node('span');
-    text.append(node('strong','',file.path),node('small','',Number.isFinite(file.size) ? file.size < 1024 ? `${file.size} octets` : `${Math.round(file.size/1024)} Ko` : 'Fichier de la mission'));
+    const fileName=node('strong','',file.path);fileName.setAttribute('data-no-translate','');text.append(fileName,node('small','',Number.isFinite(file.size) ? file.size < 1024 ? `${file.size} octets` : `${Math.round(file.size/1024)} Ko` : 'Fichier de la mission'));
     link.append(text,node('b','','↗'));$('file-list').append(link);
   }
   const oldOpen=new Set([...$('report-list').querySelectorAll('details[open]')].map(el=>el.dataset.task));
@@ -354,6 +421,8 @@ function renderDeliveries() {
   }
 }
 function renderMission() {
+  $('publish-project').hidden=!mission;
+  $('publish-project').disabled=!mission||isRunning(mission);
   $('demo-banner').hidden=mission?.provider !== 'demo';
   $('mission-placeholder').hidden=!!mission;
   $('mission-overview').hidden=!mission;
@@ -363,8 +432,38 @@ function renderMission() {
   $('mission-provider').textContent=mission ? `${providerName(mission.provider)} · ${dateLabel(mission.createdAt)} à ${timeLabel(mission.createdAt)}` : '';
   $('stop-mission').hidden=!isRunning(mission);
   renderPhase();renderTasks();renderEvents();renderDeliveries();renderScene();renderTeam();
+  narrateMission();
+  observeCompletion();
   if(mission) announce(`${mission.title || 'Mission'} : ${missionStatus[mission.status] || mission.phase || mission.status}`);
   if(openedRole && $('member-dialog').open) renderMember(openedRole,openedTaskId);
+}
+function completionKey(item){return `${item.id}:${item.status}`;}
+function observeCompletion(){
+  if(!mission)return;
+  const previous=completionStatuses.get(mission.id);completionStatuses.set(mission.id,mission.status);
+  if(previous&&['planning','running','reviewing'].includes(previous)&&['completed','needs_review'].includes(mission.status)){
+    let seen=false;try{seen=localStorage.getItem(`oscar-delivery:${completionKey(mission)}`)==='seen';}catch{}
+    if(!seen){pendingCompletions.set(mission.id,mission);scheduleCompletion();}
+  }
+}
+function scheduleCompletion(){clearTimeout(completionTimer);completionTimer=setTimeout(()=>{
+  if(!completionDialog||document.querySelector('dialog[open]')||document.hidden)return;
+  const item=pendingCompletions.values().next().value;if(!item)return;
+  pendingCompletions.delete(item.id);try{localStorage.setItem(`oscar-delivery:${completionKey(item)}`,'seen');}catch{}
+  completionDialog.open(item);
+},100);}
+document.addEventListener('close',scheduleCompletion,true);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleCompletion();});
+function narrateMission(){
+  if(!mission){lastNarrated=null;return;}
+  const next={id:mission.id,status:mission.status,tasks:mission.tasks?.length||0,approved:(mission.tasks||[]).filter(t=>t.status==='approved').length};
+  const previous=lastNarrated;lastNarrated=next;
+  if(!previous||previous.id!==next.id||!officeSpeech)return;
+  if(next.status!==previous.status&&next.status==='completed')officeSpeech.speak('oscar','La mission est livrée ! J’ai assemblé les résultats de l’équipe. Vous pouvez ouvrir les fichiers dans Livraison.',{automatic:true});
+  else if(next.status!==previous.status&&next.status==='needs_review')officeSpeech.speak('oscar','Un point demande votre attention. Ouvrez le suivi : je vous explique ce qui reste à vérifier.',{automatic:true});
+  else if(next.tasks>previous.tasks){const roles=[...new Set((mission.tasks||[]).map(t=>translate(getRole(t.role).label)))].join(', ');officeSpeech.speak('oscar',`${translate('Je recrute l’équipe :')} ${roles}. ${translate('Chaque spécialiste reçoit une tâche. Je relirai leurs résultats avant la livraison.')}`,{automatic:true,interrupt:false});}
+  else if(next.status!==previous.status&&next.status==='reviewing')officeSpeech.speak('oscar','L’équipe m’a rendu ses dossiers. Je vérifie les résultats et je prépare votre livraison.',{automatic:true});
+  else if(next.approved>previous.approved)officeSpeech.speak('oscar','De nouvelles contributions sont validées. L’équipe avance ; vous pouvez suivre les détails dans le suivi.',{automatic:true,interrupt:false});
 }
 function renderAll() { renderHistory();renderProviders();renderMission(); }
 async function selectMission(id,{fromHistory=false}={}) {
@@ -400,6 +499,7 @@ async function acceptState(next) {
   }
   renderAll();
   if(pendingTemplate && browsingNew && state.providers.length){const template=MISSION_TEMPLATES.find(t=>t.id===pendingTemplate);pendingTemplate=null;if(template)openGuidedTemplate(template);}
+  else if(state.providers.length&&!selectedId&&!mission&&!creating&&!$('mission-wizard-dialog').open&&!$('office-panel').open)welcomeGuide?.maybeOpen();
 }
 function newMission({forceLocal=false,reveal=true}={}) {
   if(!forceLocal && isRunning(mission)){openAnotherOffice();return;}
@@ -410,17 +510,23 @@ function newMission({forceLocal=false,reveal=true}={}) {
   $('mission-placeholder').lastElementChild.firstElementChild.textContent='Une équipe prête à se mettre au travail';
   renderAll();if(reveal)openPanel('brief');
 }
-async function launch(provider,{strict=false}={}) {
+async function launch(provider,{strict=false,teamSize=$('team-size').value}={}) {
   if(creating || isRunning(mission) || activeMissions().length>=4) {if(strict)throw new Error(activeMissions().length>=4?'Quatre missions sont déjà en cours. Attendez une livraison puis réessayez : votre brief est conservé.':'Cette mission est déjà en cours. Ouvrez un autre bureau pour un nouveau projet.');return;}
-  const prompt=$('mission-input').value.trim();
+  let prompt=$('mission-input').value.trim();
   if(provider!=='demo' && !prompt) {if(strict)throw new Error('Ajoutez une mission avant de la confier à Oscar.');$('mission-input').reportValidity();return; }
+  if(provider!=='demo') {
+    const {provider:engine,pending}=connectionState(provider);
+    const error=pending?'La connexion est en cours. Terminez-la dans votre navigateur, puis réessayez : votre brief est conservé.':!engine?.available||engine.auth?.loggedIn===false?'Connectez votre compte avant de lancer la mission. Votre brief est conservé.':'';
+    if(error){if(strict)throw new Error(error);$('form-error').textContent=error;$('form-error').hidden=false;openPanel('settings');$('login-message').textContent=error;$('login-message').hidden=false;return;}
+    try{prompt=withLocaleInstruction(withTeamPreference(prompt,teamSize));}catch(error){if(strict)throw error;$('form-error').textContent=error.message;$('form-error').hidden=false;return;}
+  }
   creating=true;$('form-error').hidden=true;updateForm();
   try {
     const detail=await request('/api/missions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt || 'Imaginer le lancement d’un café de quartier : positionnement, idées de communication et une page de présentation.',provider})});
     selectedId=detail.id;mission=detail;state.active=detail;state.activeMissions=[...activeMissions().filter(m=>m.id!==detail.id),detail];browsingNew=false;history.replaceState(null,'',`/?mission=${encodeURIComponent(detail.id)}`);
     const previous=state.missions.findIndex(m=>m.id===detail.id);
     if(previous<0) state.missions.unshift(detail);else state.missions[previous]=detail;
-    closeMemberForNavigation();dismissWelcome();closeOfficePanel({restoreFocus:false});showError('');renderAll();$('pixel-canvas').focus({preventScroll:true});return detail;
+    closeMemberForNavigation();dismissWelcome();closeOfficePanel({restoreFocus:false});showError('');renderAll();$('pixel-canvas').focus({preventScroll:true});officeSpeech?.speak('oscar',provider==='demo'?'Bienvenue dans la visite ! Cette démonstration vous montre notre travail sans appeler un modèle.':'Allez, let’s go ! Je rejoins mon bureau pour préparer votre projet.',{automatic:true});return detail;
   } catch(error) { $('form-error').textContent=error.message;$('form-error').hidden=false;if(strict)throw error; }
   finally { creating=false;updateForm(); }
 }
@@ -443,6 +549,9 @@ function renderMember(role,taskId) {
   $('member-role').textContent=info.label;
   $('member-quip').textContent=openedQuip;
   $('member-intro').textContent=selected?`${agentName(selected)} · ${info.label}. Une tâche à soi, une équipe pour avancer et Oscar pour relire le résultat.`:role==='oscar'?info.intro:`Jusqu’à quatre spécialistes de ${info.label.toLowerCase()} peuvent travailler ici. Chacun garde son prénom, sa tâche et ses fichiers.`;
+  $('member-expertise').replaceChildren();
+  const descriptions=ROLE_DETAILS[role]||ROLE_DETAILS.oscar;
+  ['Ce que nous faisons','Exemples de livrables','Ce qu’Oscar vérifie'].forEach((title,index)=>{const section=node('section','role-service');section.append(node('h3','',title),node('p','',descriptions[index]));$('member-expertise').append(section);});
   const list=$('member-tasks');list.replaceChildren();
   const tasks=role==='oscar' ? [] : (mission?.tasks || []).filter(t=>roleOf(t.role)===role&&(!selected||t.id===selected.id));
   if(role==='oscar' && mission) {
@@ -474,6 +583,7 @@ function openMember(role,taskId) {
   openedRole=role;openedTaskId=taskId || null;const quips=QUIPS[role] || QUIPS.oscar;openedQuip=quips[Math.floor(Math.random()*quips.length)];renderMember(role,taskId);
   const dialog=$('member-dialog');
   if(!dialog.open) dialog.showModal();
+  officeSpeech?.speak(role,`${translate(openedQuip)} ${translate((ROLE_DETAILS[role]||ROLE_DETAILS.oscar)[0])}`);
 }
 function setConnection(connected) {
   $('connection-dot').classList.toggle('connected',connected);
@@ -511,17 +621,34 @@ document.querySelectorAll('[data-pixel-prop]').forEach(button=>button.addEventLi
 document.querySelectorAll('[data-pixel-role]').forEach(button=>button.addEventListener('click',()=>openMember(button.dataset.pixelRole)));
 $('pixel-pause').addEventListener('click',()=>{animationPaused=!animationPaused;pixelWorld.setPaused(animationPaused);$('pixel-pause').setAttribute('aria-pressed',String(animationPaused));$('pixel-pause').setAttribute('aria-label',animationPaused?'Reprendre les animations':'Pause animations');$('pixel-pause').title=animationPaused?'Reprendre les animations':'Pause animations';$('pixel-pause').querySelector('.dock-label').textContent=animationPaused?'Reprendre':'Pause';$('atelier-scene').dataset.paused=String(animationPaused);});
 $('pixel-fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{$('pixel-world-status').textContent='Le bureau utilise déjà toute la fenêtre. Le plein écran du navigateur peut aussi l’agrandir.';}});
-document.querySelectorAll('[data-prompt]').forEach(button=>button.addEventListener('click',()=>{$('mission-input').value=button.dataset.prompt;$('mission-input').focus();}));
+document.querySelectorAll('[data-prompt]').forEach(button=>button.addEventListener('click',()=>{$('mission-input').value=translate(button.dataset.prompt);$('mission-input').focus();}));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshState();});
 window.addEventListener('online',refreshState);
-window.addEventListener('beforeunload',()=>{eventSource?.close();pixelWorld?.destroy();});
+window.addEventListener('beforeunload',()=>{clearTimeout(statusTimer);clearTimeout(completionTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
 
 coffeeDialog = new CoffeeDialog({recipient:'renaud2005@gmail.com'});
+clockDialog=new ClockDialog();
+creativeStudio=new CreativeStudio({getMission:()=>mission,onCreate:({brief,template})=>{if(isRunning(mission)){openAnotherOffice(template);return;}newMission();$('mission-input').value=brief;$('team-size').value='auto';}});
+for(const id of ['open-creative-studio','settings-creative-studio','delivery-creative-studio'])$(id).addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});creativeStudio.open();});
+connectorsDialog=new ConnectorsDialog({request,getMission:()=>mission});
+automationsDialog=new AutomationsDialog({request,getState:()=>state,onMission:id=>{automationsDialog.close();selectMission(id);openPanel('progress');}});
+artifactViewer=new ArtifactViewer({request,onClose:()=>openPanel('delivery')});
+const openWorkFolder=id=>request(`/api/missions/${encodeURIComponent(id)}/open-folder`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+completionDialog=new CompletionDialog({avatar:()=>portrait('oscar'),onFolder:openWorkFolder,onFile:(item,file)=>artifactViewer.open(item,file),onDelivery:async item=>{if(selectedId!==item.id)await selectMission(item.id);openPanel('delivery');},onNew:()=>newMission(),onImprove:item=>{newMission();$('mission-input').value=`${translate('Améliore la mission précédente :')} ${item.title||item.prompt}\n${translate('Dossier du travail précédent :')} ${item.workDirectory||item.folderName||''}\n${translate('Examine les fichiers existants, propose les améliorations utiles et vérifie le résultat. Garde les originaux et livre les nouvelles versions dans cette nouvelle mission.')}`;},onClose:scheduleCompletion});
+secretaryDialog=new SecretaryDialog({request,getState:()=>state,onMission:async id=>{await selectMission(id);openPanel('progress');},onAutomations:()=>automationsDialog.open(),onConnectors:()=>connectorsDialog.open(),onActivity:activity=>pixelWorld?.setSecretaryActivity(activity.busy)});
+$('open-secretary').addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});secretaryDialog.open();});
+$('open-work-folder').addEventListener('click',async()=>{if(!mission)return;try{await openWorkFolder(mission.id);}catch(error){showError(error.message);}});
+$('review-completion').addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});completionDialog.open(mission);});
+for(const id of ['open-connectors','settings-connectors'])$(id).addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});connectorsDialog.open();});
+for(const id of ['open-automations','settings-automations'])$(id).addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});automationsDialog.open();});
+$('dismiss-office-status').addEventListener('click',hideWorldStatus);
+publicationDialog=new PublicationDialog({request,getMission:()=>mission,onClose:()=>openPanel('delivery')});
+$('publish-project').addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});publicationDialog.open();});
 missionWizard = new MissionWizard($('mission-wizard-host'), {
   onComplete: async (prompt) => {
     const provider = $('guided-provider').value;
     $('mission-input').value = prompt; $('provider-select').value = provider;
-    await launch(provider,{strict:true});
+    await launch(provider,{strict:true,teamSize:$('guided-team-size').value});
     wizardReturnPanel=null;$('mission-wizard-dialog').close();
   },
   onCancel: () => $('mission-wizard-dialog').close(),
@@ -530,7 +657,7 @@ function searchable(value){return String(value).normalize('NFD').replace(/[\u030
 function renderCatalog() {
   const query=searchable($('template-search').value.trim());
   const featured=['logiciel-sur-mesure','jeu-video','site-internet','reseaux-sociaux','concurrents','identite-visuelle','application-web','jeu-plateforme'];
-  const templates=[...MISSION_TEMPLATES].sort((a,b)=>{const x=featured.indexOf(a.id),y=featured.indexOf(b.id);return(x<0?100:x)-(y<0?100:y);}).filter(t=>(catalogCategory==='all'||t.category===catalogCategory)&&(!query||query.split(/\s+/).every(word=>searchable(`${t.title} ${t.description} ${MISSION_CATEGORIES.find(c=>c.id===t.category)?.label || ''}`).includes(word))));
+  const templates=[...MISSION_TEMPLATES].sort((a,b)=>{const x=featured.indexOf(a.id),y=featured.indexOf(b.id);return(x<0?100:x)-(y<0?100:y);}).filter(t=>(catalogCategory==='all'||t.category===catalogCategory)&&(!query||query.split(/\s+/).every(word=>searchable(`${t.title} ${t.description} ${translate(t.title)} ${translate(t.description)} ${MISSION_CATEGORIES.find(c=>c.id===t.category)?.label || ''} ${translate(MISSION_CATEGORIES.find(c=>c.id===t.category)?.label || '')}`).includes(word))));
   $('mission-template-grid').replaceChildren();
   $('catalog-count').textContent=`${templates.length} ${templates.length===1?'idée':'idées'} pour démarrer`;
   $('catalog-empty').hidden=!!templates.length;
@@ -557,8 +684,46 @@ $('close-wizard').addEventListener('click',()=>$('mission-wizard-dialog').close(
 $('mission-wizard-dialog').addEventListener('close',()=>{missionWizard.close();const previous=wizardReturnPanel;wizardReturnPanel=null;if(previous)openPanel(previous);});
 $('open-missions-folder').addEventListener('click',async()=>{try{await request('/api/open-data',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch(error){showError(error.message);}});
 $('connect-provider').addEventListener('click',async()=>{
-  try{await request(`/api/providers/${encodeURIComponent($('provider-select').value)}/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});await refreshState();}catch(error){$('login-message').textContent=error.message;$('login-message').hidden=false;}
+  try{await startProviderConnection($('provider-select').value,{renew:true});}catch(error){$('login-message').textContent=error.message;$('login-message').hidden=false;}
 });
+$('refresh-providers').addEventListener('click',async()=>{const button=$('refresh-providers');button.disabled=true;try{await refreshProviders();}catch(error){$('login-message').textContent=error.message;$('login-message').hidden=false;}finally{button.disabled=false;}});
+$('guided-provider').addEventListener('change',updateGuidedConnection);
+$('guided-connect').addEventListener('click',async()=>{try{await startProviderConnection($('guided-provider').value);}catch(error){$('guided-login-message').textContent=error.message;}});
+$('ambience-mode').addEventListener('change',()=>{const mode=$('ambience-mode').value;if(mode==='auto')pixelWorld?.interact('auto');else pixelWorld?.setAmbienceMode(mode);});
+welcomeGuide=new WelcomeGuide({getState:()=>state,onChooseProvider:id=>{$('provider-select').value=id;updateForm();},onConnect:startProviderConnection,onRefresh:refreshProviders,onClose:dismissWelcome,onAction:action=>{
+  if(action==='demo')launch('demo');
+  else if(action==='connectors')connectorsDialog.open();
+  else if(action==='automations')automationsDialog.open();
+  else if(action==='team-example'){newMission();$('team-size').value='15';$('mission-input').value='Crée un jeu de puzzle jouable dans mon navigateur, avec trois niveaux, une interface dessin animé et un mode d’emploi. Répartis le projet entre recherche, rédaction, code, design et analyse, avec des contributions complémentaires et des fichiers vérifiés.';}
+  else openPanel(action);
+}});
+for(const id of ['hud-guide','replay-guide'])$(id).addEventListener('click',()=>{closeMemberForNavigation();closeOfficePanel({restoreFocus:false});welcomeGuide.open();dismissWelcome();});
+officeSpeech=new OfficeSpeech({onChange:info=>{
+  $('hud-voice').setAttribute('aria-pressed',String(info.enabled));$('hud-voice').textContent=info.enabled?'♪':'♩';$('hud-voice').setAttribute('aria-label',info.enabled?'Couper les voix':'Activer les voix');$('voice-enabled').checked=info.enabled;
+  $('voice-status').textContent=info.error||info.message;
+  $('speech-stop').hidden=!info.speaking&&!info.preparing;
+  pixelWorld?.setSpeaking(info.speaking?info.role:null);
+  if(info.text){$('speech-caption').hidden=false;$('speech-name').textContent=getRole(info.role).name;$('speech-text').textContent=info.text;}
+  voiceDialog?.refresh();
+},onVoices:voices=>{const selected=$('voice-select').value;const auto=node('option','','Automatique · une voix par personnage');auto.value='auto';$('voice-select').replaceChildren(auto);for(const voice of voices){if(voice.installed===false)continue;const option=node('option','',`${voice.name} · ${voice.lang}`);option.value=voice.id||voice.name;$('voice-select').append(option);}if([...$('voice-select').options].some(o=>o.value===selected))$('voice-select').value=selected;}});
+$('voice-select').value=officeSpeech.voiceName;
+voiceDialog=new VoiceDialog({getSpeech:()=>officeSpeech});
+$('open-voice-settings').addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});voiceDialog.open();});
+$('hud-voice').addEventListener('click',()=>{if(officeSpeech.available&&officeSpeech.engine!=='captions')officeSpeech.setEnabled(!officeSpeech.enabled);else{closeOfficePanel({restoreFocus:false});voiceDialog.open();}});
+$('voice-enabled').addEventListener('change',()=>officeSpeech.setEnabled($('voice-enabled').checked));
+$('voice-select').addEventListener('change',()=>officeSpeech.setVoice($('voice-select').value));
+$('voice-test').addEventListener('click',()=>{officeSpeech.setEnabled(true);officeSpeech.speak('oscar','Bonjour, moi c’est Oscar ! Une idée, une équipe, et on se met au travail.');});
+$('speech-stop').addEventListener('click',()=>officeSpeech.stop());
+$('speech-close').addEventListener('click',()=>{officeSpeech.stop();$('speech-caption').hidden=true;});
+startI18n();
+const LANGUAGE_FLAGS={fr:'🇫🇷',en:'🇬🇧',nl:'🇳🇱'};
+function updateLanguageMenu(){const locale=getLocale();$('hud-language-flag').textContent=LANGUAGE_FLAGS[locale];for(const button of document.querySelectorAll('[data-hud-locale]'))button.setAttribute('aria-pressed',String(button.dataset.hudLocale===locale));}
+for(const button of document.querySelectorAll('[data-hud-locale]'))button.addEventListener('click',()=>{setLocale(button.dataset.hudLocale);$('hud-language').open=false;$('hud-language').querySelector('summary').focus();});
+document.addEventListener('click',event=>{if(!$('hud-language').contains(event.target))$('hud-language').open=false;});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('hud-language').open){$('hud-language').open=false;$('hud-language').querySelector('summary').focus();}});
+document.addEventListener('oscar:language',updateLanguageMenu);updateLanguageMenu();
+document.addEventListener('oscar:language',()=>{renderCatalog();lastMemberSignature='';renderMission();$('mission-history').dataset.signature='';renderHistory();});
+document.addEventListener('keydown',event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'&&!document.querySelector('dialog[open]:not(#office-panel)')){event.preventDefault();catalogCategory='all';for(const filter of $('catalog-filters').children)filter.setAttribute('aria-pressed',String(filter.dataset.category==='all'));renderCatalog();openPanel('catalog');}});
 
 renderAll();
 refreshState();

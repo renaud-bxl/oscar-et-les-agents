@@ -1,3 +1,6 @@
+import { EXTRA_TEMPLATES } from './mission-extras.js';
+import { getLocale, translate } from './i18n.js';
+
 const answer = (answers, key, fallback = 'À proposer selon le contexte') => {
   const value = answers?.[key];
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
@@ -16,6 +19,7 @@ export const MISSION_CATEGORIES = [
   {id:'games',label:'Jeux vidéo'}, {id:'communication',label:'Communication'},
   {id:'design',label:'Design'}, {id:'analysis',label:'Recherche & analyse'},
   {id:'organisation',label:'Organisation'},
+  {id:'parliament',label:'Parlement & institutions'}, {id:'writing',label:'Écriture & livres'},
 ];
 const DEFAULT_CATEGORIES = {
   'reseaux-sociaux':'communication','site-internet':'software','concurrents':'analysis',
@@ -261,9 +265,31 @@ export const MISSION_TEMPLATES = [
     buildPrompt: a => mission('Prépare le script de mon prochain épisode de podcast.', `Sujet : ${answer(a, 'sujet')}\nAuditeurs : ${answer(a, 'auditeurs')}\nFormat : ${answer(a, 'format')}\nDurée : ${answer(a, 'duree')}\nPoints souhaités : ${answer(a, 'points')}`, 'Prépare un déroulé minuté, une introduction accrocheuse, un script oral complet adapté au format et une conclusion. Pour une interview, rédige les questions et relances sans inventer les réponses ni les propos de l’invité. Ajoute un titre, une description et les sources utiles dans un document Markdown.', 'La longueur et le rythme doivent correspondre à la durée souhaitée. Les affirmations factuelles doivent être sourcées. Les transitions doivent être naturelles et les mots faciles à prononcer. N’imite aucune personne réelle et ne génère ni ne publie d’enregistrement.', true),
   },
   ...EXPANDED_TEMPLATES,
+  ...EXTRA_TEMPLATES,
 ].map(template=>({...template,category:template.category || DEFAULT_CATEGORIES[template.id] || 'organisation'}));
 
 let wizardNumber = 0;
+
+/** Translate labels and predefined choices, never the user's own writing. */
+export function buildWizardSummary(template, answers = {}, locale = getLocale()) {
+  if (locale === 'fr') return template.buildPrompt(answers);
+  const context = template.questions.map(question => {
+    const value = typeof answers[question.id] === 'string' ? answers[question.id].trim() : '';
+    const displayed = value ? (question.options?.includes(value) ? translate(value, locale) : value) : translate('À préciser avec Oscar', locale);
+    return `${translate(question.label, locale)}\n${displayed}`;
+  }).join('\n\n');
+  return `${translate(template.title, locale)}\n${translate(template.description, locale)}\n\n${translate('MON CONTEXTE', locale)}\n${context}`;
+}
+
+/** Keep the model's deliverables and validation rules outside the editable summary. */
+export function buildWizardSubmission(template, answers, summary, locale = getLocale()) {
+  if (locale === 'fr') return summary;
+  const instructions = template.buildPrompt(answers);
+  const marker = '\n\nCE QUE J’ATTENDS\n';
+  const index = instructions.indexOf(marker);
+  const requirements = index < 0 ? instructions : instructions.slice(index + 2);
+  return `${summary}\n\nCONSIGNES COMPLÉMENTAIRES DU MODÈLE\n${requirements}\n\nAdapte les livrables aux précisions et corrections du résumé ci-dessus. Ne rétablis pas une ancienne réponse que l’utilisateur a modifiée dans son résumé. Rédige la mission et ses livrables dans la langue du résumé, en conservant les noms propres et les chemins techniques.`;
+}
 
 /** A dedicated container hosts the wizard. This class only collects a brief. */
 export class MissionWizard {
@@ -277,6 +303,12 @@ export class MissionWizard {
     this.session = 0;
     this.destroyed = false;
     this.root = null;
+    this.onLanguageChange = () => {
+      if (!this.root) return;
+      if (this.summaryText !== null && this.summaryText === this.generatedSummaryText) this.summaryText = null;
+      this.render();
+    };
+    this.document.addEventListener('oscar:language', this.onLanguageChange);
   }
 
   open(templateId) {
@@ -289,6 +321,8 @@ export class MissionWizard {
     this.answers = {};
     this.step = 0;
     this.summaryText = null;
+    this.generatedSummaryText = null;
+    this.summaryLocale = getLocale();
     this.busy = false;
     this.container.hidden = false;
     this.render();
@@ -307,6 +341,7 @@ export class MissionWizard {
 
   destroy() {
     this.close();
+    this.document.removeEventListener('oscar:language', this.onLanguageChange);
     this.destroyed = true;
     this.answers = {};
     this.template = null;
@@ -376,8 +411,12 @@ export class MissionWizard {
       input = this.element('textarea', 'wizard-input');
       input.rows = 13;
       input.maxLength = 16000;
-      input.value = this.summaryText ?? this.template.buildPrompt(this.answers);
-      this.summaryText = input.value;
+      if (this.summaryText === null) {
+        this.summaryLocale = getLocale();
+        this.summaryText = buildWizardSummary(this.template, this.answers, this.summaryLocale);
+        this.generatedSummaryText = this.summaryText;
+      }
+      input.value = this.summaryText;
       input.addEventListener('input', () => { this.summaryText = input.value; input.removeAttribute('aria-invalid'); this.error.hidden = true; });
       form.append(label, input);
     } else {
@@ -457,10 +496,11 @@ export class MissionWizard {
   }
 
   async complete(input) {
-    const prompt = input.value.trim();
-    if (!prompt) { this.showError('Écrivez une mission avant de la confier à Oscar.', input); return; }
+    const summary = input.value.trim();
+    if (!summary) { this.showError('Écrivez une mission avant de la confier à Oscar.', input); return; }
+    const prompt = buildWizardSubmission(this.template, this.answers, summary, this.summaryLocale);
     if (prompt.length > 16000) { this.showError('La mission est trop longue. Gardez au maximum 16 000 caractères.', input); return; }
-    this.summaryText = prompt;
+    this.summaryText = summary;
     const session = this.session;
     const template = this.template;
     this.busy = true;
