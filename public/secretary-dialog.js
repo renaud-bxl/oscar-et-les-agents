@@ -1,4 +1,4 @@
-import { translate, withLocaleInstruction } from './i18n.js';
+import { getLocale, translate, withLocaleInstruction } from './i18n.js';
 import { DraftStorage } from './draft-storage.js';
 
 const node = (tag, className, text) => { const element = document.createElement(tag); if (className) element.className = className; if (text !== undefined) element.textContent = String(text); return element; };
@@ -57,7 +57,7 @@ export class SecretaryDialog {
     Object.assign(this, { request, getState, getProfile, onMission, onAutomations, onConnectors, onClose, onActivity, onDictate });
     this.mode = 'mail'; this.drafts = { mail: translate(MODES.mail.prompt), calendar: translate(MODES.calendar.prompt), service: '', free: '' }; this.connections = []; this.connectionClients = {}; this.entries = []; this.directMissions = new Map(); this.verified = false; this.epoch = 0; this.lastActivity = ''; this.backgroundNeeded = false; this.locationToken = 0;
     this.dialog = node('dialog', 'secretary-dialog'); this.dialog.id = 'secretary-dialog'; this.dialog.setAttribute('aria-labelledby', 'secretary-title'); this.dialog.addEventListener('close', () => { if (!this.dialog.open) this.closed(); });
-    this.onLanguage=()=>{this.renderConnections();this.update();};document.addEventListener('oscar:language',this.onLanguage);
+    this.onLanguage=()=>{this.renderConnections();this.renderAnswers();this.update();};document.addEventListener('oscar:language',this.onLanguage);
     this.draftStore=draftStore;
     document.body.append(this.dialog); this.build(); this.restoreDraft(); this.update();
   }
@@ -70,7 +70,7 @@ export class SecretaryDialog {
     for (const [id, mode] of Object.entries(MODES)) { const button = this.button(`${mode.icon} ${mode.label}`,'secretary-tab',()=>this.choose(id)); button.dataset.secretaryMode = id; this.tabs[id] = button; tabs.append(button); }
     this.heading = node('h3','secretary-section-title'); this.form = node('form','secretary-form'); this.form.addEventListener('submit',event=>{event.preventDefault();this.submit(false);});
     const client = node('label','secretary-field');client.append(node('span','','Le moteur de Zoé'));this.client=node('select');this.client.id='secretary-client';
-    for(const [id,label]of [['auto','Automatique · mes connexions existantes'],['codex','Codex · ChatGPT'],['claude','Claude Code']]){const option=node('option','',label);option.value=id;this.client.append(option);}this.client.addEventListener('change',()=>{this.pendingService=null;this.pendingRecord=null;this.requestChanged();this.renderConnections();this.update();});client.append(this.client);
+    for(const [id,label]of [['auto','Automatique · mes connexions existantes'],['codex','Codex · ChatGPT'],['claude','Claude Code']]){const option=node('option','',label);option.value=id;this.client.append(option);}this.client.addEventListener('change',()=>{this.pendingService=null;this.pendingRecord=null;this.requestChanged();this.renderConnections();this.renderAnswers();this.update();});client.append(this.client);
     const connection = node('label','secretary-field');this.connectionField=connection; connection.append(node('span','','Le service en lecture')); this.connection = node('select'); this.connection.id='secretary-connection'; this.connection.addEventListener('change',()=>{this.pendingService=null;this.pendingRecord=null;this.requestChanged();this.update();}); connection.append(this.connection);
     this.connectionNote = node('p','secretary-connection-note'); this.connectionNote.setAttribute('role','status');
     const prompt = node('label','secretary-field'); prompt.append(node('span','','Ce que Zoé doit préparer')); this.prompt = node('textarea'); this.prompt.id='secretary-prompt'; this.prompt.rows=6; this.prompt.maxLength=12000; this.prompt.required=true; this.prompt.value=this.drafts.mail; this.prompt.placeholder='Précisez le sujet, vos priorités et le résultat attendu.';
@@ -98,7 +98,7 @@ export class SecretaryDialog {
   available() { return secretaryConnections(this.connections,{client:this.client.value,mode:this.mode}); }
   selectService(connection) {
     if(this.destroyed||this.submitting||!['codex','claude'].includes(connection?.client)||typeof connection.name!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/u.test(connection.name))return false;
-    this.pendingService={client:connection.client,name:connection.name};this.client.value=connection.client;this.pendingRecord=null;this.requestChanged();this.renderConnections();this.update();if(this.pendingService&&!this.connectorsRefresh)this.refreshConnections();return true;
+    this.pendingService={client:connection.client,name:connection.name};this.client.value=connection.client;this.pendingRecord=null;this.requestChanged();this.renderConnections();this.renderAnswers();this.update();if(this.pendingService&&!this.connectorsRefresh)this.refreshConnections();return true;
   }
   connectionChoice(items,chosen=this.connection.value) {
     if(this.pendingService){const target=items.find(row=>row.client===this.pendingService.client&&row.name===this.pendingService.name);if(!target)return '';this.pendingService=null;return connectionKey(target);}
@@ -125,7 +125,7 @@ export class SecretaryDialog {
   saveDraft(){if(this.draftConfirmed)return;const saved=this.draftStore.write('secretary',{text:this.prompt.value,mode:this.mode,provider:this.client.value,...(this.pendingRequest?.hash?{requestId:this.pendingRequest.id,requestHash:this.pendingRequest.hash}:{})});this.draftMessage.textContent=translate(saved?'Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.':'Votre navigateur ne peut pas conserver ce brouillon. Gardez cette fenêtre ouverte.');}
   requestChanged(){this.pendingRequest=null;this.draftConfirmed=false;this.saveDraft();}
   async requestIdentity(body){const signature=JSON.stringify(body);let hash=null;try{if(globalThis.crypto?.subtle)hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(signature))),byte=>byte.toString(16).padStart(2,'0')).join('');}catch{}if(this.pendingRequest&&(hash?this.pendingRequest.hash===hash:this.pendingRequest.signature===signature))return this.pendingRequest.id;const id=globalThis.crypto?.randomUUID?.()||`request_${Date.now()}_${Math.random().toString(36).slice(2)}`;this.pendingRequest={id,hash,signature};this.draftConfirmed=false;this.saveDraft();return id;}
-  choose(mode) { if(this.submitting)return;this.pendingService=null;this.drafts[this.mode]=this.prompt.value;this.mode=mode;this.prompt.value=this.drafts[mode];this.pendingRecord=null;this.requestChanged();this.renderConnections();this.update();this.prompt.focus({preventScroll:true}); }
+  choose(mode) { if(this.submitting)return;this.pendingService=null;this.drafts[this.mode]=this.prompt.value;this.mode=mode;this.prompt.value=this.drafts[mode];this.pendingRecord=null;this.requestChanged();this.renderConnections();this.renderAnswers();this.update();this.prompt.focus({preventScroll:true}); }
   update() {
     this.heading.textContent=MODES[this.mode].title;for(const[id,button]of Object.entries(this.tabs)){button.setAttribute('aria-pressed',String(id===this.mode));button.disabled=Boolean(this.submitting);}
     const free=this.mode==='free',selected=this.selectedConnection(),ready=free?this.providerReady(this.freeProvider()):this.verified&&selected&&this.providerReady(selected.client);
@@ -150,13 +150,15 @@ export class SecretaryDialog {
     this.work.textContent=direct?'Zoé prépare votre réponse. Vous pouvez continuer à utiliser le bureau.':running?'Zoé suit une mission réellement en cours.':own.length?'Vos routines sont conservées dans le centre des automatisations.':'Les missions réelles de Zoé apparaîtront ici.';
   }
   renderAnswers(){
-    const signature=JSON.stringify([...this.directMissions.values()].map(m=>[m.id,m.status,m.phase,m.result,m.error,m.files]));if(signature===this.answersSignature)return;
+    const missions=[...this.directMissions.values()].filter(mission=>mission.assistantMode===this.mode&&(this.client.value==='auto'||mission.provider===this.client.value)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+    const signature=JSON.stringify([getLocale(),this.mode,this.client.value,missions.map(m=>[m.id,m.provider,m.assistantMode,m.title,m.status,m.phase,m.result,m.error,m.files])]);if(signature===this.answersSignature)return;
     const expanded=this.answers.querySelector('.secretary-previous')?.open,focused=document.activeElement?.closest('[data-secretary-action]'),focusKey=focused&&this.answers.contains(focused)?{id:focused.closest('[data-mission-id]')?.dataset.missionId,action:focused.dataset.secretaryAction}:null;
-    this.answersSignature=signature;this.answers.replaceChildren();this.answers.hidden=!this.directMissions.size;
+    this.answersSignature=signature;this.answers.replaceChildren();this.answers.hidden=!missions.length;
     const previous=node('details','secretary-previous');previous.open=Boolean(expanded);previous.append(node('summary','','Réponses précédentes'));let index=0;
-    for(const mission of [...this.directMissions.values()].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))){
+    for(const mission of missions){
       const card=node('article','secretary-answer');card.dataset.missionId=mission.id;const heading=node('h4','',mission.title||translate('Votre demande à Zoé'));heading.dataset.noTranslate='';
-      const status=node('p','secretary-answer-status',translate(mission.phase||'Zoé prépare votre réponse'));status.setAttribute('role','status');card.append(heading,status);
+      const engine=mission.provider==='codex'?'Codex · ChatGPT':mission.provider==='claude'?'Claude Code':'';
+      const status=node('p','secretary-answer-status',translate(mission.phase||'Zoé prépare votre réponse'));status.setAttribute('role','status');card.append(heading);if(engine)card.append(node('small','secretary-answer-engine',engine));card.append(status);
       if(mission.result){const answer=node('div','secretary-answer-text');answer.dataset.noTranslate='';renderAssistantAnswer(answer,mission.result);card.append(answer);}
       if(mission.error){const error=node('p','secretary-error',mission.error);error.dataset.noTranslate='';card.append(error);}
       const actions=node('div','secretary-answer-actions'),open=this.button('Ouvrir la demande et ses fichiers','secretary-link',()=>{this.close();Promise.resolve(this.onMission(mission.id)).catch(()=>{this.open();this.showError('Cette vue n’a pas pu être ouverte. Votre demande est conservée.');});});open.dataset.secretaryAction='open';actions.append(open);

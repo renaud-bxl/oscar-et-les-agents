@@ -9,6 +9,20 @@ const calendar={...gmail,name:'calendar',displayName:'Google Calendar',readOnlyA
 const drive={...gmail,name:'google_drive',displayName:'Google Drive',readOnlyAutomation:{available:true,service:'app'}};
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return{promise,resolve,reject};};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
+function answerDom(){
+ class Element{
+  constructor(tag){this.tagName=tag.toUpperCase();this.children=[];this.dataset={};this.className='';this._text='';}
+  set textContent(value){this._text=String(value);this.children=[];}
+  get textContent(){return this._text+this.children.map(child=>child.textContent||'').join('');}
+  append(...children){this.children.push(...children);}
+  replaceChildren(...children){this.children=[...children];this._text='';}
+  setAttribute(){}
+  addEventListener(){}
+  querySelector(selector){return this.children.flatMap(child=>[child,...(child.descendants?.()||[])]).find(child=>selector.startsWith('.')&&child.className?.split(' ').includes(selector.slice(1)))||null;}
+  descendants(){return this.children.flatMap(child=>[child,...(child.descendants?.()||[])]);}
+ }
+ return {activeElement:null,createElement:tag=>new Element(tag),createTextNode:text=>({textContent:String(text)})};
+}
 function harness(request=async()=>({})){
   const dialog=Object.create(SecretaryDialog.prototype);
   Object.assign(dialog,{request,epoch:1,dialog:{open:true,close(){this.open=false;}},connections:[],connectionClients:{},verified:false,entries:[],directMissions:new Map(),client:{value:'codex'},mode:'mail',connection:{value:'codex:gmail'},schedule:{value:'immediate'},scheduleTime:{value:'02:00'},prompt:{value:'Préparer une synthèse.'},region:{value:''},getProfile:()=>({}),getState:()=>({providers:[{id:'codex',available:true,auth:{loggedIn:true,method:'chatgpt'}}]}),form:{reportValidity:()=>true},runButton:{disabled:false},error:{hidden:true},notice:{hidden:true},draftStore:{remove(){}},draftMessage:{},answers:{scrollIntoView(){}},locateButton:{},onClose(){},renderConnections(){},renderAnswers(){},update(){},activity(){},poll(){},requestIdentity:async()=> 'request_picker_123'});
@@ -29,6 +43,26 @@ test('a verified Claude Drive connection belongs to My services and never to mai
  assert.deepEqual(secretaryConnections([gmail,claudeDrive],{client:'claude',mode:'service'}),[claudeDrive]);
  for(const mode of ['mail','calendar'])assert.deepEqual(secretaryConnections([claudeDrive],{client:'claude',mode}),[]);
  assert.deepEqual(secretaryConnections([{...claudeDrive,stale:true}],{client:'claude',mode:'service'}),[]);
+});
+
+test('answer cards follow the current mode and explicit engine, with engine labels and an intact history',()=>{
+ const original=globalThis.document;globalThis.document=answerDom();
+ try{
+  const dialog=harness();dialog.mode='service';dialog.answers=document.createElement('section');dialog.renderAnswers=SecretaryDialog.prototype.renderAnswers;
+  const codex={id:'codex-drive',assistantMode:'service',provider:'codex',createdAt:1,title:'Drive Codex',status:'completed',result:'Réponse Drive Codex.'},mail={...codex,id:'codex-mail',assistantMode:'mail',createdAt:2,title:'Mails Codex',result:'Réponse Gmail.'};
+  dialog.directMissions=new Map([[codex.id,codex],[mail.id,mail]]);dialog.renderAnswers();assert.equal(dialog.answers.hidden,false);assert.match(dialog.answers.textContent,/Drive Codex/);assert.doesNotMatch(dialog.answers.textContent,/Mails Codex/);assert.equal(dialog.answers.querySelector('.secretary-answer-engine').textContent,'Codex · ChatGPT');
+  const codexSignature=dialog.answersSignature;dialog.client.value='claude';dialog.renderAnswers();assert.notEqual(dialog.answersSignature,codexSignature);assert.equal(dialog.answers.hidden,true);assert.equal(dialog.answers.children.length,0);
+  const claude={...codex,id:'claude-drive',provider:'claude',createdAt:3,title:'Drive Claude',result:'Réponse Drive Claude.'};dialog.directMissions.set(claude.id,claude);dialog.renderAnswers();assert.equal(dialog.answers.hidden,false);assert.match(dialog.answers.textContent,/Drive Claude/);assert.doesNotMatch(dialog.answers.textContent,/Drive Codex/);assert.equal(dialog.answers.querySelector('.secretary-answer-engine').textContent,'Claude Code');
+  dialog.mode='mail';dialog.renderAnswers();assert.equal(dialog.answers.hidden,true);assert.doesNotMatch(dialog.answers.textContent,/Drive/);
+  dialog.client.value='auto';dialog.renderAnswers();assert.match(dialog.answers.textContent,/Mails Codex/);assert.doesNotMatch(dialog.answers.textContent,/Drive/);
+  dialog.mode='service';dialog.renderAnswers();assert.match(dialog.answers.textContent,/Drive Codex/);assert.match(dialog.answers.textContent,/Drive Claude/);assert.equal(dialog.directMissions.size,3);assert.deepEqual(dialog.directMissions.get(codex.id),codex);
+ }finally{if(original===undefined)delete globalThis.document;else globalThis.document=original;}
+});
+
+test('choosing a mode or an exact service immediately rerenders the matching answer cards',()=>{
+ const dialog=harness(),renders=[];dialog.drafts={mail:'Mails',service:'Services'};dialog.prompt.focus=()=>{};dialog.requestChanged=()=>{};dialog.renderAnswers=()=>renders.push([dialog.mode,dialog.client.value]);dialog.connections=[drive,{...drive,client:'claude',name:'claude-drive'}];dialog.refreshConnections=()=>{};
+ dialog.choose('service');assert.deepEqual(renders,[['service','codex']]);
+ assert.equal(dialog.selectService({client:'claude',name:'claude-drive'}),true);assert.deepEqual(renders,[['service','codex'],['service','claude']]);
 });
 
 test('Gmail is displayed while Codex is checking and a routine request is still pending',async()=>{
