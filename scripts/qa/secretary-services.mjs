@@ -55,10 +55,13 @@ try{
  assert.equal(await page.locator('.secretary-run').isEnabled(),false);
  assert.equal(await page.locator('#secretary-connection option[value="codex:qa-gmail"]').count(),0);
  snapshot.connections=structuredClone(confirmed);
- await page.waitForFunction(()=>document.querySelector('#secretary-connection').value==='codex:qa-gmail',null,{timeout:7000});
+ await page.waitForFunction(()=>Boolean(document.querySelector('#secretary-connection option[value="codex:qa-gmail"]')),null,{timeout:7000});
+ assert.equal(await page.locator('#secretary-connection').inputValue(),'');
+ assert.equal(await page.locator('.secretary-run').isEnabled(),false);
+ await page.locator('#secretary-connection').selectOption('codex:qa-gmail');
  assert.equal(await page.locator('.secretary-run').isEnabled(),true);
  assert.equal(routinesReleased,false);
- record('Automatic updates remove a stale Gmail authorization and restore a newly confirmed snapshot',{snapshots});
+ record('Automatic updates remove a stale Gmail authorization and require an explicit choice when it returns',{snapshots});
  releaseRoutines();
 
  snapshot.clients={codex:{available:true,status:'available'},claude:{available:true,status:'failed'}};

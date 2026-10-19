@@ -40,6 +40,18 @@ test('robotic system voices require an explicit engine choice, including with le
  const{speech,utterances}=fixture({stored:{enabled:true,voice:'System voice'}});await speech.ready;assert.equal(speech.engine,'natural');assert.equal(speech.speak('oscar','Bonjour'),false);
  speech.setEngine('system');assert.equal(speech.speak('oscar','Bonjour'),true);assert.equal(utterances[0].voice.name,'System voice');speech.destroy();
 });
+test('system playback is heard only after its real start event, never on request or error',async()=>{
+ const {speech,utterances}=fixture();await speech.ready;speech.setEngine('system');
+ speech.speak('oscar','Une préécoute.');assert.equal(speech.getState().preparing,true);assert.equal(speech.getState().speaking,false);
+ utterances[0].onerror({error:'not-allowed'});assert.equal(speech.getState().speaking,false);assert.equal(speech.current,null);
+ speech.speak('oscar','Une deuxième préécoute.');utterances[0].onstart();assert.equal(speech.getState().speaking,false,'a stale start cannot attest the next voice');
+ utterances[1].onstart();assert.equal(speech.getState().speaking,true);assert.equal(speech.getState().preparing,false);speech.destroy();
+});
+test('a system voice which never starts times out to captions without claiming an audition',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const {speech,changes}=fixture();await speech.ready;speech.setEngine('system');speech.speak('oscar','Une préécoute silencieuse.');
+ t.mock.timers.tick(15000);assert.equal(speech.current,null);assert.equal(speech.getState().speaking,false);assert.equal(changes.at(-1).caption,true);assert.match(changes.at(-1).error,/n’a pas démarré/u);speech.destroy();
+});
 test('mute cancels playback and persists preferences and character choices',async()=>{
  const{speech,audio,saved}=fixture();await speech.ready;speech.setCharacterVoice('zoe','fr-jessica');speech.speak('zoe','Une réplique.');await tick();assert.equal(audio.length,1);speech.setEnabled(false);assert.equal(speech.current,null);assert.equal(audio[0].paused,true);assert.equal(speech.speak('oscar','Bonjour'),false);const value=JSON.parse(saved.get('oscar-voice-v1'));assert.equal(value.enabled,false);assert.equal(value.characters.zoe,'fr-jessica');speech.destroy();
 });

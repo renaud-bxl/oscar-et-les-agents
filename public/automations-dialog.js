@@ -14,7 +14,7 @@ const element=(tag,className,text)=>{const node=document.createElement(tag);if(c
 const requestJson=async(url,options={})=>{
   const response=await fetch(url,{credentials:'same-origin',...options});let data;
   try{data=await response.json();}catch{throw new Error('Le bureau a renvoyé une réponse inattendue.');}
-  if(!response.ok)throw new Error(data.error||'Cette action n’a pas pu être réalisée.');return data;
+  if(!response.ok)throw Object.assign(new Error(data.error||'Cette action n’a pas pu être réalisée.'),{status:response.status});return data;
 };
 const TEMPLATE_SLOT=/\[(?:votre|vos|your|je|jouw)\b[^\]\n]*\]/giu;
 export const routineTemplate=(template,subject,locale=getLocale())=>translate(template,locale).replace(TEMPLATE_SLOT,()=>String(subject||'').trim()||translate('le sujet indiqué ci-dessus',locale));
@@ -23,7 +23,7 @@ export class AutomationsDialog {
   constructor({request=requestJson,getState=()=>({providers:[]}),onMission=()=>{},onClose=()=>{},draftStore=new DraftStorage()}={}) {
     Object.assign(this,{request,getState,onMission,onClose,draftStore});
     this.number=++instanceNumber;this.data={automations:[],timezone:'',requiresRunning:true};this.connections=[];this.connectionsError=false;
-    this.opened=false;this.destroyed=false;this.epoch=0;this.loadSequence=0;this.timer=null;this.busy=false;this.loading=false;this.loaded=false;this.editingId=null;this.selectedPreset=null;this.pendingDelete=null;this.listSignature='';
+    this.opened=false;this.destroyed=false;this.epoch=0;this.loadSequence=0;this.timer=null;this.busy=false;this.loading=false;this.loaded=false;this.editingId=null;this.selectedPreset=null;this.pendingDelete=null;this.pendingRequest=null;this.listSignature='';
     this.previewSequence=0;this.previewSignature='';this.previewState='idle';this.previewData=null;
     this.build();this.restoreDraft();this.updateForm();
     this._onClose=()=>{if(!this.dialog.open)this.finishedClosing();};
@@ -112,15 +112,17 @@ export class AutomationsDialog {
     for(const number of[1,2,3,4,5,6,0]){const option=element('option','',new Intl.DateTimeFormat(LOCALES[getLocale()],{weekday:'long',timeZone:'UTC'}).format(new Date(Date.UTC(2026,0,4+number))));option.value=String(number);this.day.append(option);}this.day.value=selected;
   }
   updateForm() {
-    for(const field of this.form.querySelectorAll('input,select,textarea'))field.disabled=this.busy;
+    const locked=this.busy||Boolean(this.pendingRequest);
+    for(const field of this.form.querySelectorAll('input,select,textarea'))field.disabled=locked;
     const interval=this.frequency.value==='interval';this.timeWrapper.hidden=interval;this.dayWrapper.hidden=this.frequency.value!=='weekly';this.intervalWrapper.hidden=!interval;
-    this.time.disabled=this.busy||interval;this.time.required=!interval;this.interval.disabled=this.busy||!interval;this.interval.required=interval;
-    this.connectorNote.hidden=!this.connector.checked;this.connectorWrapper.hidden=!this.connector.checked;this.connectorSelect.disabled=this.busy;this.cancelEdit.hidden=!this.editingId;this.cancelEdit.disabled=this.busy;
+    this.time.disabled=locked||interval;this.time.required=!interval;this.interval.disabled=locked||!interval;this.interval.required=interval;
+    this.connectorNote.hidden=!this.connector.checked;this.connectorWrapper.hidden=!this.connector.checked;this.connectorSelect.disabled=locked;this.cancelEdit.hidden=!this.editingId;this.cancelEdit.disabled=this.busy;
     this.topicWrapper.hidden=!this.selectedPreset&&!this.draftTopicVisible;this.topic.required=Boolean(this.selectedPreset);this.draftNote.hidden=Boolean(this.editingId);this.clearDraftButton.disabled=this.busy||!this.hasDraftText();
     this.formTitle.textContent=this.editingId?'Modifier ce rendez-vous':'Une nouvelle routine';
-    this.submit.textContent=this.busy?'Patientez…':this.editingId?'Enregistrer les modifications':this.connector.checked&&!this.connectorSelect.value?'Enregistrer · à configurer':'Enregistrer le rendez-vous';
+    this.clearDraftButton.textContent=this.pendingRequest?'Commencer une nouvelle demande':'Effacer le brouillon';
+    this.submit.textContent=this.busy?'Patientez…':this.pendingRequest?'Retrouver ma demande':this.editingId?'Enregistrer les modifications':this.connector.checked&&!this.connectorSelect.value?'Enregistrer · à configurer':'Enregistrer le rendez-vous';
     this.submit.disabled=this.busy;this.refreshButton.disabled=this.busy||(this.loading&&!this.quietRefresh);
-    for(const [id,button]of this.presetButtons){button.setAttribute('aria-pressed',String(id===this.selectedPreset));button.disabled=this.busy;}
+    for(const [id,button]of this.presetButtons){button.setAttribute('aria-pressed',String(id===this.selectedPreset));button.disabled=locked;}
     this.queuePreview();
   }
   previewSchedule(){
@@ -167,7 +169,7 @@ export class AutomationsDialog {
   hasDraftText(){return [this.labelInput?.value,this.prompt?.value,this.topic?.value].some(value=>typeof value==='string'&&value.trim());}
   saveDraft(){
     if(this.editingId)return;
-    const saved=this.hasDraftText()?this.draftStore.write('routine',{title:this.labelInput.value,text:this.prompt.value,subject:this.topic.value,provider:this.provider.value}):this.draftStore.remove('routine');
+    const saved=this.hasDraftText()?this.draftStore.write('routine',{title:this.labelInput.value,text:this.prompt.value,subject:this.topic.value,provider:this.provider.value,...(this.pendingRequest?.hash?{requestId:this.pendingRequest.id,requestHash:this.pendingRequest.hash}:{})}):this.draftStore.remove('routine');
     this.draftMessage.textContent=translate(saved?'Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.':'Votre navigateur ne peut pas conserver ce brouillon. Gardez cette fenêtre ouverte.');this.clearDraftButton.disabled=this.busy||!this.hasDraftText();
   }
   restoreDraft(){
@@ -177,17 +179,20 @@ export class AutomationsDialog {
     // A saved piece of writing is not a saved schedule or permission grant.
     this.editingId=null;this.selectedPreset=null;this.generatedPrompt=null;this.templatePrompt=null;this.draftTopicVisible=Boolean(this.topic.value);this.topicHint.textContent='Votre sujet est conservé. Vérifiez qu’il figure bien dans la mission ci-dessous.';
     this.frequency.value='';this.time.value='';this.day.value='1';this.interval.value='60';this.connector.checked=false;this.renderConnections('');this.updateProviderNote();
-    this.draftMessage.textContent=translate('Brouillon retrouvé. Choisissez le rythme et l’heure avant d’enregistrer cette routine.');
+    if(/^[a-zA-Z0-9_-]{8,100}$/.test(draft.requestId||'')&&/^[a-f0-9]{64}$/.test(draft.requestHash||''))this.pendingRequest={id:draft.requestId,hash:draft.requestHash};
+    this.draftMessage.textContent=translate(this.pendingRequest?'Cette demande de routine attend sa confirmation. Retrouvez-la ou commencez une nouvelle demande.':'Brouillon retrouvé. Choisissez le rythme et l’heure avant d’enregistrer cette routine.');
   }
   clearDraft(){
-    if(this.busy||this.editingId)return;const cleared=this.draftStore.remove('routine');this.resetForm({restore:false});this.frequency.value='';this.time.value='';this.updateForm();
+    if(this.busy||this.editingId)return;this.pendingRequest=null;const cleared=this.draftStore.remove('routine');this.resetForm({restore:false});this.frequency.value='';this.time.value='';this.updateForm();
     this.draftMessage.textContent=translate(cleared?'Brouillon effacé.':'Le navigateur n’a pas confirmé l’effacement du brouillon.');this.prompt.focus();
   }
   choosePreset(preset) {
+    if(this.pendingRequest)return;
     this.editingId=null;this.selectedPreset=preset.id;this.draftTopicVisible=false;this.topicHint.textContent='Indiquez votre thème ici : Oscar l’ajoute à la mission ci-dessous.';this.labelInput.value=translate(preset.label);this.topic.value='';this.topic.setCustomValidity('');this.templatePrompt=preset.prompt;this.generatedPrompt=routineTemplate(preset.prompt,'');this.prompt.value=this.generatedPrompt;this.frequency.value=preset.frequency;this.time.value=preset.time;this.connector.checked=!!preset.requiresConnector;this.renderConnections('');this.updateProviderNote();this.updateForm();this.showError('');this.showNotice('');this.saveDraft();this.topic.focus({preventScroll:true});
   }
   resetForm({restore=true}={}) {this.editingId=null;this.selectedPreset=null;this.draftTopicVisible=false;this.topic.value='';this.topic.setCustomValidity('');this.topicHint.textContent='Indiquez votre thème ici : Oscar l’ajoute à la mission ci-dessous.';this.generatedPrompt=null;this.templatePrompt=null;this.labelInput.value='';this.prompt.value='';this.frequency.value='daily';this.time.value='02:00';this.day.value='1';this.interval.value='60';this.connector.checked=false;this.draftMessage.textContent=translate('Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.');this.renderConnections('');if(restore)this.restoreDraft();this.updateForm();}
   edit(entry) {
+    if(this.pendingRequest){this.showError('Cette demande de routine attend sa confirmation. Retrouvez-la ou commencez une nouvelle demande.');return;}
     this.saveDraft();this.editingId=entry.id;this.selectedPreset=null;this.draftTopicVisible=false;this.topic.value='';this.topic.setCustomValidity('');this.labelInput.value=entry.label;this.prompt.value=entry.prompt;this.provider.value=entry.provider;this.frequency.value=entry.schedule.frequency;this.time.value=entry.schedule.time||'02:00';this.day.value=String(entry.schedule.dayOfWeek??1);this.interval.value=String(entry.schedule.intervalMinutes||60);this.connector.checked=!!entry.requiresConnector;this.renderConnections(entry.connectorName||'');this.updateProviderNote();this.updateForm();this.labelInput.focus();
   }
   payload() {
@@ -199,6 +204,7 @@ export class AutomationsDialog {
   }
   async save() {
     if(this.busy)return;
+    if(this.pendingRequest){await this.saveNewRoutine();return;}
     this.saveDraft();
     if(this.selectedPreset&&!this.topic.value.trim()){this.topic.setCustomValidity(translate('Indiquez le sujet de cette routine, par exemple « les commerces de Bruxelles ».'));this.topic.reportValidity();this.topic.focus();return;}
     this.topic.setCustomValidity('');if(!this.form.reportValidity())return;
@@ -207,8 +213,39 @@ export class AutomationsDialog {
     if(missing){this.showError('Dans la mission, remplacez le texte sélectionné par votre sujet, par exemple « les commerces de Bruxelles ».','form');this.prompt.focus();this.prompt.setSelectionRange(missing.index,missing.index+missing[0].length);return;}
     const editing=this.editingId;
     try{if(!editing)body.prompt=withLocaleInstruction(body.prompt);}catch(error){this.showError(error.message,'form');return;}
-    await this.mutate(editing?`/api/automations/${encodeURIComponent(editing)}`:'/api/automations',editing?'PATCH':'POST',body,()=>{if(!editing)this.draftStore.remove('routine');this.resetForm({restore:Boolean(editing)});this.showNotice('Rendez-vous enregistré. Consultez son statut et son prochain horaire.');});
+    if(!editing){await this.saveNewRoutine(body);return;}
+    await this.mutate(`/api/automations/${encodeURIComponent(editing)}`,'PATCH',body,()=>{this.resetForm();this.showNotice('Rendez-vous enregistré. Consultez son statut et son prochain horaire.');});
   }
+  async saveNewRoutine(body) {
+    if(this.busy||!this.opened)return;
+    const epoch=this.epoch;this.busy=true;this.loading=false;++this.loadSequence;this.showError('');this.showNotice('');this.updateForm();this.renderList();
+    const stale=()=>epoch!==this.epoch||!this.opened||this.destroyed;
+    try{
+      let pending=this.pendingRequest;
+      if(pending){
+        let receipt;
+        try{receipt=await this.request(`/api/automation-requests/${encodeURIComponent(pending.id)}`);}catch(error){if(error.status!==404)throw error;}
+        if(stale()||this.pendingRequest!==pending)return;
+        if(receipt?.status==='deleted'&&receipt.requestId===pending.id)throw new Error('Cette routine a été supprimée. Commencez une nouvelle demande pour en créer une autre.');
+        if(receipt){if(receipt.status!=='accepted'||!receipt.automation?.id||receipt.automation.request?.id!==pending.id)throw new Error('Le bureau n’a pas confirmé cette routine.');this.acceptRoutine();await this.refresh({quiet:true});return;}
+        if(!pending.signature)throw new Error('Aucune routine acceptée n’a été retrouvée. Commencez une nouvelle demande pour choisir son rythme et son service.');
+        body=JSON.parse(pending.signature);
+      }else{
+        const signature=JSON.stringify(body);let hash;
+        if(globalThis.crypto?.subtle)hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(signature))),byte=>byte.toString(16).padStart(2,'0')).join('');
+        if(stale())return;
+        pending={id:globalThis.crypto?.randomUUID?.()||`routine_${Date.now()}_${Math.random().toString(36).slice(2)}`,signature,hash};this.pendingRequest=pending;this.saveDraft();
+      }
+      let record;
+      try{record=await this.request('/api/automations',{method:'POST',headers:{'Content-Type':'application/json','X-Oscar-Client':'1'},body:JSON.stringify({...body,requestId:pending.id})});}
+      catch(error){if(!stale()&&error.status===400){this.pendingRequest=null;this.saveDraft();}throw error;}
+      if(stale()||this.pendingRequest!==pending)return;
+      if(typeof record?.id!=='string'||record.request?.id!==pending.id)throw new Error('Le bureau n’a pas confirmé cette routine.');
+      this.acceptRoutine();await this.refresh({quiet:true});
+    }catch(error){if(!stale())this.showError(error.message||'Cette action n’a pas pu être réalisée.');}
+    finally{if(!stale()){this.busy=false;this.updateForm();this.renderList();}}
+  }
+  acceptRoutine(){this.pendingRequest=null;this.draftStore.remove('routine');this.resetForm({restore:false});this.showNotice('Rendez-vous enregistré. Consultez son statut et son prochain horaire.');}
 
   formatDate(value,timezone=this.data.timezone) {
     if(!Number.isFinite(value)||value<=0)return translate('Pas encore exécutée');
@@ -269,7 +306,7 @@ export class AutomationsDialog {
   }
   startTimer(){if(this.timer===null&&this.opened&&!document.hidden)this.timer=setInterval(()=>{if(!this.busy&&!this.loading)this.refresh({quiet:true});},5000);}
   stopTimer(){if(this.timer!==null){clearInterval(this.timer);this.timer=null;}}
-  async open(){if(this.destroyed)return this;if(this.opened){this.closeButton.focus();return this;}this.returnFocus=document.activeElement;this.opened=true;this.busy=false;this.loading=false;this.epoch++;this.showError('');this.showNotice('');this.renderProviders();this.dialog.showModal();this.closeButton.focus();this.startTimer();await Promise.all([this.refresh(),this.refreshConnections()]);return this;}
+  async open(){if(this.destroyed)return this;if(this.opened&&this.dialog.open){this.closeButton.focus();return this;}this.cancelPreview();this.previewSignature='';this.previewState='idle';this.returnFocus=document.activeElement;this.opened=true;this.busy=false;this.loading=false;this.epoch++;this.showError('');this.showNotice('');this.renderProviders();this.dialog.showModal();this.closeButton.focus();this.startTimer();await Promise.all([this.refresh(),this.refreshConnections()]);return this;}
   finishedClosing(){if(!this.opened)return;this.opened=false;this.epoch++;this.loadSequence++;this.stopTimer();this.cancelPreview();this.previewSignature='';this.previewState='idle';if(this.returnFocus?.isConnected)this.returnFocus.focus({preventScroll:true});this.onClose();}
   close(){this.stopTimer();if(this.dialog.open)this.dialog.close();this.finishedClosing();return this;}
   destroy(){if(this.destroyed)return;this.close();this.destroyed=true;this.dialog.removeEventListener('close',this._onClose);this.dialog.removeEventListener('cancel',this._onCancel);this.dialog.removeEventListener('click',this._onBackdrop);document.removeEventListener('oscar:language',this._onLanguage);document.removeEventListener('visibilitychange',this._onVisibility);this.dialog.remove();}

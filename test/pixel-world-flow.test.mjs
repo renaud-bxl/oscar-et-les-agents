@@ -53,3 +53,50 @@ test('a second correction delivers a fresh folder before another coffee break',(
   const a=s.world.agents.get('isolated-flow:writer');
   assert.deepEqual([...a.handoffAttempts],[1,2]);
 });
+
+test('reopening a result that needs review hands over its folder and stops visual work',()=>{
+  const task={id:'researcher',role:'recherche',status:'needs_review',attempt:2};
+  const s=scene([task]);s.mission.status='needs_review';s.world.update(s.mission);
+  const original=JSON.stringify(s.mission);s.advance(120);
+  const a=s.world.agents.get('isolated-flow:researcher');
+  assert.equal(a.state,'needs_review');assert.equal(a.paper,false);assert.equal(a.mug,false);
+  assert.deepEqual([...a.handoffAttempts],[2]);
+  assert.equal(s.events.filter(e=>e.kind==='handoff').length,1);
+  assert.equal(s.events.some(e=>['approved','coffee'].includes(e.kind)),false);
+  assert.equal(JSON.stringify(s.mission),original,'the scene never approves or resumes the real task');
+});
+
+test('a final rejection after handoff waits for attention instead of returning to work',()=>{
+  const task={id:'researcher',role:'recherche',status:'working',attempt:2};
+  const s=scene([task]);s.advance(25);
+  task.status='reviewing';s.world.update(s.mission);s.advance(25);
+  assert.equal(s.events.filter(e=>e.kind==='handoff').length,1);
+  task.status='needs_review';s.mission.status='needs_review';s.world.update(s.mission);s.advance(120);
+  assert.equal(s.world.agents.get('isolated-flow:researcher').state,'needs_review');
+  assert.equal(s.events.filter(e=>e.kind==='handoff').length,1);
+  assert.equal(s.events.some(e=>['approved','coffee'].includes(e.kind)),false);
+});
+
+test('four reopened results needing review release their desks when another mission is selected',()=>{
+  for(const beforeSwitch of [12,120]) {
+    const tasks=Array.from({length:4},(_,i)=>({id:'old'+i,role:'recherche',status:'needs_review',attempt:2}));
+    const s=scene(tasks);s.mission.status='needs_review';s.world.update(s.mission);s.advance(beforeSwitch);
+    const next={id:'next-mission',status:'running',tasks:Array.from({length:4},(_,i)=>({id:'new'+i,role:'recherche',status:'working',attempt:1}))};
+    s.world.update(next);s.advance(120);
+    assert.equal([...s.world.agents.values()].some(a=>a.missionId===s.mission.id),false);
+    const current=[...s.world.agents.values()];assert.equal(current.length,4);
+    assert.ok(current.every(a=>a.visible&&a.state==='working'&&a.missionId===next.id));
+    assert.equal(s.events.filter(e=>e.kind==='handoff').length,4,'each rejected result is handed over before leaving');
+    assert.equal(s.events.filter(e=>e.kind==='exit').length,4);
+    assert.equal(s.events.some(e=>['approved','coffee'].includes(e.kind)),false);
+  }
+});
+
+test('reopened failed results hand over before departure and cancelled tasks never recruit',()=>{
+  const s=scene([{id:'failed',role:'code',status:'failed',attempt:2},{id:'cancelled',role:'design',status:'cancelled',attempt:1}]);
+  s.mission.status='failed';s.world.update(s.mission);const original=JSON.stringify(s.mission);s.advance(120);
+  assert.equal(s.world.agents.size,0);
+  assert.deepEqual(s.events.filter(e=>e.id==='failed').map(e=>e.kind),['hire','handoff','exit']);
+  assert.equal(s.events.some(e=>e.id==='cancelled'),false);
+  assert.equal(JSON.stringify(s.mission),original);
+});

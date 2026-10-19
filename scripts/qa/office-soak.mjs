@@ -12,6 +12,7 @@ import {startOfficeFixture,launchBrowser,preparePage} from './office-fixture.mjs
 const started=Date.now(),until=process.env.OSCAR_QA_UNTIL?Date.parse(process.env.OSCAR_QA_UNTIL):started+Number(process.env.OSCAR_QA_DURATION_MS||300000);
 if(!Number.isFinite(until)||until<=started||until-started>12*3600000)throw new Error('Choose a future QA deadline within twelve hours.');
 const pulseMs=Math.max(2000,Number(process.env.OSCAR_QA_PULSE_MS||300000));
+const rotateLocales=process.env.OSCAR_QA_ROTATE_LOCALES==='1',localesExercised=new Set(['fr']);
 const output=process.env.OSCAR_QA_OUTPUT||path.join(os.tmpdir(),'oscar-office-soak');await mkdir(output,{recursive:true});
 const fixture=await startOfficeFixture(),browser=await launchBrowser();
 let stopped=false,page,errors=[],external=[],pulse=0,requests=0;
@@ -30,6 +31,7 @@ try{
   await delay(Math.min(1000,until-Date.now()));
   if(Date.now()>=nextPulse){
    pulse++;nextPulse=Date.now()+pulseMs;
+   if(rotateLocales){const locale=['fr','en','nl'][pulse%3];await page.evaluate(async value=>(await import('/i18n.js')).setLocale(value),locale);localesExercised.add(locale);assert.equal(await page.locator('html').getAttribute('lang'),locale);}
    const paused=pulse%4===0;
    fixture.app.automations.update(routine.id,{enabled:!paused});
    const before=fixture.app.engine.missions.size;await fixture.advance(16*60000);
@@ -48,6 +50,6 @@ try{
   }
   if(Date.now()>=nextSample){await sample({phase:'heartbeat'});nextSample=Date.now()+45000;}
  }
- await sample({phase:'complete'});await writeFile(path.join(output,'rapport.json'),JSON.stringify({ok:true,started:new Date(started).toISOString(),finished:new Date().toISOString(),pulse,errors,external,metrics:fixture.metrics},null,2));
+ await sample({phase:'complete'});await writeFile(path.join(output,'rapport.json'),JSON.stringify({ok:true,started:new Date(started).toISOString(),finished:new Date().toISOString(),pulse,localesExercised:[...localesExercised],errors,external,metrics:fixture.metrics},null,2));
 }catch(error){await page?.screenshot({path:path.join(output,'echec.png')}).catch(()=>{});await writeFile(path.join(output,'rapport.json'),JSON.stringify({ok:false,error:error.stack,pulse,errors,external,metrics:fixture.metrics},null,2));throw error;}
 finally{await browser.close();await fixture.close();}

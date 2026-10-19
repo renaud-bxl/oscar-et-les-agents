@@ -480,6 +480,10 @@ dialog.office-panel[data-panel="settings"] { width: min(620px, calc(100vw - 48px
 .office-onboarding button:focus-visible,
 #close-office-panel:focus-visible { outline: 3px solid #83a7d7; outline-offset: 3px; }
 
+@media (max-width: 1400px) {
+  .hud-mission { grid-template-columns: minmax(0, 1fr); }
+}
+
 @media (max-width: 1000px) {
   .office-hud { grid-template-columns: minmax(135px, 1fr) minmax(0, 2fr) auto; gap: 10px; }
   .immersive-brand { gap: 9px; font-size: 16px; }
@@ -492,6 +496,14 @@ dialog.office-panel[data-panel="settings"] { width: min(620px, calc(100vw - 48px
   .immersive-office .office-dock #pixel-pause,
   .immersive-office .office-dock #pixel-fullscreen { min-width: 61px; padding-right: 10px; padding-left: 10px; font-size: 10px; }
   .office-onboarding { right: 22px; width: 280px; padding: 20px; }
+}
+
+@media (min-width: 641px) and (max-width: 900px) {
+  body.immersive-office { --office-dock-space: 165px; }
+  .office-hud { grid-template-columns: minmax(0, 1fr) auto; }
+  .hud-mission { grid-column: 1 / -1; grid-row: 2; }
+  .office-dock { right: 14px; left: 14px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); width: auto; max-width: none; transform: none; }
+  .office-dock .dock-separator { display: none; }
 }
 
 @media (max-width: 640px) {
@@ -532,6 +544,7 @@ dialog.office-panel[data-panel="settings"] { width: min(620px, calc(100vw - 48px
   .immersive-office .office-dock #pixel-fullscreen { gap: 5px; min-width: 0; min-height: 54px; padding: 7px 4px; border-radius: 12px; font-size: 10px; line-height: 1.25; white-space: normal; }
   .office-dock svg { width: 20px; height: 20px; }
   .dock-label { font-size: 10px; }
+  .office-dock .dock-label { max-width: 100%; overflow-wrap: anywhere; hyphens: auto; }
   .dock-separator { display: none; }
   .dock-count,
   .dock-badge { top: 2px; right: 6px; min-width: 15px; height: 15px; font-size: 8px; }
@@ -579,6 +592,13 @@ dialog.office-panel[data-panel="settings"] { width: min(620px, calc(100vw - 48px
   .immersive-office .demo-banner span { display: none; }
 }
 
+@media (max-width: 380px) {
+  .office-panel .phase-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
+  .office-panel .phase-steps > span { min-width: 0; font-size: 10px; white-space: normal; overflow-wrap: anywhere; }
+  .office-panel .phase-steps i { flex: 0 0 19px; }
+  .office-panel .phase-steps > b { display: none; }
+}
+
 @media (max-height: 650px) and (min-width: 641px) {
   body.immersive-office { --office-dock-space: 87px; }
   .office-hud { top: 10px; right: 14px; left: 14px; min-height: 60px; padding-top: 7px; padding-bottom: 7px; border-radius: 16px; }
@@ -623,10 +643,17 @@ dialog.office-panel[data-panel="settings"] { width: min(620px, calc(100vw - 48px
 .hud-actions .hud-language-menu button {justify-content:flex-start;font-size:14px;background:#fff}
 .hud-actions .hud-language-menu button[aria-pressed="true"] {background:#eef5ec;color:#486950;border-color:#a6bda0}
 .delivery-actions {display:flex;gap:14px;flex-wrap:wrap;margin:12px 0}
-@media(max-width:420px){.hud-actions{gap:3px}.hud-actions button,.hud-language summary{min-width:36px;min-height:40px;padding:7px}.office-hud{gap:6px}.immersive-brand{font-size:14px;gap:6px}.hud-language-menu{right:-80px}.hud-actions .hud-language-menu button{min-height:44px}}
+@media(max-width:420px){.hud-actions{gap:3px}.hud-actions button,.hud-language summary{min-width:36px;min-height:40px;padding:7px}.office-hud{gap:6px;padding-right:10px;padding-left:10px}.immersive-brand{font-size:14px;gap:6px}.hud-language-menu{right:-80px}.hud-actions .hud-language-menu button{min-height:44px}}
 
 .update-notice{position:fixed;z-index:25;top:calc(105px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:16px;max-width:calc(100vw - 32px);padding:12px 17px;border:1px solid #adc6b8;border-radius:15px;background:#f9fff9;color:#315546;box-shadow:0 8px 25px #254c3b1a;font-size:13px}.update-notice[hidden]{display:none}.update-notice button{border:0;border-radius:9px;padding:10px 13px;background:#3d6854;color:#fff;cursor:pointer;font:inherit;white-space:nowrap}.app-version{font-size:12px;color:#526d64;margin:18px 0 8px}@media(max-width:600px){.update-notice{width:calc(100vw - 40px);flex-wrap:wrap;gap:8px;top:115px;text-align:center}}
 
 .writing-draft{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0 16px;color:#49614f;font-size:.8rem;line-height:1.5}.writing-draft p{margin:0}.writing-draft button{flex-shrink:0;min-height:44px}.creative-studio .writing-draft{font-size:.85rem}.creative-studio .writing-draft .creative-return{margin:0;max-width:180px}
 @media(max-width:520px){.writing-draft{align-items:flex-start;flex-direction:column;gap:4px}}
 .history-tools{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:12px;margin:18px 0}.history-tools label{display:grid;gap:8px;color:#425b49;font-size:13px;font-weight:600;min-width:0}.history-tools input,.history-tools select{width:100%;min-width:0;min-height:44px;padding:12px;border:1px solid #b4c4b4;border-radius:12px;background:#fff;color:#243e30;font-size:16px}.history-tools input::placeholder{color:#526b58}.office-panel .history-status{color:#3d5c49;font-weight:600}.history-tools :focus-visible{outline:3px solid #517b62;outline-offset:2px}@media(max-width:420px){.history-tools{grid-template-columns:minmax(0,1fr)}}
+
+/* Small controls keep readable foregrounds on their existing light surfaces. */
+.immersive-office .office-dock [data-open-panel="catalog"],
+.immersive-office .office-dock .dock-primary { color: #825b38; }
+.immersive-office .brief-engine-switch,
+.immersive-office .brief-engine-switch > span:last-child { color: #526d8c; }
+.immersive-office .team-size-field small { color: #596e52; }

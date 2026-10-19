@@ -19,6 +19,7 @@ import { Personalization } from './lib/personalization.mjs';
 import { DocumentLibrary } from './lib/document-library.mjs';
 import { MissionArchives } from './lib/mission-archive.mjs';
 import { MissionRequests } from './lib/mission-requests.mjs';
+import { StateStream } from './lib/state-stream.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.wav': 'audio/wav' };
@@ -92,6 +93,27 @@ function inspectMissionFile(workDirectory, relative) {
   }
 }
 
+function missionDirectoryGuard(dataDirectory) {
+  const root = path.resolve(dataDirectory), initial = lstatSync(root), canonical = realpathSync(root);
+  if (!initial.isDirectory() || initial.isSymbolicLink()) throw fileError('Ce dossier n’est pas accessible.', 'MISSION_FILE_FORBIDDEN');
+  return directory => {
+    try {
+      const currentRoot = lstatSync(root), relative = path.relative(root, directory);
+      if (!currentRoot.isDirectory() || currentRoot.isSymbolicLink() || currentRoot.dev !== initial.dev || currentRoot.ino !== initial.ino || realpathSync(root) !== canonical || !relative.startsWith('missions' + path.sep) || path.isAbsolute(relative)) throw new Error('Changed mission root');
+      let current = root, expected = canonical;
+      for (const part of relative.split(path.sep)) {
+        if (!part || part === '.' || part === '..') throw new Error('Invalid mission path');
+        current = path.join(current, part); expected = path.join(expected, part);
+        const info = lstatSync(current);
+        if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(current) !== expected) throw new Error('Linked mission ancestor');
+      }
+      return directory;
+    } catch (cause) {
+      throw fileError('Ce dossier n’est pas accessible.', cause.code === 'ENOENT' ? 'MISSION_FILE_NOT_FOUND' : 'MISSION_FILE_FORBIDDEN');
+    }
+  };
+}
+
 export function resolveNativeMissionFile(workDirectory, relative) {
   const resolved = inspectMissionFile(workDirectory, relative);
   if (!NATIVE_FILE_TYPES.has(path.extname(relative).toLowerCase())) throw fileError('Ce type de fichier ne peut pas être ouvert automatiquement. Téléchargez-le pour le consulter avec un outil adapté.', 'MISSION_FILE_TYPE');
@@ -153,22 +175,24 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
   };
   const documents = documentFactory({ dataDir, onChange: () => engine?.emit('change', engine.state()) });
   await documents.ready;
+  const checkedMissionDirectory = missionDirectoryGuard(dataDir);
   const personalization = personalizationFactory({ dataDir });
   await personalization.ready;
   const connectors = connectorsFactory({ dataDir, find: findBinary, onChange: () => engine?.emit('change', engine.state()) });
   await connectors.ready;
   const exportMission = async (mission, { sourcePath, formats, template, locale, signal } = {}) => {
     if (signal?.aborted) throw new Error('Mission arrêtée.');
-    const destination = path.join(engine.workDir(mission.id), 'Livraison', 'Exports');
+    const workDirectory = checkedMissionDirectory(engine.workDir(mission.id));
+    const destination = path.join(workDirectory, 'Livraison', 'Exports');
     const generated = await documents.export({
       ...(sourcePath ? { sourcePath } : { sourceText: mission.result, sourceType: 'md' }), destination, formats, title: mission.title || 'Livraison', locale: locale || mission.locale || 'fr', signal,
-      ...(template?.path ? { templatePath: path.join(engine.workDir(mission.id), template.path), templateType: template.type, templateRevision: template.revision } : template ? { templateId: template.id, templateRevision: template.revision } : {}),
+      ...(template?.path ? { templatePath: path.join(workDirectory, template.path), templateType: template.type, templateRevision: template.revision } : template ? { templateId: template.id, templateRevision: template.revision } : {}),
     });
     if (signal?.aborted) throw new Error('Mission arrêtée.');
     if (!Array.isArray(generated?.files) || generated.files.length !== formats.length) throw fileError('Le bureau n’a pas confirmé les documents exportés.', 'DOCUMENT_INVALID');
     const files = generated.files.map(file => {
       if (typeof file.path !== 'string' || file.path !== path.basename(file.path) || !DOCUMENT_FORMATS.has(path.extname(file.path).slice(1).toLowerCase())) throw fileError('Le document exporté contient un chemin inattendu.', 'DOCUMENT_INVALID');
-      const relative = `Livraison/Exports/${file.path}`; resolveNativeMissionFile(engine.workDir(mission.id), relative);
+      const relative = `Livraison/Exports/${file.path}`; resolveNativeMissionFile(checkedMissionDirectory(workDirectory), relative);
       return { ...file, path: relative };
     });
     return { files, warnings: Array.isArray(generated.warnings) ? generated.warnings : [] };
@@ -205,17 +229,15 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
     engine.emit('change', engine.state());
   } });
   const publishing = publishingFactory({ getMission: id => engine.get(id), workDir: id => engine.workDir(id), isActive: id => engine.runs.has(id), onChange: () => engine.emit('change', engine.state()) });
-  const archives = new MissionArchives({ openFile: openMissionDownload });
+  const archives = new MissionArchives({ openFile: (directory, relative) => openMissionDownload(checkedMissionDirectory(directory), relative) });
   const archiveTasks = new Set();
   let activeArchive = null;
-  const clients = new Set();
+  const stateStream = new StateStream({ snapshot: publicSnapshot });
   const origins = new Set([`http://localhost:${port}`, `http://127.0.0.1:${port}`]);
   const hosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`]);
   const json = (res, code, value) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(value)); };
-  const push = state => { const event = `event: state\ndata: ${JSON.stringify(publicSnapshot(state))}\n\n`; for (const c of clients) if (!c.destroyed) c.write(event); };
+  const push = state => stateStream.publish(state);
   engine.on('change', push);
-  const heartbeat = setInterval(() => { for (const c of clients) c.write(': heartbeat\n\n'); }, 20000);
-  heartbeat.unref();
   const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -229,8 +251,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
       const pathname = decodeURIComponent(url.pathname);
       if (pathname === '/api/events' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
-        res.write(`event: state\ndata: ${JSON.stringify(publicSnapshot(engine.state()))}\n\n`);
-        clients.add(res); req.on('close', () => clients.delete(res)); return;
+        stateStream.add(res, engine.state()); return;
       }
       if (pathname === '/api/state' && req.method === 'GET') { json(res, 200, publicSnapshot(engine.state())); return; }
       const missionReceipt=pathname.match(/^\/api\/mission-requests\/([^/]+)$/u);
@@ -240,8 +261,28 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
         if(!receipt){json(res,404,{error:'Mission inconnue.'});return;}
         json(res,receipt.status==='accepted'?200:202,receipt);return;
       }
+      const secretaryLookup=pathname.match(/^\/api\/secretary-requests\/([^/]+)$/u);
+      if(secretaryLookup&&req.method==='GET'){
+        const requestId=secretaryLookup[1];
+        if(url.search||!/^[A-Za-z0-9_-]{8,100}$/u.test(requestId))throw fileError('L’identifiant de reprise de cette demande est invalide.','SECRETARY_INVALID');
+        const receipt=secretaryReceipt(requestId);
+        if(receipt){
+          const mission=engine.get(receipt.missionId);
+          if(!mission)throw fileError('La demande précédente ne peut plus être retrouvée. Vérifiez l’historique avant de la relancer.','SECRETARY_RETRY');
+          rememberSecretary(requestId,receipt);json(res,200,{status:'accepted',mission});return;
+        }
+        if(secretaryPending.has(requestId)){json(res,202,{status:'checking'});return;}
+        json(res,404,{error:'Demande inconnue.'});return;
+      }
       if (pathname === '/api/connectors' && req.method === 'GET') { json(res, 200, await connectors.state({ wait: false })); return; }
       if (pathname === '/api/automations' && req.method === 'GET') { json(res, 200, automations.state()); return; }
+      const automationReceipt = pathname.match(/^\/api\/automation-requests\/([^/]+)$/);
+      if (automationReceipt && req.method === 'GET') {
+        if (url.search) throw fileError('L’identifiant de reprise de cette routine n’est pas valide.', 'AUTOMATION_INVALID');
+        const receipt = automations.lookupRequest(automationReceipt[1]);
+        if (!receipt) { json(res, 404, {error:'Cette programmation est introuvable.'}); return; }
+        json(res, 200, receipt); return;
+      }
       if (pathname === '/api/voice' && req.method === 'GET') { json(res, 200, await voice.state()); return; }
       if (pathname === '/api/dictation' && req.method === 'GET') { json(res, 200, await dictation.state()); return; }
       if (pathname === '/api/profile' && req.method === 'GET') { json(res, 200, await personalization.state()); return; }
@@ -422,24 +463,30 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
           let sourcePath;
           if (body.path !== undefined && body.path !== null && body.path !== '') {
             if (typeof body.path !== 'string' || !mission.files.some(file => file.path === body.path) || !/\.(md|txt|csv|json)$/i.test(body.path)) throw fileError('Choisissez un texte connu dans les fichiers de cette mission.', 'MISSION_FILE_FORBIDDEN');
-            resolveNativeMissionFile(engine.workDir(mission.id), body.path);
-            sourcePath = path.join(engine.workDir(mission.id), body.path);
+            const directory = checkedMissionDirectory(engine.workDir(mission.id));
+            resolveNativeMissionFile(directory, body.path);
+            sourcePath = path.join(directory, body.path);
           }
-          const result = await exportMission(mission, { sourcePath, formats: pinned.formats, template: pinned.template, locale: body.locale || mission.locale });
-          mission.exports = [...(mission.exports || []), ...result.files]; mission.exportWarnings = result.warnings; engine.scanFiles(mission); engine.save(mission);
-          json(res, 200, result); return;
+          const controller = new AbortController(), abort = () => controller.abort();
+          req.once('aborted', abort); res.once('close', abort);
+          try {
+            const result = await exportMission(mission, { sourcePath, formats: pinned.formats, template: pinned.template, locale: body.locale || mission.locale, signal: controller.signal });
+            if (controller.signal.aborted || res.destroyed) return;
+            mission.exports = [...(mission.exports || []), ...result.files]; mission.exportWarnings = result.warnings; engine.scanFiles(mission); engine.save(mission);
+            json(res, 200, result); return;
+          } finally { req.off('aborted', abort); res.off('close', abort); }
         }
         const openMissionFolder = pathname.match(/^\/api\/missions\/([^/]+)\/open-folder$/);
         if (openMissionFolder) {
           const id = openMissionFolder[1];
           if (!engine.get(id)) { json(res, 404, { error: 'Mission inconnue.' }); return; }
-          await openFolder(engine.workDir(id)); json(res, 200, { ok: true }); return;
+          await openFolder(checkedMissionDirectory(engine.workDir(id))); json(res, 200, { ok: true }); return;
         }
         const openMissionFile = pathname.match(/^\/api\/missions\/([^/]+)\/open-file$/);
         if (openMissionFile) {
           const id = openMissionFile[1];
           if (!engine.get(id)) { json(res, 404, { error: 'Mission inconnue.' }); return; }
-          const file = resolveNativeMissionFile(engine.workDir(id), body.path);
+          const file = resolveNativeMissionFile(checkedMissionDirectory(engine.workDir(id)), body.path);
           await openFile(file); json(res, 200, { ok: true }); return;
         }
         const stop = pathname.match(/^\/api\/missions\/([^/]+)\/stop$/);
@@ -456,7 +503,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
         const release = () => { controller.abort(); if (activeArchive === controller) activeArchive = null; res.off('finish', release); res.off('close', release); };
         res.once('finish', release); res.once('close', release);
         try {
-          const preparation = archives.create(engine.workDir(mission.id), { signal: controller.signal });
+          const preparation = archives.create(checkedMissionDirectory(engine.workDir(mission.id)), { signal: controller.signal });
           archiveTasks.add(preparation);
           let archive;
           try { archive = await preparation; } finally { archiveTasks.delete(preparation); }
@@ -474,7 +521,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
         const mission = engine.get(id);
         if (!mission) { json(res, 404, { error: 'Mission inconnue.' }); return; }
         if (!relative) { json(res, 200, mission); return; }
-        const file = await openMissionDownload(engine.workDir(id), relative);
+        const file = await openMissionDownload(checkedMissionDirectory(engine.workDir(id)), relative);
         if (res.destroyed) { await file.handle.close(); return; }
         res.writeHead(200, { 'Content-Type': MIME[path.extname(file.path).toLowerCase()] ?? 'application/octet-stream', 'Content-Length': file.size, 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(file.path))}`, 'Content-Security-Policy': "sandbox; default-src 'none'", 'Cache-Control': 'no-store' });
         if (!file.size) { await file.handle.close(); res.end(); return; }
@@ -490,7 +537,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
       res.writeHead(200, { 'Content-Type': MIME[path.extname(staticName)], 'Content-Security-Policy': CSP, 'Cache-Control': 'no-cache' }); res.end(req.method === 'HEAD' ? undefined : content);
     } catch (error) {
       if (res.destroyed) return;
-      if (!res.headersSent) json(res, ['PUBLICATION_NOT_FOUND', 'AUTOMATION_NOT_FOUND', 'MISSION_FILE_NOT_FOUND', 'VOICE_AUDIO_NOT_FOUND'].includes(error.code) ? 404 : ['MISSION_FILE_FORBIDDEN', 'ARCHIVE_FORBIDDEN'].includes(error.code) ? 403 : ['SERVER_CLOSING', 'MISSION_CAPACITY', 'PUBLICATION_BUSY', 'PUBLICATION_CHANGED', 'CONNECTOR_BUSY', 'AUTOMATION_BUSY', 'VOICE_BUSY', 'DICTATION_BUSY', 'DOCUMENT_BUSY', 'SECRETARY_REQUEST_CHANGED', 'SECRETARY_RETRY', 'ARCHIVE_BUSY', 'ARCHIVE_CHANGED', 'MISSION_REQUEST_CHANGED', 'MISSION_REQUEST_RETRY'].includes(error.code) ? 409 : 400, { error: error.message?.slice(0, 2000) ?? 'La demande a échoué.', ...(/^(?:DICTATION|DOCUMENT)_[A-Z_]{1,50}$/u.test(error.code||'') ? {code:error.code} : {}) });
+      if (!res.headersSent) json(res, ['PUBLICATION_NOT_FOUND', 'AUTOMATION_NOT_FOUND', 'MISSION_FILE_NOT_FOUND', 'VOICE_AUDIO_NOT_FOUND'].includes(error.code) ? 404 : ['MISSION_FILE_FORBIDDEN', 'ARCHIVE_FORBIDDEN'].includes(error.code) ? 403 : ['SERVER_CLOSING', 'MISSION_CAPACITY', 'PUBLICATION_BUSY', 'PUBLICATION_CHANGED', 'CONNECTOR_BUSY', 'AUTOMATION_BUSY', 'AUTOMATION_REQUEST_CHANGED', 'AUTOMATION_REQUEST_DELETED', 'VOICE_BUSY', 'DICTATION_BUSY', 'DOCUMENT_BUSY', 'SECRETARY_REQUEST_CHANGED', 'SECRETARY_RETRY', 'ARCHIVE_BUSY', 'ARCHIVE_CHANGED', 'MISSION_REQUEST_CHANGED', 'MISSION_REQUEST_RETRY'].includes(error.code) ? 409 : 400, { error: error.message?.slice(0, 2000) ?? 'La demande a échoué.', ...(/^(?:DICTATION|DOCUMENT)_[A-Z_]{1,50}$/u.test(error.code||'') ? {code:error.code} : {}) });
       else res.destroy();
     }
   });
@@ -514,7 +561,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
     await login.close();
     await publishing.close();
     await Promise.all([...engine.runs.keys()].map(id => engine.wait(id)));
-    clearInterval(heartbeat); for (const c of clients) c.end();
+    stateStream.close();
     engine.off('change', push);
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));

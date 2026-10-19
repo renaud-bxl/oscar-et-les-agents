@@ -89,9 +89,12 @@ export class OfficeSpeech {
       this.playNatural({role,text:spoken,voice,profile,generation,controller});return true;
     }
     const utterance=new this.host.SpeechSynthesisUtterance(spoken);utterance.lang={fr:'fr-FR',en:'en-GB',nl:'nl-NL'}[getLocale()];utterance.rate=profile.rate;utterance.pitch=profile.pitch;utterance.volume=.85;utterance.voice=voice;
-    const finish=()=>{if(generation===this.generation&&!this.destroyed){this.current=null;this.notify();}};
-    utterance.onend=finish;utterance.onerror=event=>{if(generation===this.generation&&!this.destroyed){this.current=null;this.notify({text:spoken,role,fallback:!['canceled','interrupted'].includes(event.error)});}};
-    this.current={role,text:spoken,utterance,phase:'speaking'};this.notify();try{this.synth.resume();this.synth.speak(utterance);return true;}catch(error){this.current=null;return this.caption(role,spoken,error.message);}
+    let startTimer;
+    const finish=()=>{clearTimeout(startTimer);if(generation===this.generation&&!this.destroyed){this.current=null;this.notify();}};
+    utterance.onstart=()=>{if(generation===this.generation&&!this.destroyed&&this.current?.utterance===utterance){clearTimeout(startTimer);this.current.phase='speaking';this.notify();}};
+    utterance.onend=finish;utterance.onerror=event=>{clearTimeout(startTimer);if(generation===this.generation&&!this.destroyed){this.current=null;this.notify({text:spoken,role,fallback:!['canceled','interrupted'].includes(event.error)});}};
+    startTimer=setTimeout(()=>{if(generation===this.generation&&!this.destroyed){this.stop();this.caption(role,spoken,'La lecture audio n’a pas démarré. Les sous-titres restent disponibles.');}},15000);
+    this.current={role,text:spoken,utterance,phase:'preparing',startTimer};this.notify();try{this.synth.resume();this.synth.speak(utterance);return true;}catch(error){clearTimeout(startTimer);this.current=null;return this.caption(role,spoken,error.message);}
   }
   async playNatural({role,text,voice,profile,generation,controller}){
     const valid=()=>!this.destroyed&&generation===this.generation&&this.enabled&&!this.host.document?.hidden;
@@ -103,6 +106,6 @@ export class OfficeSpeech {
       await audio.play();if(!valid()){audio.pause();return;}if(this.current?.audio===audio){this.current.phase='speaking';this.notify();}
     }catch(error){if(!valid()||error.name==='AbortError')return;this.current=null;this.caption(role,text,error.message);}
   }
-  stop(){this.generation++;const previous=this.current;this.current=null;previous?.controller?.abort();if(previous?.audio){previous.audio.onended=null;previous.audio.onerror=null;try{previous.audio.pause();previous.audio.removeAttribute?.('src');previous.audio.load?.();}catch{}}try{this.synth?.cancel();}catch{}this.notify();}
+  stop(){this.generation++;const previous=this.current;this.current=null;clearTimeout(previous?.startTimer);previous?.controller?.abort();if(previous?.audio){previous.audio.onended=null;previous.audio.onerror=null;try{previous.audio.pause();previous.audio.removeAttribute?.('src');previous.audio.load?.();}catch{}}try{this.synth?.cancel();}catch{}this.notify();}
   destroy(){if(this.destroyed)return;this.stop();this.destroyed=true;this.synth?.removeEventListener?.('voiceschanged',this.refresh);this.host.document?.removeEventListener('pointerdown',this.unlock);this.host.document?.removeEventListener('keydown',this.unlock);this.host.document?.removeEventListener('visibilitychange',this.hide);this.host.document?.removeEventListener('oscar:language',this.languageChanged);}
 }

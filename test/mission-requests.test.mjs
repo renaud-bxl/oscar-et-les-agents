@@ -57,9 +57,12 @@ test('le verrou précède l’attente sur les références et une modification u
 });
 
 test('une requête fermée pendant le précontrôle ne démarre pas tardivement et libère sa clé',async t=>{
- const{app,send,calls}=await setup(t);const reference=await app.documents.import({name:'Exemple.md',base64:Buffer.from('Source').toString('base64')});const original=app.documents.readItem.bind(app.documents);let entered,release,reads=0;const started=new Promise(resolve=>{entered=resolve;}),waiting=new Promise(resolve=>{release=resolve;});
+ const{app,base,send,calls}=await setup(t);const reference=await app.documents.import({name:'Exemple.md',base64:Buffer.from('Source').toString('base64')});const original=app.documents.readItem.bind(app.documents);let entered,release,reads=0;const started=new Promise(resolve=>{entered=resolve;}),waiting=new Promise(resolve=>{release=resolve;});
+ const responseClosed=new Promise(resolve=>app.server.once('request',(_request,response)=>response.once('close',resolve)));
  app.documents.readItem=async(...args)=>{if(++reads===1){entered();await waiting;}return original(...args);};const input={...body,referenceIds:[reference.id]};
- const controller=new AbortController(),pending=send(input,{signal:controller.signal}).catch(()=>{});await started;controller.abort();await pending;await new Promise(resolve=>setTimeout(resolve,15));release();await new Promise(resolve=>setTimeout(resolve,20));assert.equal(app.engine.missions.size,0);assert.equal(calls(),0);
+ const controller=new AbortController(),pending=send(input,{signal:controller.signal}).catch(()=>{});await started;controller.abort();await pending;await responseClosed;release();
+ const deadline=Date.now()+5000;while((await fetch(base+'/api/mission-requests/'+body.requestId)).status!==404){assert.ok(Date.now()<deadline,'Le reçu doit être libéré après fermeture.');await new Promise(resolve=>setTimeout(resolve,5));}
+ assert.equal(app.engine.missions.size,0);assert.equal(calls(),0);
  const result=await send(input);assert.equal(result.status,202);const mission=await result.json();await app.engine.wait(mission.id);assert.equal(calls(),1);assert.equal(app.engine.missions.size,1);
 });
 

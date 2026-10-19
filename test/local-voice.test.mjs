@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, rename, symlink } from 'node:fs/promises';
 import { LocalVoice, LOCAL_VOICES, downloadModel, validateVoiceArchive, validWave } from '../lib/local-voice.mjs';
 import { createAtelierServer } from '../server.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
 
 function wave(size = 200) { const buffer = Buffer.alloc(size); buffer.write('RIFF'); buffer.writeUInt32LE(size - 8, 4); buffer.write('WAVEfmt ', 8); return buffer; }
 async function fixture(t, options = {}) {
@@ -72,6 +73,29 @@ test('a failed synthesis stays explicit and never exposes native diagnostics', a
   await f.voice.install({voiceId:'fr-siwis',confirmed:true}); await f.voice.operation;
   await assert.rejects(f.voice.speak({text:'FAIL',voiceId:'fr-siwis'}),error=>!error.message.includes('NEVER_DISPLAY') && /sous-titres/.test(error.message));
   assert.equal(f.voice.speaking,null);
+});
+test('Piper cancellation removes partial audio, preserves an older cache and frees its lock',async t=>{
+ const f=await fixture(t);await f.voice.install({voiceId:'fr-siwis',confirmed:true});await f.voice.operation;
+ const prior=await f.voice.speak({voiceId:'fr-siwis',text:'Extrait déjà disponible.'});const saved=await readdir(f.voice.cacheDir);
+ let began;const started=new Promise(resolve=>{began=resolve;});
+ f.voice.synthesize=async({output},{signal})=>{await writeFile(output,'partial recording',{flag:'wx'});began();await new Promise((resolve,reject)=>{const abort=()=>reject(new Error('Cancelled'));signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();});};
+ const controller=new AbortController(),pending=f.voice.speak({voiceId:'fr-siwis',text:'Extrait annulé.'},{signal:controller.signal});await started;controller.abort();
+ await assert.rejects(pending,{code:'VOICE_CANCELLED'});assert.equal(f.voice.speaking,null);assert.equal(f.voice.speechController,null);assert.deepEqual(await readdir(f.voice.cacheDir),saved);
+ assert.equal((await f.voice.speak({voiceId:'fr-siwis',text:'Extrait déjà disponible.'})).url,prior.url);
+ const alreadyStopped=new AbortController();alreadyStopped.abort();await assert.rejects(f.voice.speak({voiceId:'fr-siwis',text:'Extrait jamais lancé.'},{signal:alreadyStopped.signal}),{code:'VOICE_CANCELLED'});
+});
+test('native Piper cancellation waits for the worker and kills its process group', {skip:process.platform==='win32',timeout:10000},async t=>{
+ const f=await fixture(t);await f.voice.install({voiceId:'fr-siwis',confirmed:true});await f.voice.operation;
+ const pidFile=path.join(f.dataDir,'worker-pids.json');
+ await writeFile(path.join(f.voice.runtimeDir,'node_modules/sherpa-onnx-node/index.js'),`const {spawn}=require('node:child_process');const {writeFileSync}=require('node:fs');exports.OfflineTts=class{generate(){const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});writeFileSync(${JSON.stringify(pidFile)},JSON.stringify({worker:process.pid,child:child.pid}));Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0);}};`);
+ const native=new LocalVoice({dataDir:f.dataDir});t.after(()=>native.close());await native.ready;
+ const controller=new AbortController(),pending=native.speak({voiceId:'fr-siwis',text:'Phrase bloquée pour le contrôle local.'},{signal:controller.signal});let pids;
+ t.after(()=>{controller.abort();for(const pid of Object.values(pids||{}))try{process.kill(pid,'SIGKILL');}catch{}});
+ for(let i=0;i<200&&!pids;i++){try{pids=JSON.parse(await readFile(pidFile,'utf8'));}catch{await delay(10);}}
+ assert.ok(pids?.worker&&pids?.child,'The isolated fixture worker must start.');controller.abort();await assert.rejects(pending,{code:'VOICE_CANCELLED'});
+ const alive=pid=>{try{process.kill(pid,0);return true;}catch(error){if(error.code==='ESRCH')return false;throw error;}};
+ for(let i=0;i<200&&Object.values(pids).some(alive);i++)await delay(10);
+ assert.equal(alive(pids.worker),false);assert.equal(alive(pids.child),false);assert.equal(native.speaking,null);assert.deepEqual((await readdir(native.cacheDir)).filter(name=>name.startsWith('.audio-')),[]);
 });
 
 test('Piper refuses an outside cache for reads, synthesis and cleanup',async t=>{

@@ -132,6 +132,51 @@ test('opening a stale connector cannot select a different confirmed app as a fal
   dialog.selectService({client:'codex',name:drive.name});assert.equal(dialog.connection.value,'');assert.equal(dialog.selectedConnection(),undefined);assert.throws(()=>dialog.payload(false),/service déjà autorisé/u);
 });
 
+test('a selected service lost during refresh or an engine change never falls back to another account',()=>{
+ const dialog=harness();dialog.mode='service';dialog.connections=[gmail,drive];dialog.connection.value='codex:google_drive';
+ assert.equal(dialog.connectionChoice(dialog.available()),'codex:google_drive');
+ dialog.connections=[gmail,{...drive,stale:true}];dialog.connection.value=dialog.connectionChoice(dialog.available());assert.equal(dialog.connection.value,'');
+ assert.equal(dialog.connectionChoice(dialog.available()),'','later snapshots must keep the missing choice empty');
+ dialog.connections=[gmail,drive];assert.equal(dialog.connectionChoice(dialog.available()),'','restoring access still requires an explicit choice');
+ dialog.connection.value='codex:google_drive';assert.equal(dialog.connectionChoice(dialog.available()),'codex:google_drive');
+ dialog.client.value='claude';dialog.connections.push({...gmail,client:'claude'});dialog.connection.value=dialog.connectionChoice(dialog.available());assert.equal(dialog.connection.value,'');assert.equal(dialog.connectionChoice(dialog.available()),'');
+});
+
+test('an uncertain request recovers its durable mission before form, engine or service validation',async()=>{
+ const calls=[],id='recovery_request_123',mission={id:'recovered-mission',assistant:true,assistantMode:'service',provider:'codex',status:'completed',secretaryRequest:{id}};
+ const dialog=harness(async url=>{calls.push(url);return{status:'accepted',mission};});dialog.pendingRequest={id,hash:'a'.repeat(64)};dialog.mode='service';dialog.connections=[];dialog.runButton.disabled=true;dialog.form.reportValidity=()=>{throw new Error('Recovery must not validate a new form');};dialog.payload=()=>{throw new Error('Recovery must not prepare a new request');};
+ await dialog.submit(false);assert.deepEqual(calls,['/api/secretary-requests/'+id]);assert.equal(dialog.directMissions.get(mission.id),mission);assert.equal(dialog.pendingRequest,null);
+});
+
+test('checking, invalid lookup responses and lookup errors retain the request without posting',async()=>{
+ for(const response of [{status:'checking'},{status:'accepted',mission:{id:'wrong-mission',assistant:true,secretaryRequest:{id:'another_request'}}},Object.assign(new Error('Unavailable'),{status:503})]){
+  const calls=[],id='recovery_waiting_123',dialog=harness(async url=>{calls.push(url);if(response instanceof Error)throw response;return response;});dialog.pendingRequest={id,hash:'a'.repeat(64)};
+  await dialog.submit(false);assert.deepEqual(calls,['/api/secretary-requests/'+id]);assert.equal(dialog.pendingRequest.id,id);assert.equal(dialog.pendingRequest.absent,false);assert.equal(dialog.error.hidden,false);
+ }
+});
+
+test('only a confirmed absence retries the exact original request with its original identity',async()=>{
+ const calls=[],id='recovery_absent_123',body={mode:'service',prompt:'Original exact request',provider:'codex',connectorName:'google_drive'};
+ const dialog=harness(async(url,options)=>{calls.push([url,options]);if(url.startsWith('/api/secretary-requests/'))throw Object.assign(new Error('Unknown'),{status:404});return{id:'retried-mission',assistant:true};});
+ dialog.requestIdentity=SecretaryDialog.prototype.requestIdentity;dialog.saveDraft=()=>{};dialog.pendingRequest={id,hash:await dialog.requestHash(body),signature:JSON.stringify(body)};dialog.payload=()=>{throw new Error('Use the exact in-memory request');};
+ await dialog.submit(false);assert.equal(calls.length,2);assert.equal(calls[0][0],'/api/secretary-requests/'+id);assert.deepEqual(JSON.parse(calls[1][1].body),{...body,requestId:id});assert.equal(dialog.pendingRequest,null);
+});
+
+test('a restored request with a changed service refuses to create a replacement identity after 404',async()=>{
+ const calls=[],dialog=harness(async url=>{calls.push(url);throw Object.assign(new Error('Unknown'),{status:404});});dialog.mode='service';dialog.connections=[gmail,drive];dialog.connection.value='codex:google_drive';dialog.requestIdentity=SecretaryDialog.prototype.requestIdentity;dialog.saveDraft=()=>{};
+ const payload=dialog.payload(false),body={mode:dialog.mode,prompt:payload.prompt,provider:payload.provider,connectorName:payload.connectorName};
+ dialog.pendingRequest={id:'recovery_changed_123',hash:await dialog.requestHash(body)};dialog.connection.value='codex:gmail';
+ await dialog.submit(false);assert.deepEqual(calls,['/api/secretary-requests/recovery_changed_123']);assert.equal(dialog.pendingRequest.id,'recovery_changed_123');assert.equal(dialog.pendingRequest.absent,true);assert.match(dialog.error.textContent,/Cette demande a changé/u);
+});
+
+test('a late recovery lookup or identity hash cannot modify a reopened request',async()=>{
+ const response=deferred(),dialog=harness(()=>response.promise);dialog.pendingRequest={id:'recovery_old_123',hash:'a'.repeat(64)};
+ const recovering=dialog.submit(false);await tick();dialog.close();dialog.dialog.open=true;dialog.epoch++;dialog.pendingRequest={id:'recovery_new_123',hash:'b'.repeat(64)};
+ response.reject(Object.assign(new Error('Unknown'),{status:404}));await recovering;assert.deepEqual(dialog.pendingRequest,{id:'recovery_new_123',hash:'b'.repeat(64)});
+ const hash=deferred();dialog.requestHash=()=>hash.promise;dialog.pendingRequest=null;dialog.saveDraft=()=>{throw new Error('A stale identity must not be saved');};let current=true;
+ const identity=SecretaryDialog.prototype.requestIdentity.call(dialog,{mode:'free',prompt:'Question',provider:'codex'},{isCurrent:()=>current});current=false;hash.resolve('a'.repeat(64));assert.equal(await identity,null);assert.equal(dialog.pendingRequest,null);
+});
+
 test('a My services draft preserves its mode and text without storing the selected account',()=>{
   const memory=new Map(),draft=new DraftStorage({scope:'services-test',storage:{getItem:key=>memory.get(key)||null,setItem:(key,value)=>memory.set(key,value),removeItem:key=>memory.delete(key)}});
   draft.write('secretary',{text:'Retrouver mon compte rendu.',mode:'service',provider:'codex',connectorName:drive.name});
@@ -153,5 +198,5 @@ test('closing during a direct request aborts it and ignores a late mission respo
 });
 
 test('the service picker and immediate schedule instructions are translated into English and Dutch',()=>{
-  for(const source of ['◇ Mes services','Mes services','Vos services connectés, avec Zoé','Zoé — Mes services','Quand Zoé doit-elle travailler ?','Travail immédiat','Heure locale de la routine','Choisissez un rythme régulier avant de programmer.','Indiquez une heure valide pour cette routine.','Les services confirmés sont disponibles. La liste se complète automatiquement pendant la vérification.'])for(const locale of ['en','nl'])assert.notEqual(translate(source,locale),source,`${locale}: ${source}`);
+  for(const source of ['◇ Mes services','Mes services','Vos services connectés, avec Zoé','Zoé — Mes services','Quand Zoé doit-elle travailler ?','Travail immédiat','Heure locale de la routine','Choisissez un rythme régulier avant de programmer.','Indiquez une heure valide pour cette routine.','Les services confirmés sont disponibles. La liste se complète automatiquement pendant la vérification.','Le service choisi n’est plus disponible dans cet onglet ou ce moteur. Sélectionnez explicitement le service à utiliser.','Retrouver ma demande','Commencer une nouvelle demande','Votre demande attend sa confirmation. Retrouvez-la avant de lancer un nouveau travail.','Cette demande a changé. Commencez une nouvelle demande pour utiliser ce contexte.','Retrouvez la demande précédente ou commencez une nouvelle demande avant de programmer.','L’identifiant de reprise de cette demande est invalide.','Demande inconnue.'])for(const locale of ['en','nl'])assert.notEqual(translate(source,locale),source,`${locale}: ${source}`);
 });

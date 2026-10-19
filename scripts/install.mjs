@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn, execFile } from 'node:child_process';
 import { constants } from 'node:fs';
-import { access, lstat, stat, mkdir, writeFile, rename, unlink, symlink, readlink } from 'node:fs/promises';
+import { access, lstat, stat, mkdir, readFile, writeFile, rename, unlink, symlink, readlink } from 'node:fs/promises';
 import path from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -137,18 +137,28 @@ export function resolveInstallerDataDirectory({ env = process.env, home = homedi
   return path.resolve(env.OSCAR_DATA_DIR || env.ATELIER_DATA_DIR || path.join(home, 'Documents', 'Oscar et les agents'));
 }
 
-async function savePreferences(_root, preferences, { dataDir = resolveInstallerDataDirectory() } = {}) {
+async function savePreferences(_root, preferences, { dataDir = resolveInstallerDataDirectory(), preservePreferredProvider = false } = {}) {
   const folder = dataDir;
   const info = await noSymlink(folder);
   if (info && !info.isDirectory()) throw new Error('Le dossier des missions est inaccessible.');
   await mkdir(folder, { recursive: true, mode: 0o700 });
   const target = path.join(folder, 'preferences.json');
   await noSymlink(target);
+  let previous = {};
+  try {
+    previous = JSON.parse(await readFile(target, 'utf8'));
+    if (!previous || typeof previous !== 'object' || Array.isArray(previous)) throw new Error('Invalid preferences');
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw new Error('Les préférences existantes ne peuvent pas être lues. Elles ont été conservées ; vérifiez ce fichier avant de relancer la préparation.');
+  }
+  const merged = { ...previous, ...preferences };
+  if (preservePreferredProvider && ['codex', 'claude'].includes(previous.preferredProvider)) merged.preferredProvider = previous.preferredProvider;
   const temporary = path.join(folder, `.preferences-${randomUUID()}.tmp`);
   try {
-    await writeFile(temporary, `${JSON.stringify(preferences, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    await writeFile(temporary, `${JSON.stringify(merged, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
     await rename(temporary, target);
   } finally { await unlink(temporary).catch(() => {}); }
+  return merged;
 }
 
 async function createShortcut({ root, platform, home }) {
@@ -213,7 +223,7 @@ export async function runInstaller(options, dependencies = {}) {
   const engine = options.engine || await (dependencies.promptEngine || promptEngine)();
   if (!['codex', 'claude', 'both'].includes(engine)) throw new Error('Le moteur doit être codex, claude ou both.');
   const providers = engine === 'both' ? ['codex', 'claude'] : [engine];
-  const preferredProvider = providers[0];
+  let preferredProvider = providers[0];
   log('\nOscar et les agents — préparons votre équipe.');
   const binaries = {};
   const missing = [];
@@ -288,7 +298,8 @@ export async function runInstaller(options, dependencies = {}) {
     log(`Votre abonnement ${provider === 'codex' ? 'ChatGPT' : 'Claude'} est connecté.`);
   }
 
-  await (dependencies.savePreferences || savePreferences)(root, { preferredProvider, setupComplete: true }, { dataDir });
+  const savedPreferences = await (dependencies.savePreferences || savePreferences)(root, { preferredProvider, setupComplete: true }, { dataDir, preservePreferredProvider: engine === 'both' });
+  if (['codex', 'claude'].includes(savedPreferences?.preferredProvider)) preferredProvider = savedPreferences.preferredProvider;
   try { await (dependencies.createShortcut || createShortcut)(context); }
   catch { log('Le raccourci n’a pas pu être créé. Le bureau reste disponible dans son dossier d’installation.'); }
   log('Installation terminée. Oscar et les agents est prêt.');

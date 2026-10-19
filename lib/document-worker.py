@@ -279,14 +279,27 @@ def word_template(job, parsed, template):
                 etree.SubElement(parent, '{' + W + '}p')
         else:
             # Keep the surrounding runs intact, including split placeholders.
-            start = combined.index('{{CONTENU}}'); end = start + len('{{CONTENU}}'); cursor = 0
+            ranges = [(match.start(), match.end()) for match in re.finditer(re.escape('{{CONTENU}}'), combined)]
+            for start, end in reversed(ranges):
+                cursor = 0
+                for element in texts:
+                    original = element.text or ''; left, right = cursor, cursor + len(original); cursor = right
+                    if right <= start or left >= end:
+                        continue
+                    before = original[:max(0, start - left)]
+                    after = original[max(0, end - left):] if end < right else ''
+                    element.text = before + (content if left <= start < right else '') + after
             for element in texts:
-                original = element.text or ''; left, right = cursor, cursor + len(original); cursor = right
-                if right <= start or left >= end:
+                element.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+                lines = (element.text or '').split('\n')
+                if len(lines) < 2:
                     continue
-                before = original[:max(0, start - left)]
-                after = original[max(0, end - left):] if end < right else ''
-                element.text = before + (content if left <= start < right else '') + after
+                element.text = lines[0]
+                parent = element.getparent(); position = parent.index(element) + 1
+                for line in lines[1:]:
+                    parent.insert(position, etree.Element('{' + W + '}br')); position += 1
+                    following = copy.deepcopy(element); following.text = line
+                    parent.insert(position, following); position += 1
             note('La zone intégrée dans une phrase reprend la mise en forme du premier segment du modèle.')
     if not matches:
         generated = xml_parse(zip_parts(word_new(job, parsed))['word/document.xml'])
@@ -306,7 +319,10 @@ def scalar(value):
     # Preserve identifiers such as 00123 and numbers Excel cannot store exactly.
     if isinstance(value, str) and re.fullmatch(r'-?(?:0|[1-9]\d{0,11})(?:\.\d{1,8})?', value.strip()) and len(re.sub(r'\D', '', value)) <= 15:
         return float(value) if '.' in value else int(value)
-    return str(value if value is not None else '')[:32767]
+    text = str(value if value is not None else '')
+    if len(text) > 32767:
+        raise ValueError('Une cellule Excel dépasse 32 767 caractères. Répartissez son contenu avant de relancer cet export ; aucun texte n’a été tronqué.')
+    return text
 
 
 def spreadsheet_new(rows):
@@ -345,7 +361,7 @@ def spreadsheet_template(rows, template):
     source = zip_parts(spreadsheet_new(rows))
     workbook = xml_parse(parts['xl/workbook.xml']); relations = xml_parse(parts['xl/_rels/workbook.xml.rels']); types = xml_parse(parts['[Content_Types].xml'])
     sheets = workbook.find('{' + S + '}sheets'); names = {item.get('name') for item in sheets}
-    header_style, body_style = '0', '0'
+    header_styles, body_styles = {}, {}
     if len(sheets):
         source_id = sheets[0].get('{' + R + '}id')
         relation = next((item for item in relations if item.get('Id') == source_id), None)
@@ -355,9 +371,29 @@ def spreadsheet_template(rows, template):
             if target in parts:
                 original = xml_parse(parts[target]).find('{' + S + '}sheetData')
                 if original is not None and len(original):
-                    header_style = next((cell.get('s', '0') for cell in original[0] if cell.tag == '{' + S + '}c'), '0')
+                    for cell in original[0]:
+                        if cell.tag == '{' + S + '}c': header_styles[re.sub(r'\d+$', '', cell.get('r', ''))] = cell.get('s', '0')
                     if len(original) > 1:
-                        body_style = next((cell.get('s', '0') for cell in original[1] if cell.tag == '{' + S + '}c'), '0')
+                        for cell in original[1]:
+                            if cell.tag == '{' + S + '}c': body_styles[re.sub(r'\d+$', '', cell.get('r', ''))] = cell.get('s', '0')
+    style_root = xml_parse(parts['xl/styles.xml']) if 'xl/styles.xml' in parts else None
+    cell_styles = style_root.find('{' + S + '}cellXfs') if style_root is not None else None
+    neutral_styles = {}
+    def delivery_style(style, value):
+        if not isinstance(value, (int, float)) or cell_styles is None:
+            return style
+        index = int(style)
+        if index >= len(cell_styles):
+            raise ValueError('Le modèle Excel contient un style de cellule non valide.')
+        original = cell_styles[index]
+        if original.get('numFmtId', '0') == '0':
+            return style
+        if style not in neutral_styles:
+            neutral = copy.deepcopy(original); neutral.set('numFmtId', '0'); neutral.set('applyNumberFormat', '1')
+            neutral_styles[style] = str(len(cell_styles)); cell_styles.append(neutral)
+            cell_styles.set('count', str(len(cell_styles)))
+            note('Les couleurs du modèle sont conservées ; les nouvelles valeurs numériques utilisent un format général pour éviter de devenir des dates ou des pourcentages.')
+        return neutral_styles[style]
     name, suffix = 'Livraison Oscar', 2
     while name in names:
         name = 'Livraison Oscar ' + str(suffix); suffix += 1
@@ -382,7 +418,9 @@ def spreadsheet_template(rows, template):
         output = etree.SubElement(data, '{' + S + '}row', r=str(index), ht='24' if index == 1 else '21', customHeight='1')
         for column, value in enumerate(row, start=1):
             value = scalar(value); cell = etree.SubElement(output, '{' + S + '}c', r=get_column_letter(column) + str(index))
-            cell.set('s', header_style if index == 1 else body_style if index % 2 == 0 else '0')
+            column_name = get_column_letter(column)
+            style = header_styles.get(column_name, '0') if index == 1 else body_styles.get(column_name, '0') if index % 2 == 0 else '0'
+            cell.set('s', delivery_style(style, value))
             if isinstance(value, (int, float)):
                 etree.SubElement(cell, '{' + S + '}v').text = str(value)
             else:
@@ -396,6 +434,8 @@ def spreadsheet_template(rows, template):
     namespace = '{http://schemas.openxmlformats.org/package/2006/content-types}'
     etree.SubElement(types, namespace + 'Override', PartName='/xl/' + filename, ContentType='application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml')
     parts['xl/workbook.xml'] = xml_bytes(workbook); parts['xl/_rels/workbook.xml.rels'] = xml_bytes(relations); parts['[Content_Types].xml'] = xml_bytes(types); parts['xl/' + filename] = xml_bytes(worksheet)
+    if neutral_styles:
+        parts['xl/styles.xml'] = xml_bytes(style_root)
     note('Les feuilles du modèle sont conservées. Les nouvelles données sont placées dans une feuille Livraison Oscar distincte.')
     return pack(parts)
 
@@ -441,8 +481,8 @@ def pdf_new(job, parsed):
             columns = max(map(len, value))
             if columns > 12 or len(value) > 500:
                 raise ValueError('Le tableau est trop grand pour une page Word ou PDF.')
-            rows = [[Paragraph(markup(str(cell)[:2000]), styles['OfficeCell']) for cell in row] + [''] * (columns - len(row)) for row in value]
-            table = LongTable(rows, colWidths=[481 / columns] * columns, repeatRows=1, hAlign='LEFT')
+            rows = [[Paragraph(markup(str(cell)), styles['OfficeCell']) for cell in row] + [''] * (columns - len(row)) for row in value]
+            table = LongTable(rows, colWidths=[481 / columns] * columns, repeatRows=1, hAlign='LEFT', splitInRow=1)
             table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#E6EEDC')), ('VALIGN', (0, 0), (-1, -1), 'TOP'), ('LEFTPADDING', (0, 0), (-1, -1), 7), ('RIGHTPADDING', (0, 0), (-1, -1), 7), ('TOPPADDING', (0, 0), (-1, -1), 7), ('BOTTOMPADDING', (0, 0), (-1, -1), 7), ('LINEBELOW', (0, 0), (-1, 0), .6, colors.HexColor('#A9BC99')), ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F7F9F3')])]))
             story += [table, Spacer(1, 12)]
         else:

@@ -71,6 +71,8 @@
 .mission-template-copy {
   display: block;
   min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .mission-template-copy strong,
@@ -387,3 +389,8 @@ textarea.wizard-input {
 .wizard-progress progress::-webkit-progress-bar {background:#edf1f6;}
 .wizard-progress progress::-webkit-progress-value,.wizard-progress progress::-moz-progress-bar {background:#7296bd;}
 #guided-provider {border-color:#e1e6ee;background:#f8fafc;}
+
+@media (max-width: 380px) {
+  body .mission-template-grid { grid-template-columns: minmax(0, 1fr); }
+  .mission-template { min-height: 0; }
+}

@@ -1,6 +1,17 @@
 // French source text stays in the interface; these entries only change its display.
 // Personal names, product names, file paths and mission content are not translated.
 const entries = [
+  ['Vos outils et vos habitudes','Your tools and routines','Je tools en gewoonten'],
+  ['Connectez vos services et préparez des missions récurrentes.','Connect your services and prepare recurring missions.','Verbind je diensten en bereid terugkerende opdrachten voor.'],
+  ['Créez vos visuels en SVG et PNG, ou reprenez les images de votre mission.','Create visuals in SVG and PNG, or continue editing your mission’s images.','Maak beelden in SVG en PNG, of bewerk de afbeeldingen van je opdracht verder.'],
+  ['exemple','example','voorbeeld'],
+  ['Cette routine a été supprimée. Commencez une nouvelle demande pour en créer une autre.','This routine was deleted. Start a new request to create another one.','Deze routine is verwijderd. Start een nieuwe aanvraag om een andere te maken.'],
+  ['Le registre des routines supprimées est plein. Attendez l’expiration de ses reçus avant de supprimer une autre routine.','The deleted-routine register is full. Wait for its receipts to expire before deleting another routine.','Het register van verwijderde routines is vol. Wacht tot de ontvangstbewijzen verlopen voordat je nog een routine verwijdert.'],
+  ['Le brief de cette routine est trop long avec les consignes de lecture. Raccourcissez-le avant de l’enregistrer.','This routine brief is too long with its reading instructions. Shorten it before saving.','De briefing van deze routine is te lang met de leesinstructies erbij. Kort hem in voordat je opslaat.'],
+  ['L’identifiant de reprise de cette routine n’est pas valide.','The recovery identifier for this routine is invalid.','De herstelcode voor deze routine is ongeldig.'],
+  ['Cette demande de routine a changé. Commencez une nouvelle demande pour utiliser ce contexte.','This routine request has changed. Start a new request to use this context.','Deze routineaanvraag is gewijzigd. Start een nieuwe aanvraag om deze context te gebruiken.'],
+  ['Cette demande de routine attend sa confirmation. Retrouvez-la ou commencez une nouvelle demande.','This routine request awaits confirmation. Find it or start a new request.','Deze routineaanvraag wacht op bevestiging. Zoek haar terug of start een nieuwe aanvraag.'],
+  ['Aucune routine acceptée n’a été retrouvée. Commencez une nouvelle demande pour choisir son rythme et son service.','No accepted routine was found. Start a new request to choose its schedule and service.','Er is geen geaccepteerde routine gevonden. Start een nieuwe aanvraag om het ritme en de dienst te kiezen.'],
   ['Des services ont été détectés. Leur état précise s’ils peuvent être lus par Zoé ou utilisés dans votre client habituel.','Services were detected. Their status shows whether Zoé can read them or they can be used in your usual client.','Er zijn diensten gevonden. Hun status geeft aan of Zoé ze kan lezen of je ze in je gebruikelijke client kunt gebruiken.'],
   ['Lecture avec Zoé','Read with Zoé','Lezen met Zoé'],
   ['Brief dans le client uniquement','Brief in your client only','Briefing alleen in je client'],
@@ -1713,6 +1724,9 @@ const documentErrorMessages=[
  ["La zone intégrée dans une phrase reprend la mise en forme du premier segment du modèle.","An area embedded in a sentence uses the formatting of the template’s first text segment.","Een gebied binnen een zin gebruikt de opmaak van het eerste tekstsegment van het sjabloon."],
  ["Ce modèle n’a pas de zone {{CONTENU}} : le nouveau texte a été ajouté à la fin.","This template has no {{CONTENU}} area: the new text was appended at the end.","Dit sjabloon heeft geen gebied {{CONTENU}}: de nieuwe tekst is aan het einde toegevoegd."],
  ["Les feuilles du modèle sont conservées. Les nouvelles données sont placées dans une feuille Livraison Oscar distincte.","The template’s sheets are kept. New data is placed in a separate Livraison Oscar sheet.","De werkbladen van het sjabloon blijven behouden. Nieuwe gegevens komen in een apart werkblad Livraison Oscar."],
+ ["Une cellule Excel dépasse 32 767 caractères. Répartissez son contenu avant de relancer cet export ; aucun texte n’a été tronqué.","An Excel cell exceeds 32,767 characters. Split its content before exporting again; no text was truncated.","Een Excel-cel bevat meer dan 32.767 tekens. Verdeel de inhoud voordat je opnieuw exporteert; er is geen tekst afgekapt."],
+ ["Les couleurs du modèle sont conservées ; les nouvelles valeurs numériques utilisent un format général pour éviter de devenir des dates ou des pourcentages.","The template colours are kept; new numeric values use a general format so they do not become dates or percentages.","De kleuren van het sjabloon blijven behouden; nieuwe getallen gebruiken een algemene opmaak zodat ze geen datums of percentages worden."],
+ ["Le modèle Excel contient un style de cellule non valide.","The Excel template contains an invalid cell style.","Het Excel-sjabloon bevat een ongeldige celstijl."],
  ["Certains symboles sans glyphe dans la police PDF sont indiqués par leur code Unicode.","Some symbols unavailable in the PDF font are shown by their Unicode code.","Sommige tekens die niet in het PDF-lettertype voorkomen, worden met hun Unicode-code weergegeven."],
  ["Le PDF de référence sert d’exemple ; sa mise en page n’est pas reproduite automatiquement.","The reference PDF is an example; its layout is not reproduced automatically.","De referentie-PDF dient als voorbeeld; de opmaak wordt niet automatisch overgenomen."],
  ["Le contenu à exporter est trop volumineux.","The content to export is too large.","De te exporteren inhoud is te groot."],
@@ -2027,3 +2041,13 @@ for(const[source,en,nl]of[
 ])translations[source]={en,nl};
 
 translations['Vos services de lecture sont prêts. Ouvrez Mes services dans Zoé, choisissez le service et décrivez votre demande.']={en:'Your reading services are ready. Open My services in Zoé, choose a service and describe your request.',nl:'Je leesdiensten zijn klaar. Open Mijn diensten bij Zoé, kies een dienst en beschrijf je verzoek.'};
+for(const[source,en,nl]of[
+ ['Le service choisi n’est plus disponible dans cet onglet ou ce moteur. Sélectionnez explicitement le service à utiliser.','The selected service is no longer available in this tab or engine. Explicitly choose which service to use.','De gekozen dienst is niet meer beschikbaar op dit tabblad of in deze engine. Kies expliciet welke dienst je wilt gebruiken.'],
+ ['Retrouver ma demande','Find my request','Mijn verzoek terugvinden'],
+ ['Votre demande attend sa confirmation. Retrouvez-la avant de lancer un nouveau travail.','Your request is awaiting confirmation. Find it before starting new work.','Je verzoek wacht op bevestiging. Zoek het op voordat je nieuw werk start.'],
+ ['Commencer une nouvelle demande','Start a new request','Een nieuw verzoek starten'],
+ ['Cette demande a changé. Commencez une nouvelle demande pour utiliser ce contexte.','This request has changed. Start a new request to use this context.','Dit verzoek is gewijzigd. Start een nieuw verzoek om deze context te gebruiken.'],
+ ['Retrouvez la demande précédente ou commencez une nouvelle demande avant de programmer.','Find the previous request or start a new request before scheduling.','Zoek het vorige verzoek op of start een nieuw verzoek voordat je een routine inplant.'],
+ ['L’identifiant de reprise de cette demande est invalide.','This request’s recovery identifier is invalid.','Het herstelidentificatienummer van dit verzoek is ongeldig.'],
+ ['Demande inconnue.','Unknown request.','Onbekend verzoek.'],
+])translations[source]={en,nl};

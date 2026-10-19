@@ -137,7 +137,7 @@ export class ClockDialog {
 
   open() {
     if(this.destroyed)return this;
-    if(this.opened){this.closeButton.focus();return this;}
+    if(this.opened&&this.dialog.open){this.closeButton.focus();return this;}
     this.previousFocus=this.document.activeElement;this.opened=true;this.lastTime='';this.lastDate='';
     this.quipIndex=0;this.quip.textContent=QUIPS[0];this.tick();
     try{this.dialog.showModal();}catch(error){this.opened=false;throw error;}

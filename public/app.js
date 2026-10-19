@@ -84,8 +84,9 @@ let personalContext = {profile:{},weather:{status:'disabled'}};
 let weatherTimer = null;
 let archiveDownload = null;
 const utilityReturns = new Map();
-function openUtility(dialog){utilityReturns.set(dialog,{panel:activePanel,focus:document.activeElement});closeOfficePanel({restoreFocus:false});return dialog.open();}
+function openUtility(dialog){if(activePanel||!utilityReturns.has(dialog))utilityReturns.set(dialog,{panel:activePanel,focus:document.activeElement});closeOfficePanel({restoreFocus:false});return dialog.open();}
 function returnFromUtility(dialog){const previous=utilityReturns.get(dialog);utilityReturns.delete(dialog);if(previous?.panel){openPanel(previous.panel,{focus:false});if(previous.focus?.isConnected)previous.focus.focus({preventScroll:true});}}
+function renderDocumentSelectionStatus({ids=documentLibrary?.getSelection()||[],formats=documentLibrary?.getOutputFormats()||[]}={}){for(const id of ['brief-documents-status','guided-documents-status']){const status=$(id);if(status)status.textContent=`${ids.length} ${translate(ids.length===1?'exemple':'exemples')} · ${formats.map(format=>({docx:'Word',pdf:'PDF',xlsx:'Excel'})[format]).join(', ')||translate('Format libre')}`;}}
 const briefDrafts = new DraftStorage();
 let pendingBriefRequest = null;
 let pendingStudioRequest = null;
@@ -106,6 +107,7 @@ let statusTimer = null;
 let activePanel = null;
 let panelReturnFocus = null;
 let memberReturnPanel = null;
+let memberReturnFocus = null;
 let wizardReturnPanel = null;
 let lastMemberSignature = '';
 let onboardingDismissed = false;
@@ -143,7 +145,7 @@ function openPanel(name,{focus=true}={}) {
   document.querySelectorAll('[data-open-panel]').forEach(button=>button.setAttribute('aria-expanded',String(button.dataset.openPanel===name)));
   if(focus) {const target=name==='catalog'?$('template-search'):name==='brief'?$('mission-input'):name==='settings'?$('provider-select'):$('close-office-panel');target.focus({preventScroll:true});}
 }
-function closeMemberForNavigation() {memberReturnPanel=null;if($('member-dialog').open)$('member-dialog').close();openedRole=null;openedTaskId=null;lastMemberSignature='';}
+function closeMemberForNavigation() {memberReturnPanel=null;memberReturnFocus=null;if($('member-dialog').open)$('member-dialog').close();openedRole=null;openedTaskId=null;lastMemberSignature='';}
 function dismissWelcome() {onboardingDismissed=true;$('office-onboarding').hidden=true;try{sessionStorage.setItem('oscar-welcome-dismissed','1');}catch{}}
 function rememberFocus(container) {
   const target=document.activeElement?.closest('[data-task],[data-mission]');
@@ -342,7 +344,7 @@ function renderScene() {
       onStatus: showWorldStatus,
       onEvent: (kind,data)=>{if(kind==='oscar_arrived'&&data.missionId===mission?.id&&isRunning(mission))officeSpeech?.speak('oscar','Je suis à mon bureau ! J’engage les spécialistes adaptés à votre idée. Chacun aura une tâche, et je vérifierai le résultat.',{automatic:true});},
       onAmbience: ambience => {const phases={dawn:'Aube',day:'Journée',sunset:'Coucher de soleil',night:'Nuit'};$('ambience-mode').value=ambience.mode;$('ambience-status').textContent=`${ambience.mode==='auto'?'Heure locale':'Ambiance manuelle'} · ${phases[ambience.phase]||ambience.phase}`;document.body.dataset.ambience=ambience.phase;},
-      onInteract: (kind, text) => { if(kind==='coffee'){closeOfficePanel({restoreFocus:false});coffeeDialog?.open();}else if(kind==='clock'){closeOfficePanel({restoreFocus:false});hideWorldStatus();clockDialog?.open();}else if(kind==='secretary'){openSecretary(null,text);}else if(kind==='missions')openPanel('catalog');else if(kind==='delivery')openPanel('delivery');else if(kind==='team')openPanel('team'); }
+      onInteract: (kind, text) => { if(kind==='coffee'){closeOfficePanel({restoreFocus:false});coffeeDialog?.open();}else if(kind==='clock'){hideWorldStatus();if(clockDialog)openUtility(clockDialog);}else if(kind==='secretary'){openSecretary(null,text);}else if(kind==='missions')openPanel('catalog');else if(kind==='delivery')openPanel('delivery');else if(kind==='team')openPanel('team'); }
     });
     window.__oscarWorld = pixelWorld;
   }
@@ -662,7 +664,7 @@ function renderMember(role,taskId) {
   if(taskId) list.querySelector(`[data-task="${CSS.escape(String(taskId))}"]`)?.scrollIntoView({block:'nearest'});
 }
 function openMember(role,taskId,spokenLine) {
-  memberReturnPanel=activePanel;closeOfficePanel({restoreFocus:false});
+  memberReturnPanel=activePanel;memberReturnFocus=document.activeElement;closeOfficePanel({restoreFocus:false});
   lastMemberSignature='';
   openedRole=role;openedTaskId=taskId || null;const quips=QUIPS[role] || QUIPS.oscar;openedQuip=['oscar','secretaire'].includes(role)?spokenLine||characterLine(role):quips[Math.floor(Math.random()*quips.length)];renderMember(role,taskId);
   const dialog=$('member-dialog');
@@ -702,7 +704,7 @@ $('free-mission').addEventListener('click',newMission);
 $('stop-mission').addEventListener('click',stopMission);
 $('close-dialog').addEventListener('click',()=>$('member-dialog').close());
 $('member-dialog').addEventListener('click',event=>{if(event.target===$('member-dialog')) {const box=$('member-dialog').getBoundingClientRect();if(event.clientX<box.left || event.clientX>box.right || event.clientY<box.top || event.clientY>box.bottom) $('member-dialog').close();}});
-$('member-dialog').addEventListener('close',()=>{if($('member-dialog').open)return;openedRole=null;openedTaskId=null;lastMemberSignature='';const previous=memberReturnPanel;memberReturnPanel=null;if(previous)openPanel(previous);});
+$('member-dialog').addEventListener('close',()=>{if($('member-dialog').open)return;openedRole=null;openedTaskId=null;lastMemberSignature='';const previous=memberReturnPanel,focus=memberReturnFocus;memberReturnPanel=null;memberReturnFocus=null;if(previous){openPanel(previous,{focus:false});(focus?.isConnected&&$('office-panel').contains(focus)&&!focus.disabled?focus:$('close-office-panel')).focus({preventScroll:true});}});
 $('team-oscar').addEventListener('click',()=>openMember('oscar'));
 document.addEventListener('click',event=>{const button=event.target.closest('[data-open-panel]');if(button)openPanel(button.dataset.openPanel);});
 $('close-office-panel').addEventListener('click',()=>closeOfficePanel());
@@ -719,10 +721,10 @@ window.addEventListener('online',refreshState);
 window.addEventListener('beforeunload',()=>{archiveDownload?.abort();clearTimeout(statusTimer);clearTimeout(completionTimer);clearTimeout(weatherTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();dictationDialog?.destroy();documentLibrary?.destroy();personalizationDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
 
 coffeeDialog = new CoffeeDialog({recipient:'renaud2005@gmail.com'});
-clockDialog=new ClockDialog();
+clockDialog=new ClockDialog({onClose:()=>returnFromUtility(clockDialog)});
 dictationDialog=new DictationDialog({onRecord:()=>officeSpeech?.stop(),onClose:()=>{if(dictationReturnPanel){const panel=dictationReturnPanel;dictationReturnPanel=null;openPanel(panel,{focus:false});if(panel==='brief')$('mission-input').focus({preventScroll:true});}}});
 for(const id of ['brief-dictation','settings-dictation'])$(id).addEventListener('click',()=>{if(id==='settings-dictation'){closeOfficePanel({restoreFocus:false});openPanel('brief');}dictateInto($('mission-input'));});
-documentLibrary=new DocumentLibraryDialog({request,getMission:()=>mission,onClose:()=>returnFromUtility(documentLibrary),onSelectionChanged:({ids,formats})=>{for(const id of ['brief-documents-status','guided-documents-status']){const status=$(id);if(status)status.textContent=`${ids.length} ${translate('exemples')} · ${formats.map(format=>({docx:'Word',pdf:'PDF',xlsx:'Excel'})[format]).join(', ')||translate('Format libre')}`;}},onExport:async options=>{if(!mission)throw new Error(translate('Choisissez une mission avant d’exporter.'));const id=mission.id;const result=await request(`/api/missions/${encodeURIComponent(id)}/export`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...options,locale:getLocale()})});if(mission?.id===id){mission=await request(`/api/missions/${encodeURIComponent(id)}`);renderMission();}return result;}});
+documentLibrary=new DocumentLibraryDialog({request,getMission:()=>mission,onClose:()=>returnFromUtility(documentLibrary),onSelectionChanged:renderDocumentSelectionStatus,onExport:async options=>{if(!mission)throw new Error(translate('Choisissez une mission avant d’exporter.'));const id=mission.id;const result=await request(`/api/missions/${encodeURIComponent(id)}/export`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...options,locale:getLocale()})});if(mission?.id===id){mission=await request(`/api/missions/${encodeURIComponent(id)}`);renderMission();}return result;}});
 for(const id of ['brief-documents','guided-documents','settings-documents','delivery-documents'])$(id).addEventListener('click',()=>openUtility(documentLibrary));
 personalizationDialog=new PersonalizationDialog({request,onChange:acceptPersonalContext,onClose:()=>returnFromUtility(personalizationDialog)});
 $('settings-personalization').addEventListener('click',()=>openUtility(personalizationDialog));
@@ -731,8 +733,8 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&personalC
 documentLibrary.refresh();
 creativeStudio=new CreativeStudio({getMission:()=>mission,onClose:()=>returnFromUtility(creativeStudio),onCreate:async({brief,requestReceipt,onRequestIdentity})=>{const detail=await launch($('provider-select').value,{strict:true,teamSize:'auto',allowParallel:true,promptOverride:brief,studioReceipt:requestReceipt,onStudioIdentity:onRequestIdentity});if(!detail?.id)throw new Error(translate('Le bureau n’a pas confirmé cette demande.'));utilityReturns.delete(creativeStudio);return detail;}});
 for(const id of ['open-creative-studio','settings-creative-studio','delivery-creative-studio'])$(id).addEventListener('click',()=>openUtility(creativeStudio));
-connectorsDialog=new ConnectorsDialog({request,getMission:()=>mission,onSecretary:(mode,connection)=>openSecretary(mode,undefined,connection)});
-automationsDialog=new AutomationsDialog({request,getState:()=>state,onMission:id=>{automationsDialog.close();selectMission(id);openPanel('progress');}});
+connectorsDialog=new ConnectorsDialog({request,getMission:()=>mission,onClose:()=>returnFromUtility(connectorsDialog),onSecretary:(mode,connection)=>{utilityReturns.delete(connectorsDialog);openSecretary(mode,undefined,connection);}});
+automationsDialog=new AutomationsDialog({request,getState:()=>state,onClose:()=>returnFromUtility(automationsDialog),onMission:id=>{automationsDialog.close();selectMission(id);openPanel('progress');}});
 artifactViewer=new ArtifactViewer({request,onClose:()=>openPanel('delivery')});
 const openWorkFolder=id=>request(`/api/missions/${encodeURIComponent(id)}/open-folder`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
 completionDialog=new CompletionDialog({avatar:()=>portrait('oscar'),onFolder:openWorkFolder,onFile:(item,file)=>artifactViewer.open(item,file),onDelivery:async item=>{if(selectedId!==item.id)await selectMission(item.id);openPanel('delivery');},onNew:()=>newMission(),onImprove:item=>{newMission();$('mission-input').value=`${translate('Améliore la mission précédente :')} ${item.title||item.prompt}\n${translate('Dossier du travail précédent :')} ${item.workDirectory||item.folderName||''}\n${translate('Examine les fichiers existants, propose les améliorations utiles et vérifie le résultat. Garde les originaux et livre les nouvelles versions dans cette nouvelle mission.')}`;saveBriefDraft();},onClose:scheduleCompletion});
@@ -755,8 +757,8 @@ $('download-archive').addEventListener('click',async()=>{
 });
 $('review-completion').addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});completionDialog.open(mission);});
 $('reuse-mission').addEventListener('click',()=>{if(!mission||mission.assistant)return;const url=new URL(location.href);url.search='';url.searchParams.set('new','1');url.searchParams.set('reuse',mission.id);window.open(url.href,'_blank','noopener');});
-for(const id of ['open-connectors','settings-connectors'])$(id).addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});connectorsDialog.open();});
-for(const id of ['open-automations','settings-automations'])$(id).addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});automationsDialog.open();});
+for(const id of ['open-connectors','settings-connectors'])$(id).addEventListener('click',()=>openUtility(connectorsDialog));
+for(const id of ['open-automations','settings-automations'])$(id).addEventListener('click',()=>openUtility(automationsDialog));
 $('dismiss-office-status').addEventListener('click',hideWorldStatus);
 publicationDialog=new PublicationDialog({request,getMission:()=>mission,onClose:()=>openPanel('delivery')});
 $('publish-project').addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});publicationDialog.open();});
@@ -841,6 +843,7 @@ for(const button of document.querySelectorAll('[data-hud-locale]'))button.addEve
 document.addEventListener('click',event=>{if(!$('hud-language').contains(event.target))$('hud-language').open=false;});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('hud-language').open){$('hud-language').open=false;$('hud-language').querySelector('summary').focus();}});
 document.addEventListener('oscar:language',updateLanguageMenu);updateLanguageMenu();
+document.addEventListener('oscar:language',()=>renderDocumentSelectionStatus());
 document.addEventListener('oscar:language',()=>{renderCatalog();lastMemberSignature='';renderMission();$('mission-history').dataset.signature='';renderHistory();});
 document.addEventListener('keydown',event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'&&!document.querySelector('dialog[open]:not(#office-panel)')){event.preventDefault();catalogCategory='all';for(const filter of $('catalog-filters').children)filter.setAttribute('aria-pressed',String(filter.dataset.category==='all'));renderCatalog();openPanel('catalog');}});
 

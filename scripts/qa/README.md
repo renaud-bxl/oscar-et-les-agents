@@ -18,6 +18,8 @@ Le contrôle prolongé tourne cinq minutes par défaut. `OSCAR_QA_UNTIL` accepte
 
 `OSCAR_QA_PULSE_MS` règle l'espacement des passages (cinq minutes par défaut, minimum deux secondes pour vérifier l'outil lui-même). `Ctrl+C` termine le contrôle et ferme le serveur isolé.
 
+`OSCAR_QA_ROTATE_LOCALES=1` fait alterner français, anglais et néerlandais à chaque passage, en vérifiant que le texte personnel, le focus et la sélection restent conservés. Le rapport indique les langues effectivement exercées.
+
 Ces scénarios complètent les tests de `npm test`. Ils ne prouvent pas l'autorisation d'un vrai compte, la disponibilité d'un fournisseur distant ou la qualité d'une voix : ces vérifications demandent un essai séparé et autorisé.
 
 Deux contrôles ciblés peuvent aussi être lancés avec les mêmes variables Playwright : `node scripts/qa/dialog-lifecycle.mjs` vérifie les fermetures et réouvertures immédiates, sans interrompre la nouvelle dictée ou préécoute ; `node scripts/qa/history-reuse.mjs` vérifie les filtres, la recherche et la reprise d'un brief avec ses révisions de documents. La reprise prépare un formulaire modifiable et ne lance aucune nouvelle mission.
@@ -26,4 +28,8 @@ Deux contrôles ciblés peuvent aussi être lancés avec les mêmes variables Pl
 
 `node scripts/qa/secretary-services.mjs` vérifie les services de Zoé avec des connexions et moteurs simulés : routines lentes, autorisations périmées, carte Google Drive, travail immédiat sans routine, programmation à 17:45, traductions FR/EN/NL et affichage mobile ; le rapport et les captures vont dans `oscar-secretary-services` ou `OSCAR_QA_OUTPUT`.
 
+`node scripts/qa/secretary-recovery.mjs` vérifie qu’un service perdu ne devient jamais un autre compte, puis coupe une réponse acceptée et retrouve la demande après rechargement et changement de langue, sans abonnement disponible, service accessible ou place libre. Les erreurs et vérifications en cours bloquent tout nouveau départ ; seul un reçu absent autorise la même intention et le même identifiant. Tous les comptes et appels restent simulés.
+
 `node scripts/qa/studio-recovery.mjs` vérifie la conservation du brief, du support et du format, puis la reprise explicite après réponse perdue ou rechargement. Une mission acceptée est retrouvée sans nouveau départ, même avec quatre places occupées ; les erreurs de vérification ne déclenchent aucun appel supplémentaire. Le contrôle couvre aussi les langues FR/EN/NL et le mobile, avec des moteurs simulés.
+
+`node scripts/qa/accessibility-navigation.mjs` vérifie les retours au clavier des réglages et de la fiche Oscar, Échap, les fermetures et réouvertures immédiates, ainsi que le passage volontaire des connecteurs à Zoé. Il coupe réellement le flux de mises à jour et vérifie le même champ, son texte, sa sélection et son focus après reconnexion. Les compteurs de zéro, un et plusieurs exemples suivent FR/EN/NL sans modifier les fichiers sélectionnés ni les textes personnels. Aucun lancement de mission, lecture de compte ou téléchargement de modèle n’est nécessaire.

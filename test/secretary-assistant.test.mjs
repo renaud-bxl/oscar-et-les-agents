@@ -141,6 +141,25 @@ test('une réponse HTTP perdue se récupère avec le même identifiant sans cons
  assert.deepEqual(Object.keys(app.engine.get(first.id).secretaryRequest).sort(),['fingerprint','id']);
 });
 
+test('le reçu Zoé se retrouve sans abonnement, service ou nouveau quota et conserve les protections locales',async t=>{
+ let calls=0,resolutions=0;const{app,base,send}=await httpSetup(t,{runner:async({schema})=>{calls++;return{text:JSON.stringify(schema.properties.answer?reply:review)};},connectorsFactory:()=>({ready:Promise.resolve(),active:new Set(),disabledNames:()=>[],readPlan:async()=>{resolutions++;throw new Error('Aucune lecture pendant la reprise');},close:async()=>{}})});
+ const id='secretary_lookup_123',response=await send({mode:'free',prompt:'Une demande récupérable.',provider:'codex',requestId:id}),mission=await response.json();await app.engine.wait(mission.id);
+ for(const provider of app.engine.providers)provider.auth.loggedIn=false;
+ const receipt=await fetch(base+'/api/secretary-requests/'+id);assert.equal(receipt.status,200);const found=await receipt.json();assert.equal(found.status,'accepted');assert.equal(found.mission.id,mission.id);assert.equal(found.mission.secretaryRequest.id,id);assert.equal(calls,2);assert.equal(resolutions,0);
+ assert.equal((await fetch(base+'/api/secretary-requests/secretary_absent_123')).status,404);
+ assert.equal((await fetch(base+'/api/secretary-requests/short')).status,400);
+ assert.equal((await fetch(base+'/api/secretary-requests/'+id+'?provider=codex')).status,400);
+ assert.equal((await fetch(base+'/api/secretary-requests/'+id,{headers:{Origin:'https://external.invalid'}})).status,403);
+});
+
+test('le reçu Zoé indique checking pendant le précontrôle sans lancer une seconde lecture',async t=>{
+ let entered,release,resolutions=0;const started=new Promise(resolve=>{entered=resolve;}),waiting=new Promise(resolve=>{release=resolve;});
+ const{app,base,send}=await httpSetup(t,{runner:async({schema})=>({text:JSON.stringify(schema.properties.answer?reply:review)}),connectorsFactory:()=>({ready:Promise.resolve(),active:new Set(),disabledNames:()=>[],readPlan:async({client,name})=>{resolutions++;entered();await waiting;return{client,name,type:'gmail',enabledTools:['read']};},close:async()=>release()})});
+ const id='secretary_checking_123',pending=send({mode:'mail',prompt:'Une synthèse locale.',provider:'codex',connectorName:'mail',requestId:id});await started;
+ const checking=await fetch(base+'/api/secretary-requests/'+id);assert.equal(checking.status,202);assert.deepEqual(await checking.json(),{status:'checking'});assert.equal(resolutions,1);assert.equal(app.engine.missions.size,0);
+ release();const mission=await(await pending).json();await app.engine.wait(mission.id);assert.equal((await fetch(base+'/api/secretary-requests/'+id)).status,200);assert.equal(resolutions,1);
+});
+
 test('le verrou de requête précède la vérification du service : deux clics simultanés ne lancent qu’une lecture',async t=>{
  let entered,release,resolutions=0,calls=0;const started=new Promise(resolve=>{entered=resolve;}),waiting=new Promise(resolve=>{release=resolve;});
  const {app,send}=await httpSetup(t,{runner:async({schema})=>{calls++;return{text:JSON.stringify(schema.properties.answer?reply:review)};},connectorsFactory:()=>({ready:Promise.resolve(),active:new Set(),disabledNames:()=>[],readPlan:async({client,name})=>{resolutions++;entered();await waiting;return{client,name,type:'gmail',enabledTools:['read']};},close:async()=>{release();}})});
@@ -156,7 +175,8 @@ test('la quittance de requête est écrite avant l’appel modèle et survit au 
  const post=(app,body)=>fetch(`http://127.0.0.1:${app.server.address().port}/api/secretary`,{method:'POST',headers:{'Content-Type':'application/json','X-Oscar-Client':'1'},body:JSON.stringify(body)});
  const body={mode:'free',prompt:'Une demande récupérable.',provider:'codex',requestId:'request_durable_123'};
  firstApp=await start();const first=await(await post(firstApp,body)).json();await firstApp.engine.wait(first.id);assert.equal(calls,2);await firstApp.close();firstApp=null;
- secondApp=await start();const response=await post(secondApp,body);assert.equal(response.status,202);assert.equal((await response.json()).id,first.id);assert.equal(calls,2);
+ secondApp=await start();const lookup=await fetch(`http://127.0.0.1:${secondApp.server.address().port}/api/secretary-requests/${body.requestId}`);assert.equal(lookup.status,200);assert.equal((await lookup.json()).mission.id,first.id);assert.equal(calls,2);
+ const response=await post(secondApp,body);assert.equal(response.status,202);assert.equal((await response.json()).id,first.id);assert.equal(calls,2);
 });
 
 test('une panne de première sauvegarde ne laisse ni place occupée, ni appel modèle, ni faux reçu',async t=>{

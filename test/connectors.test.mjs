@@ -7,7 +7,8 @@ import {EventEmitter} from 'node:events';
 import {PassThrough,Writable} from 'node:stream';
 import { Connectors, CONNECTOR_CATALOG, connectorName, connectorUrl, connectorEnvironment, parseCodexConnectors, parseClaudeConnectors, GMAIL_MCP_URL, GMAIL_READ_TOOLS, CALENDAR_MCP_URL, CALENDAR_READ_TOOLS, isTrustedReadPlan } from '../lib/connectors.mjs';
 import { disabledMcpArguments, readConnectorArguments,claudeReadConnectorArguments } from '../lib/providers.mjs';
-import {INHERITED_APPS,CLAUDE_READ_SERVICES,parseInheritedApps,inheritedClaudeIdentity,parseInheritedClaudeConnectors,verifiedClaudeReadMetadata,inspectCodexApps,inspectClaudeConnectors} from '../lib/connector-clients.mjs';
+import {INHERITED_APPS,CLAUDE_READ_SERVICES,inheritedClaudeIdentity,parseInheritedClaudeConnectors,verifiedClaudeReadMetadata,inspectCodexApps,inspectClaudeConnectors} from '../lib/connector-clients.mjs';
+import {parseInheritedApps,runtimeStatus} from './connector-fixtures.mjs';
 import { createAtelierServer } from '../server.mjs';
 
 async function fixture(t, options = {}) {
@@ -255,6 +256,22 @@ test('all installed official apps expose only bounded, active read tools and can
  const directory=structuredClone(snapshot);directory.installed.apps=[];assert.equal(parseInheritedApps(directory).length,0);
  const spoof=structuredClone(snapshot);spoof.installed.apps[0].runtimeName='Gmail';assert.equal(connection(spoof).type,'app');assert.equal(connection(spoof).appId,id);
 });
+test('app execution bindings join the canonical per-tool identity and exact action without guessing namespaces',()=>{
+ const snapshot=genericAppMetadata(),id=snapshot.installed.apps[0].id;
+ const raw=(name,title,connectorId=id)=>({name,title,_meta:{connector_id:connectorId},annotations:{readOnlyHint:true}});
+ snapshot.runtimeTools=[raw('unrelated_display_name.search','search'),raw('other.search','search','other-app'),raw('files_raw.read/list','files.read/list')];
+ const row=parseInheritedApps(snapshot).find(row=>row.appId===id);
+ assert.deepEqual(row.executionTools,[{tool:'search',name:'unrelated_display_name.search'},{tool:'files.read/list',name:'files_raw.read/list'}]);
+ const missing=structuredClone(snapshot);delete missing.runtimeTools[0]._meta.connector_id;
+ assert.deepEqual(parseInheritedApps(missing).find(row=>row.appId===id).enabledTools,['files.read/list']);
+ const ambiguous=structuredClone(snapshot);ambiguous.runtimeTools.push(raw('second.search','search'));
+ assert.deepEqual(parseInheritedApps(ambiguous).find(row=>row.appId===id).enabledTools,['files.read/list']);
+ const collision=structuredClone(snapshot);collision.runtimeTools.push(raw('unrelated_display_name.search','search','other-app'));
+ assert.deepEqual(parseInheritedApps(collision).find(row=>row.appId===id).enabledTools,['files.read/list']);
+ const dangerous=structuredClone(snapshot);dangerous.runtimeTools[0].annotations.destructiveHint=true;
+ assert.deepEqual(parseInheritedApps(dangerous).find(row=>row.appId===id).enabledTools,['files.read/list']);
+ assert.equal(parseInheritedApps({...snapshot,runtimeTools:[]}).find(row=>row.appId===id).readOnlyAutomation.available,false);
+});
 test('generic app plans capture exact identity and immutable read permissions while HTTP copies remain untrusted',async t=>{
  const snapshot=genericAppMetadata(),id=snapshot.installed.apps[0].id,name=`chatgpt-${id}`;
  const f=await fixture(t,{appInspector:async()=>parseInheritedApps(snapshot)});f.rows.codex.push({name:'other-mcp',auth_status:'o_auth'});
@@ -364,10 +381,10 @@ test('inherited discovery uses metadata-only RPC, refuses incoming actions and s
  const snapshot=appMetadata(),requests=[],kills=[];let child;
  const spawnImpl=()=>{
   child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=kind=>{kills.push(kind);queueMicrotask(()=>child.emit('close',0));};
-  child.stdin=new Writable({write(chunk,encoding,callback){const value=JSON.parse(chunk.toString());requests.push(value);if(value.method&&value.id!==undefined){const result=value.method==='initialize'?{}:value.method==='app/installed'?snapshot.installed:value.method==='app/list'?snapshot.list:snapshot.details;queueMicrotask(()=>child.stdout.write(JSON.stringify({id:value.id,result})+'\n'));if(value.method==='initialize')queueMicrotask(()=>child.stdout.write(JSON.stringify({id:'incoming-action',method:'item/tool/call',params:{secret:'NEVER_DISPLAY'}})+'\n'));}callback();}});return child;
+  child.stdin=new Writable({write(chunk,encoding,callback){const value=JSON.parse(chunk.toString());requests.push(value);if(value.method&&value.id!==undefined){const result=value.method==='initialize'?{}:value.method==='app/installed'?snapshot.installed:value.method==='app/list'?snapshot.list:value.method==='mcpServerStatus/list'?runtimeStatus(snapshot):snapshot.details;queueMicrotask(()=>child.stdout.write(JSON.stringify({id:value.id,result})+'\n'));if(value.method==='initialize')queueMicrotask(()=>child.stdout.write(JSON.stringify({id:'incoming-action',method:'item/tool/call',params:{secret:'NEVER_DISPLAY'}})+'\n'));}callback();}});return child;
  };
  const rows=await inspectCodexApps({binary:'/fake/codex',spawnImpl,timeoutMs:1000});assert.equal(rows.find(row=>row.name==='chatgpt-gmail').readOnlyAutomation.available,true);
- assert.deepEqual(requests.filter(row=>row.method).map(row=>row.method),['initialize','initialized','app/installed','app/read']);assert.equal(requests.find(row=>row.id==='incoming-action').error.code,-32601);assert.ok(kills.includes('SIGTERM'));
+ assert.deepEqual(requests.filter(row=>row.method).map(row=>row.method),['initialize','initialized','app/installed','app/read','mcpServerStatus/list']);assert.equal(requests.find(row=>row.id==='incoming-action').error.code,-32601);assert.ok(kills.includes('SIGTERM'));
  assert.deepEqual(requests.find(row=>row.method==='app/read').params,{appIds:snapshot.installed.apps.map(app=>app.id),includeTools:true});
 });
 test('official app discovery reads every unique installed identity in batches of at most 100 without a directory lookup',async()=>{
@@ -377,13 +394,39 @@ test('official app discovery reads every unique installed identity in batches of
   child.stdin=new Writable({write(chunk,encoding,callback){
    const request=JSON.parse(chunk.toString());requests.push(request);
    if(request.id!==undefined){
-    const result=request.method==='initialize'?{}:request.method==='app/installed'?{apps:[...apps,apps[0],{id:'_default'},{id:'unsafe.id'}]}:{apps:request.params.appIds.map(id=>({id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:[{name:'read',isReadOnly:true,isEnabled:true}]}))};
+    const result=request.method==='initialize'?{}:request.method==='app/installed'?{apps:[...apps,apps[0],{id:'_default'},{id:'unsafe.id'}]}:request.method==='mcpServerStatus/list'?{data:[{name:'codex_apps',tools:Object.fromEntries(apps.map(({id})=>[id,{name:`${id}.read`,title:'read',_meta:{connector_id:id},annotations:{readOnlyHint:true}}])),toolsError:null}],nextCursor:null}:{apps:request.params.appIds.map(id=>({id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:[{name:'read',isReadOnly:true,isEnabled:true}]}))};
     queueMicrotask(()=>child.stdout.write(JSON.stringify({id:request.id,result})+'\n'));
    }callback();
   }});return child;
  };
  const rows=await inspectCodexApps({binary:'/fake/codex',spawnImpl,timeoutMs:1000}),reads=requests.filter(request=>request.method==='app/read');
- assert.equal(rows.length,205);assert.ok(rows.every(row=>row.readOnlyAutomation.available&&row.type==='app'));assert.deepEqual(reads.map(request=>request.params.appIds.length),[100,100,5]);assert.deepEqual(reads.flatMap(request=>request.params.appIds),apps.map(app=>app.id));assert.ok(reads.every(request=>request.params.includeTools===true));assert.ok(requests.every(request=>['initialize','initialized','app/installed','app/read'].includes(request.method)));assert.ok(kills.includes('SIGTERM'));
+ assert.equal(rows.length,205);assert.ok(rows.every(row=>row.readOnlyAutomation.available&&row.type==='app'));assert.deepEqual(reads.map(request=>request.params.appIds.length),[100,100,5]);assert.deepEqual(reads.flatMap(request=>request.params.appIds),apps.map(app=>app.id));assert.ok(reads.every(request=>request.params.includeTools===true));assert.ok(requests.every(request=>['initialize','initialized','app/installed','app/read','mcpServerStatus/list'].includes(request.method)));assert.ok(kills.includes('SIGTERM'));
+});
+test('an incomplete runtime catalog cannot publish partial app authority and pagination only publishes a complete snapshot',async()=>{
+ const snapshot=appMetadata(),complete=runtimeStatus(snapshot),first=Object.values(complete.data[0].tools).slice(0,2),rest=Object.values(complete.data[0].tools).slice(2);
+ const inspect=async mode=>{
+  const controller=new AbortController();
+  const requests=[],spawnImpl=()=>{
+   const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>queueMicrotask(()=>child.emit('close',0));
+   child.stdin=new Writable({write(chunk,encoding,callback){
+    const request=JSON.parse(String(chunk));requests.push(request);
+    if(request.id!==undefined){
+     let result=request.method==='initialize'?{}:request.method==='app/installed'?snapshot.installed:request.method==='app/read'?snapshot.details:request.params.cursor
+      ?mode==='malformed'?{data:[{name:'codex_apps',tools:null}],nextCursor:null}:{data:[{name:'codex_apps',tools:Object.fromEntries(rest.map((tool,index)=>[String(index),tool]))}],nextCursor:null}
+      :{data:[{name:'codex_apps',tools:Object.fromEntries(first.map((tool,index)=>[String(index),tool]))}],nextCursor:'remaining'};
+     if(mode==='loop'&&request.params?.cursor)result={data:[],nextCursor:'remaining'};
+     if(request.method==='mcpServerStatus/list'&&mode==='oversize')queueMicrotask(()=>child.stdout.write('x'.repeat(8*1024*1024+1)));
+     else if(request.method==='mcpServerStatus/list'&&mode==='cancel')queueMicrotask(()=>controller.abort());
+     else queueMicrotask(()=>child.stdout.write(JSON.stringify({id:request.id,result})+'\n'));
+    }callback();
+   }});return child;
+  };
+  const operation=inspectCodexApps({binary:'/fake/codex',spawnImpl,timeoutMs:1000,signal:controller.signal});
+  if(mode==='complete'){const rows=await operation;assert.ok(rows.find(row=>row.type==='gmail').readOnlyAutomation.available);assert.ok(rows.find(row=>row.type==='calendar').readOnlyAutomation.available);}
+  else await assert.rejects(operation,cause=>cause.code==='CONNECTOR_PROBE');
+  assert.deepEqual(requests.filter(row=>row.method==='mcpServerStatus/list').map(row=>row.params.cursor),['oversize','cancel'].includes(mode)?[undefined]:[undefined,'remaining']);
+ };
+ for(const mode of ['complete','malformed','loop','oversize','cancel'])await inspect(mode);
 });
 test('a timed-out metadata client is stopped and never exposes its diagnostics',async()=>{
  const kills=[];const spawnImpl=()=>{const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.stdin=new PassThrough();child.kill=kind=>kills.push(kind);return child;};

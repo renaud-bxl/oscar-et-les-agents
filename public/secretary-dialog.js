@@ -14,7 +14,7 @@ const GUARDS = 'Tu es Zoé, secrétaire de ce bureau. Utilise uniquement le serv
 const requestJson = async (url, options = {}) => {
   const response = await fetch(url, { credentials: 'same-origin', ...options }); let data;
   try { data = await response.json(); } catch { throw new Error('Le bureau a renvoyé une réponse inattendue.'); }
-  if (!response.ok) throw new Error(data.error || 'Cette action n’a pas pu être réalisée.'); return data;
+  if (!response.ok) throw Object.assign(new Error(data.error || 'Cette action n’a pas pu être réalisée.'), { status: response.status }); return data;
 };
 const idSafe = value => typeof value === 'string' && /^[a-z\d-]{1,100}$/i.test(value);
 const service = row => {
@@ -75,7 +75,7 @@ export class SecretaryDialog {
     this.connectionNote = node('p','secretary-connection-note'); this.connectionNote.setAttribute('role','status');
     const prompt = node('label','secretary-field'); prompt.append(node('span','','Ce que Zoé doit préparer')); this.prompt = node('textarea'); this.prompt.id='secretary-prompt'; this.prompt.rows=6; this.prompt.maxLength=12000; this.prompt.required=true; this.prompt.value=this.drafts.mail; this.prompt.placeholder='Précisez le sujet, vos priorités et le résultat attendu.';
     this.prompt.addEventListener('input',()=>{this.drafts[this.mode]=this.prompt.value;this.pendingRecord=null;this.requestChanged();this.update();});this.dictateButton=this.button('🎙 Dicter ma demande','secretary-link secretary-dictate',()=>Promise.resolve(this.onDictate(this.prompt)).catch(error=>this.showError(error.message||'Cette demande n’a pas abouti. Votre formulaire est conservé.')));prompt.append(this.prompt,this.dictateButton);
-    this.draftNote=node('p','secretary-draft-note');this.draftMessage=node('span','','Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.');this.clearDraftButton=this.button('Effacer le brouillon','secretary-refresh',()=>{this.pendingRequest=null;this.draftConfirmed=true;this.draftStore.remove('secretary');this.prompt.value='';this.drafts[this.mode]='';this.draftMessage.textContent=translate('Brouillon effacé.');this.update();this.prompt.focus();});this.draftNote.append(this.draftMessage,this.clearDraftButton);prompt.append(this.draftNote);
+    this.draftNote=node('p','secretary-draft-note');this.draftMessage=node('span','','Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.');this.clearDraftButton=this.button('Effacer le brouillon','secretary-refresh',()=>{this.pendingRequest=null;this.pendingRoutine=null;this.draftConfirmed=true;this.draftStore.remove('secretary');this.prompt.value='';this.drafts[this.mode]='';this.draftMessage.textContent=translate('Brouillon effacé.');this.update();this.prompt.focus();});this.draftNote.append(this.draftMessage,this.clearDraftButton);prompt.append(this.draftNote);
     this.freeTools=node('section','secretary-free-tools');this.freeTools.append(node('p','','Questions, recherches Web, comparatifs, idées, trajets ou rédaction : aucun connecteur n’est nécessaire.'));
     const examples=node('div','secretary-free-examples');this.exampleButtons=[];for(const[label,text]of [['Un resto près de moi','Trouve dix restaurants chinois près de chez moi. Compare leurs spécialités, adresses, horaires et liens officiels.'],['Comparer des options','Aide-moi à comparer les solutions possibles pour mon projet, avec avantages, limites et sources récentes.'],['Rédiger un texte','Aide-moi à rédiger un texte clair. Commence par préciser avec moi le destinataire, l’objectif et le ton.']]){const button=this.button(label,'secretary-link',()=>{this.prompt.value=translate(text);this.drafts.free=this.prompt.value;this.pendingRecord=null;this.requestChanged();this.update();this.prompt.focus();});examples.append(button);this.exampleButtons.push(button);}
     const region=node('label','secretary-field');region.append(node('span','','Ville ou quartier pour les recherches locales'));this.region=node('input');this.region.id='secretary-region';this.region.maxLength=120;this.region.placeholder='Ex. : Bruxelles, quartier Sainte-Catherine';this.region.addEventListener('input',()=>{this.coordinates=null;this.pendingRecord=null;this.requestChanged();});region.append(this.region);
@@ -97,12 +97,14 @@ export class SecretaryDialog {
   }
   available() { return secretaryConnections(this.connections,{client:this.client.value,mode:this.mode}); }
   selectService(connection) {
-    if(this.destroyed||this.submitting||!['codex','claude'].includes(connection?.client)||typeof connection.name!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/u.test(connection.name))return false;
+    if(this.destroyed||this.submitting||this.pendingRoutine||this.pendingRequest&&(!this.pendingRequest.absent||this.pendingRequest.signature)||!['codex','claude'].includes(connection?.client)||typeof connection.name!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/u.test(connection.name))return false;
     this.pendingService={client:connection.client,name:connection.name};this.client.value=connection.client;this.pendingRecord=null;this.requestChanged();this.renderConnections();this.renderAnswers();this.update();if(this.pendingService&&!this.connectorsRefresh)this.refreshConnections();return true;
   }
   connectionChoice(items,chosen=this.connection.value) {
-    if(this.pendingService){const target=items.find(row=>row.client===this.pendingService.client&&row.name===this.pendingService.name);if(!target)return '';this.pendingService=null;return connectionKey(target);}
-    return items.some(row=>connectionKey(row)===chosen)?chosen:items.length?connectionKey(items.find(row=>this.providerReady(row.client))||items[0]):'';
+    if(this.pendingService){const target=items.find(row=>row.client===this.pendingService.client&&row.name===this.pendingService.name);if(!target)return '';this.pendingService=null;this.requiresServiceChoice=false;return connectionKey(target);}
+    if(items.some(row=>connectionKey(row)===chosen))return chosen;
+    if(chosen)this.requiresServiceChoice=true;
+    return this.requiresServiceChoice?'':items.length?connectionKey(items.find(row=>this.providerReady(row.client))||items[0]):'';
   }
   displayedConnections() { return this.mode==='service'?this.connections.filter(row=>['codex','claude'].includes(row.client)&&(this.client.value==='auto'||row.client===this.client.value)&&(['authorized','connected'].includes(row.status)||row.stale===true)).sort((a,b)=>{const rank=row=>service(row)==='mail'?0:service(row)==='calendar'?1:2;return rank(a)-rank(b);}):this.available(); }
   checkingConnections() { return this.connectorsLoading&&!this.verified||Object.entries(this.connectionClients).some(([client,state])=>(this.client.value==='auto'||this.client.value===client)&&state?.status==='checking'); }
@@ -121,23 +123,27 @@ export class SecretaryDialog {
     for(const row of displayed){const usable=allowed.has(connectionKey(row)),status=usable?row.inherited?'déjà connecté':'':row.stale?'connexion à vérifier':'lecture non disponible';const option=node('option','',`${row.displayName||row.runtimeName||row.name} · ${row.client==='claude'?'Claude':'ChatGPT'}${status?` · ${translate(status)}`:''}`);option.value=connectionKey(row);option.disabled=!usable;this.connection.append(option);}
     this.connection.value=this.connectionChoice(items,chosen);
   }
-  restoreDraft(){const draft=this.draftStore.read('secretary');if(!draft||typeof draft.text!=='string')return;if(MODES[draft.mode])this.mode=draft.mode;this.prompt.value=draft.text;this.drafts[this.mode]=draft.text;if(['auto','codex','claude'].includes(draft.provider))this.client.value=draft.provider;if(draft.requestId&&draft.requestHash)this.pendingRequest={id:draft.requestId,hash:draft.requestHash};this.draftMessage.textContent=translate('Brouillon retrouvé sur cet ordinateur. Il n’a pas été envoyé.');}
-  saveDraft(){if(this.draftConfirmed)return;const saved=this.draftStore.write('secretary',{text:this.prompt.value,mode:this.mode,provider:this.client.value,...(this.pendingRequest?.hash?{requestId:this.pendingRequest.id,requestHash:this.pendingRequest.hash}:{})});this.draftMessage.textContent=translate(saved?'Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.':'Votre navigateur ne peut pas conserver ce brouillon. Gardez cette fenêtre ouverte.');}
-  requestChanged(){this.pendingRequest=null;this.draftConfirmed=false;this.saveDraft();}
-  async requestIdentity(body){const signature=JSON.stringify(body);let hash=null;try{if(globalThis.crypto?.subtle)hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(signature))),byte=>byte.toString(16).padStart(2,'0')).join('');}catch{}if(this.pendingRequest&&(hash?this.pendingRequest.hash===hash:this.pendingRequest.signature===signature))return this.pendingRequest.id;const id=globalThis.crypto?.randomUUID?.()||`request_${Date.now()}_${Math.random().toString(36).slice(2)}`;this.pendingRequest={id,hash,signature};this.draftConfirmed=false;this.saveDraft();return id;}
-  choose(mode) { if(this.submitting)return;this.pendingService=null;this.drafts[this.mode]=this.prompt.value;this.mode=mode;this.prompt.value=this.drafts[mode];this.pendingRecord=null;this.requestChanged();this.renderConnections();this.renderAnswers();this.update();this.prompt.focus({preventScroll:true}); }
+  restoreDraft(){const draft=this.draftStore.read('secretary');if(!draft||typeof draft.text!=='string')return;if(MODES[draft.mode])this.mode=draft.mode;this.prompt.value=draft.text;this.drafts[this.mode]=draft.text;if(['auto','codex','claude'].includes(draft.provider))this.client.value=draft.provider;if(draft.requestId&&draft.requestHash){const pending={id:draft.requestId,hash:draft.requestHash};if(draft.requestKind==='routine')this.pendingRoutine=pending;else this.pendingRequest=pending;this.requiresServiceChoice=true;}this.draftMessage.textContent=translate(this.pendingRoutine||this.pendingRequest?'Votre demande attend sa confirmation. Retrouvez-la avant de lancer un nouveau travail.':'Brouillon retrouvé sur cet ordinateur. Il n’a pas été envoyé.');}
+  saveDraft(){if(this.draftConfirmed)return;const pending=this.pendingRoutine||this.pendingRequest;const saved=this.draftStore.write('secretary',{text:this.prompt.value,mode:this.mode,provider:this.client.value,...(pending?.hash?{requestId:pending.id,requestHash:pending.hash,...(this.pendingRoutine?{requestKind:'routine'}:{})}:{})});this.draftMessage.textContent=translate(saved?'Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.':'Votre navigateur ne peut pas conserver ce brouillon. Gardez cette fenêtre ouverte.');}
+  requestChanged(){this.draftConfirmed=false;this.saveDraft();}
+  async requestHash(body){try{if(globalThis.crypto?.subtle)return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(body)))),byte=>byte.toString(16).padStart(2,'0')).join('');}catch{}return null;}
+  async requestIdentity(body,{isCurrent=()=>true}={}){const signature=JSON.stringify(body),hash=await this.requestHash(body);if(!isCurrent())return null;if(this.pendingRequest){if(hash?this.pendingRequest.hash===hash:this.pendingRequest.signature===signature)return this.pendingRequest.id;throw new Error('Cette demande a changé. Commencez une nouvelle demande pour utiliser ce contexte.');}const id=globalThis.crypto?.randomUUID?.()||`request_${Date.now()}_${Math.random().toString(36).slice(2)}`;this.pendingRequest={id,hash,signature};this.draftConfirmed=false;this.saveDraft();return id;}
+  choose(mode) { if(this.submitting||this.pendingRoutine||this.pendingRequest&&(!this.pendingRequest.absent||this.pendingRequest.signature))return;this.pendingService=null;this.drafts[this.mode]=this.prompt.value;this.mode=mode;this.prompt.value=this.drafts[mode];this.pendingRecord=null;this.requestChanged();this.renderConnections();this.renderAnswers();this.update();this.prompt.focus({preventScroll:true}); }
   update() {
-    this.heading.textContent=MODES[this.mode].title;for(const[id,button]of Object.entries(this.tabs)){button.setAttribute('aria-pressed',String(id===this.mode));button.disabled=Boolean(this.submitting);}
+    const recovering=Boolean(this.pendingRequest||this.pendingRoutine),locked=Boolean(this.submitting||this.pendingRoutine||this.pendingRequest&&(!this.pendingRequest.absent||this.pendingRequest.signature));
+    this.heading.textContent=MODES[this.mode].title;for(const[id,button]of Object.entries(this.tabs)){button.setAttribute('aria-pressed',String(id===this.mode));button.disabled=locked;}
     const free=this.mode==='free',selected=this.selectedConnection(),ready=free?this.providerReady(this.freeProvider()):this.verified&&selected&&this.providerReady(selected.client);
     this.connectionField.hidden=free;this.freeTools.hidden=!free;
     this.connectionNote.textContent=free?(ready?'Votre moteur connecté peut répondre et rechercher sur le Web. Pour vos comptes et fichiers privés, choisissez Mails, Agenda ou Mes services.':'Connectez votre abonnement dans les réglages du bureau pour poser vos questions à Zoé.'):this.pendingService?'Le service sélectionné attend la confirmation de son accès en lecture. Choisissez un autre service ou retrouvez vos connexions.':this.checkingConnections()&&!this.available().length?'Vérification des services autorisés…':!this.available().length?'Aucun accès compatible n’est confirmé dans ce moteur. Retrouvez vos connexions ou activez le service dans ChatGPT ou Claude.':selected&&!this.providerReady(selected.client)?'Connectez l’abonnement du moteur choisi dans les réglages du bureau.':this.checkingConnections()?'Les services confirmés sont disponibles. La liste se complète automatiquement pendant la vérification.':'Le service choisi sera vérifié de nouveau avant chaque mission. Aucun outil d’envoi ni de modification n’est autorisé.';
-    const immediate=this.schedule.value==='immediate',clock=['daily','weekdays'].includes(this.schedule.value);this.scheduleTimeField.hidden=!clock;this.scheduleTime.disabled=Boolean(this.submitting)||!clock;this.scheduleTime.required=clock;
-    this.runButton.disabled=Boolean(this.submitting)||!ready||!this.prompt.value.trim();this.programButton.hidden=immediate;this.programButton.disabled=this.runButton.disabled||immediate;
-    this.runButton.textContent=this.submitting?'Préparation de votre demande…':'Lancer maintenant';this.programButton.textContent=this.submitting?'Patientez…':'Programmer';
-    this.client.disabled=Boolean(this.submitting);this.connection.disabled=Boolean(this.submitting)||!this.displayedConnections().length;this.connectionField.setAttribute('aria-busy',String(this.checkingConnections()));this.prompt.disabled=Boolean(this.submitting);this.schedule.disabled=Boolean(this.submitting);this.refreshButton.disabled=Boolean(this.connectorsLoading)||Boolean(this.submitting);
-    this.dictateButton.disabled=Boolean(this.submitting);
+    if(this.requiresServiceChoice&&!free&&!selected)this.connectionNote.textContent='Le service choisi n’est plus disponible dans cet onglet ou ce moteur. Sélectionnez explicitement le service à utiliser.';
+    const immediate=this.schedule.value==='immediate',clock=['daily','weekdays'].includes(this.schedule.value);this.scheduleTimeField.hidden=!clock;this.scheduleTime.disabled=locked||!clock;this.scheduleTime.required=clock;
+    this.runButton.disabled=Boolean(this.submitting)||!recovering&&(!ready||!this.prompt.value.trim());this.programButton.hidden=immediate;this.programButton.disabled=this.runButton.disabled||immediate||recovering;
+    this.runButton.textContent=this.submitting?'Préparation de votre demande…':recovering?'Retrouver ma demande':'Lancer maintenant';this.programButton.textContent=this.submitting?'Patientez…':'Programmer';
+    this.client.disabled=locked;this.connection.disabled=locked||!this.displayedConnections().length;this.connectionField.setAttribute('aria-busy',String(this.checkingConnections()));this.prompt.disabled=locked;this.schedule.disabled=locked;this.refreshButton.disabled=Boolean(this.connectorsLoading)||Boolean(this.submitting);
+    this.dictateButton.disabled=locked;
     this.clearDraftButton.disabled=Boolean(this.submitting);
-    this.region.disabled=Boolean(this.submitting);this.locateButton.disabled=Boolean(this.submitting||this.locating);for(const button of this.exampleButtons)button.disabled=Boolean(this.submitting);for(const button of this.answers?.querySelectorAll('[data-secretary-action="next"]')||[])button.disabled=Boolean(this.submitting);
+    this.clearDraftButton.textContent=recovering?'Commencer une nouvelle demande':'Effacer le brouillon';
+    this.region.disabled=locked;this.locateButton.disabled=Boolean(locked||this.locating);for(const button of this.exampleButtons)button.disabled=locked;for(const button of this.answers?.querySelectorAll('[data-secretary-action="next"]')||[])button.disabled=locked;
     this.timezone.textContent=this.zone?`Heure locale · ${this.zone}`:'Les horaires suivent le fuseau de cet ordinateur.';
   }
   activity(entries) {
@@ -211,21 +217,62 @@ export class SecretaryDialog {
     return{label:translate(MODES[this.mode].labelEntry),prompt,provider:free?this.freeProvider():selected.client,schedule,enabled,requiresConnector:!free,connectorName:free?'':selected.name,assistant:true,assistantMode:this.mode};
   }
   async submit(program) {
-    if(program&&this.schedule.value==='immediate'){this.showError('Choisissez un rythme régulier avant de programmer.');return;}
-    if(this.submitting||!this.form.reportValidity()||this.runButton.disabled)return;
+    if(program&&!this.pendingRoutine&&this.schedule.value==='immediate'){this.showError('Choisissez un rythme régulier avant de programmer.');return;}
+    if(program&&this.pendingRequest){this.showError('Retrouvez la demande précédente ou commencez une nouvelle demande avant de programmer.');return;}
+    if(this.submitting||!this.pendingRequest&&!this.pendingRoutine&&(!this.form.reportValidity()||this.runButton.disabled))return;
     const epoch=this.epoch,controller=new AbortController();this.submitController=controller;this.submitting=true;this.update();
     const finish=()=>{if(this.submitController===controller){this.submitController=null;this.submitting=false;if(!this.destroyed)this.update();}};
-    this.error.hidden=true;this.notice.hidden=true;let body;try{if(this.mode==='free'&&needsLocalArea(this.prompt.value)&&!this.region.value.trim()&&!this.getProfile()?.region&&!this.coordinates)await this.locate();if(controller.signal.aborted||epoch!==this.epoch||this.destroyed){finish();return;}body=this.payload(program);}catch(error){finish();if(epoch===this.epoch&&!controller.signal.aborted&&error.code!=='LOCATION_STALE')this.showError(error.message);return;}
-    this.submitting=true;this.update();
+    this.error.hidden=true;this.notice.hidden=true;
+    const stale=()=>controller.signal.aborted||epoch!==this.epoch||this.destroyed;
     try{
-      if(!program){const requestBody={mode:this.mode,prompt:body.prompt,provider:body.provider,...(body.connectorName?{connectorName:body.connectorName}:{})};requestBody.requestId=await this.requestIdentity(requestBody);if(controller.signal.aborted||epoch!==this.epoch||this.destroyed)return;const result=await this.request('/api/secretary',{method:'POST',headers:{'Content-Type':'application/json','X-Oscar-Client':'1'},body:JSON.stringify(requestBody),signal:controller.signal});if(controller.signal.aborted||epoch!==this.epoch||this.destroyed)return;if(!idSafe(result?.id)||result.assistant!==true)throw new Error('Le bureau n’a pas confirmé cette demande.');this.pendingRequest=null;this.draftConfirmed=true;this.draftStore.remove('secretary');this.draftMessage.textContent=translate('Demande confirmée. Votre réponse est conservée dans l’historique.');this.directMissions.set(result.id,result);while(this.directMissions.size>12){const oldest=[...this.directMissions.values()].filter(m=>!ACTIVE.has(m.status)).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0))[0];if(!oldest)break;this.directMissions.delete(oldest.id);}this.activity(this.entries);this.renderAnswers();if(this.dialog.open&&epoch===this.epoch)this.answers.scrollIntoView({block:'start',behavior:'auto'});this.poll();return;}
-      const record=await this.request('/api/automations',{method:'POST',headers:{'Content-Type':'application/json','X-Oscar-Client':'1'},body:JSON.stringify(body),signal:controller.signal});if(controller.signal.aborted||epoch!==this.epoch||this.destroyed)return;if(!idSafe(record?.id))throw new Error('Le bureau n’a pas confirmé cette routine.');
-      this.notice.textContent='Routine enregistrée. Elle attend son prochain horaire ; aucune mission n’a été lancée maintenant.';this.notice.hidden=false;this.pendingRecord=null;
-      this.pendingRequest=null;this.draftConfirmed=true;this.draftStore.remove('secretary');
-      await this.refresh(false);this.poll();
-    }catch(error){if(!controller.signal.aborted&&epoch===this.epoch)this.showError(error.message||'Cette demande n’a pas abouti. Votre formulaire est conservé.');}
+      if(this.pendingRoutine){await this.programRoutine(undefined,{controller,epoch});return;}
+      let requestBody;
+      if(this.pendingRequest){
+        const pending=this.pendingRequest;pending.absent=false;
+        let receipt;try{receipt=await this.request(`/api/secretary-requests/${encodeURIComponent(pending.id)}`,{signal:controller.signal});}catch(error){if(stale())return;if(error.status!==404)throw error;pending.absent=true;}
+        if(stale()||this.pendingRequest!==pending)return;
+        if(receipt){if(receipt.status!=='accepted'||!idSafe(receipt.mission?.id)||receipt.mission.assistant!==true||receipt.mission.secretaryRequest?.id!==pending.id)throw new Error('Cette demande est encore en cours de vérification. Patientez un instant, puis reprenez-la.');this.acceptMission(receipt.mission,epoch);return;}
+        // Only a confirmed absence permits another POST. The original body is
+        // kept in memory, never in writing storage (it can contain an account
+        // selection or coordinates). After reload its hash must match exactly.
+        if(pending.signature)requestBody=JSON.parse(pending.signature);
+      }
+      if(!requestBody){
+        if(!this.pendingRequest&&this.mode==='free'&&needsLocalArea(this.prompt.value)&&!this.region.value.trim()&&!this.getProfile()?.region&&!this.coordinates)await this.locate();
+        if(stale())return;
+        const body=this.payload(program);
+        if(program){
+          await this.programRoutine(body,{controller,epoch});return;
+        }
+        requestBody={mode:this.mode,prompt:body.prompt,provider:body.provider,...(body.connectorName?{connectorName:body.connectorName}:{})};
+      }
+      requestBody.requestId=await this.requestIdentity(requestBody,{isCurrent:()=>!stale()});if(stale())return;
+      if(this.pendingRequest)this.pendingRequest.absent=false;
+      const result=await this.request('/api/secretary',{method:'POST',headers:{'Content-Type':'application/json','X-Oscar-Client':'1'},body:JSON.stringify(requestBody),signal:controller.signal});if(stale())return;this.acceptMission(result,epoch);
+    }catch(error){if(!stale()&&error.code!=='LOCATION_STALE')this.showError(error.message||'Cette demande n’a pas abouti. Votre formulaire est conservé.');}
     finally{finish();}
   }
+  async programRoutine(body,{controller,epoch}){
+    const stale=()=>controller.signal.aborted||epoch!==this.epoch||this.destroyed;let pending=this.pendingRoutine;
+    if(pending){
+      let receipt;try{receipt=await this.request(`/api/automation-requests/${encodeURIComponent(pending.id)}`,{signal:controller.signal});}catch(error){if(stale())return;if(error.status!==404)throw error;}
+      if(stale()||this.pendingRoutine!==pending)return;
+      if(receipt?.status==='deleted'&&receipt.requestId===pending.id)throw new Error('Cette routine a été supprimée. Commencez une nouvelle demande pour en créer une autre.');
+      if(receipt){if(receipt.status!=='accepted'||!idSafe(receipt.automation?.id)||receipt.automation.request?.id!==pending.id)throw new Error('Le bureau n’a pas confirmé cette routine.');this.acceptRoutine();await this.refresh(false);this.poll();return;}
+      if(!pending.signature)throw new Error('Aucune routine acceptée n’a été retrouvée. Commencez une nouvelle demande pour choisir son rythme et son service.');
+      body=JSON.parse(pending.signature);
+    }else{
+      const signature=JSON.stringify(body),hash=await this.requestHash(body);if(stale())return;
+      pending={id:globalThis.crypto?.randomUUID?.()||`routine_${Date.now()}_${Math.random().toString(36).slice(2)}`,hash,signature};this.pendingRoutine=pending;this.draftConfirmed=false;this.saveDraft();
+    }
+    let record;
+    try{record=await this.request('/api/automations',{method:'POST',headers:{'Content-Type':'application/json','X-Oscar-Client':'1'},body:JSON.stringify({...body,requestId:pending.id}),signal:controller.signal});}
+    catch(error){if(!stale()&&error.status===400){this.pendingRoutine=null;this.saveDraft();}throw error;}
+    if(stale()||this.pendingRoutine!==pending)return;if(!idSafe(record?.id)||record.request?.id!==pending.id)throw new Error('Le bureau n’a pas confirmé cette routine.');
+    this.acceptRoutine();await this.refresh(false);this.poll();
+  }
+  acceptRoutine(){this.pendingRoutine=null;this.pendingRecord=null;this.draftConfirmed=true;this.draftStore.remove('secretary');this.notice.textContent='Routine enregistrée. Elle attend son prochain horaire ; aucune mission n’a été lancée maintenant.';this.notice.hidden=false;}
+  acceptMission(result,epoch){if(!idSafe(result?.id)||result.assistant!==true)throw new Error('Le bureau n’a pas confirmé cette demande.');this.pendingRequest=null;this.draftConfirmed=true;this.draftStore.remove('secretary');this.draftMessage.textContent=translate('Demande confirmée. Votre réponse est conservée dans l’historique.');this.directMissions.set(result.id,result);while(this.directMissions.size>12){const oldest=[...this.directMissions.values()].filter(m=>!ACTIVE.has(m.status)).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0))[0];if(!oldest)break;this.directMissions.delete(oldest.id);}this.activity(this.entries);this.renderAnswers();if(this.dialog.open&&epoch===this.epoch)this.answers.scrollIntoView({block:'start',behavior:'auto'});this.poll();}
   showError(message){if(this.destroyed)return;this.error.textContent=message;this.error.hidden=false;}
   poll(){clearTimeout(this.timer);if(this.destroyed||(!this.dialog.open&&!this.backgroundNeeded))return;this.timer=setTimeout(()=>{this.refresh(this.dialog.open&&this.discoveryPending);this.poll();},this.dialog.open?3000:15000);}
   async navigate(name){this.close();try{await this[name]();}catch{this.open();this.showError('Cette vue n’a pas pu être ouverte. Votre demande est conservée.');}}

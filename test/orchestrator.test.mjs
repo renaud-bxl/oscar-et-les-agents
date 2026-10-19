@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, symlinkSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { Atelier, validatePlan, ROLES, PLAN_SCHEMA, readableMissionFolderName } from '../lib/orchestrator.mjs';
 const plan = { title: 'Un message utile', approach: 'Rédaction puis contrôle.', tasks: [{ role: 'redaction', title: 'Rédiger le message', instruction: 'Écrire un message complet.', criteria: 'Un message prêt à envoyer.', deliverables: [] }] };
 function setup(t, runner, options = {}) {
@@ -302,4 +303,124 @@ test('les missions actives gardent leur dossier quand Oscar change le titre ; le
  let release;const app=setup(t,({signal})=>new Promise((resolve,reject)=>{release=resolve;signal.addEventListener('abort',()=>reject(new Error('Arrêt')),{once:true});}));const m=app.start({prompt:'Titre initial'}),before=app.workDir(m.id);app.missions.get(m.id).title='Titre final d’Oscar';app.save(app.missions.get(m.id));assert.equal(app.workDir(m.id),before);app.stop(m.id);await app.wait(m.id);
  const outside=mkdtempSync(path.join(os.tmpdir(),'oscar-folder-link-'));t.after(()=>rmSync(outside,{recursive:true,force:true}));const expected=readableMissionFolderName('Mission liée');symlinkSync(outside,path.join(app.dataDir,'missions',expected));const linked=app.start({prompt:'Mission liée',provider:'demo'});await app.wait(linked.id);assert.equal(path.basename(app.missionDir(linked.id)),expected+' (2)');assert.deepEqual(readdirSync(outside),[]);
  const malicious='44444444-4444-4444-8444-444444444444';symlinkSync(outside,path.join(app.dataDir,'missions',malicious));const restored=new Atelier({dataDir:app.dataDir});assert.equal(restored.get(malicious),null);
+});
+
+test('un fichier temporaire modifié par un collègue ne fait échouer ni son équipe ni une autre mission', {timeout:10000}, async t => {
+  const roles = ['code', 'code', 'code', 'code', 'recherche', 'recherche', 'recherche', 'recherche', 'redaction', 'redaction', 'redaction', 'redaction', 'design', 'design', 'design', 'design', 'analyse', 'analyse', 'analyse', 'analyse'];
+  const concurrentPlan = { title: 'Contributions concurrentes', approach: 'Vingt fichiers indépendants.', tasks: roles.map((role, index) => ({ role, title: `Contribution ${index + 1}`, instruction: 'Écrire la contribution.', criteria: 'preuve.txt est complète.', deliverables: ['preuve.txt'] })) };
+  let worker, edits, releaseCode, ready;
+  const editing = new Promise(resolve => { ready = resolve; });
+  const app = setup(t, async ({ schema, cwd, signal, prompt }) => {
+    if (schema?.properties.tasks) return { text: JSON.stringify(prompt.includes('Mission témoin') ? plan : concurrentPlan) };
+    if (schema?.properties.approved) return { text: JSON.stringify({ approved: true, feedback: 'Les fichiers et rapports sont présents.' }) };
+    if (!/^t\d+-/.test(path.basename(cwd))) return { text: 'Les contributions sont conservées.' };
+    if (path.basename(cwd) === 't1-redaction') return { text: 'Réponse de la mission témoin.' };
+    writeFileSync(path.join(cwd, 'preuve.txt'), 'Contribution complète.');
+    if (path.basename(cwd) === 't1-code') {
+      for (let index = 0; index < 12; index++) writeFileSync(path.join(cwd, `stable-${index}.txt`), 'Fichier stable.');
+      const shared = new SharedArrayBuffer(8); edits = new Int32Array(shared);
+      worker = new Worker(`const {workerData}=require('node:worker_threads'),fs=require('node:fs'),p=require('node:path').join(workerData.cwd,'edition.tmp'),s=new Int32Array(workerData.shared);Atomics.store(s,0,1);while(Atomics.load(s,0)===1){fs.writeFileSync(p,'édition temporaire');fs.unlinkSync(p);Atomics.add(s,1,1);}`, { eval: true, workerData: { cwd, shared } });
+      while (!Atomics.load(edits, 0)) await new Promise(resolve => setTimeout(resolve, 1));
+      ready();
+      return new Promise((resolve, reject) => {
+        releaseCode = () => { Atomics.store(edits, 0, 2); resolve({ text: 'preuve.txt est complète.' }); };
+        const abort = () => { Atomics.store(edits, 0, 2); reject(new Error('Mission arrêtée')); };
+        signal.addEventListener('abort', abort, { once: true }); if (signal.aborted) abort();
+      });
+    }
+    await editing; await new Promise(resolve => setTimeout(resolve, 1));
+    return { text: 'preuve.txt est complète.' };
+  });
+  t.after(async () => { if (edits) Atomics.store(edits, 0, 2); await worker?.terminate(); });
+  app.on('change', state => {
+    for (const mission of state.activeMissions) if (mission.tasks.length === 20 && mission.tasks.filter(task => task.id !== 't1' && task.status === 'approved').length === 19) releaseCode?.();
+  });
+  const first = app.start({ prompt: 'Vingt contributions pendant des éditions concurrentes.' });
+  const other = app.start({ prompt: 'Mission témoin indépendante.' });
+  const [done, witness] = await Promise.all([app.wait(first.id), app.wait(other.id)]);
+  assert.equal(done.status, 'completed'); assert.equal(witness.status, 'completed');
+  assert.equal(done.tasks.length, 20); assert.ok(done.tasks.every(task => task.status === 'approved'));
+  assert.ok(Atomics.load(edits, 1) > 0); assert.equal(done.files.filter(file => /\/preuve\.txt$/.test(file.path)).length, 20);
+});
+
+test('un livrable obligatoire lié symboliquement, y compris son parent, reste refusé malgré une approbation du modèle', async t => {
+  for (const parentLink of [false, true]) await t.test(parentLink ? 'parent lié' : 'fichier lié', async t => {
+    const relative = parentLink ? 'assets/index.html' : 'index.html'; let assemblies = 0;
+    const app = setup(t, async ({ schema, cwd }) => {
+      if (schema?.properties.tasks) return { text: JSON.stringify({ ...plan, tasks: [{ ...plan.tasks[0], role: 'code', deliverables: [relative] }] }) };
+      if (schema?.properties.approved) return { text: JSON.stringify({ approved: true, feedback: 'Le modèle affirme que le livrable convient.' }) };
+      if (path.basename(cwd) !== 't1-code') { assemblies++; return { text: 'Livraison annoncée.' }; }
+      if (!existsSync(path.join(cwd, 'source'))) {
+        mkdirSync(path.join(cwd, 'source')); writeFileSync(path.join(cwd, 'source', 'index.html'), '<h1>Original conservé</h1>');
+        symlinkSync(parentLink ? 'source' : 'source/index.html', path.join(cwd, parentLink ? 'assets' : 'index.html'));
+      }
+      return { text: `${relative} est disponible.` };
+    });
+    const mission = app.start({ prompt: 'Livrer un fichier HTML autonome.' }), done = await app.wait(mission.id);
+    assert.equal(done.status, 'needs_review'); assert.equal(done.tasks[0].attempt, 2); assert.equal(done.tasks[0].review.approved, false);
+    assert.equal(assemblies, 0); assert.ok(!done.files.some(file => file.path === `t1-code/${relative}`));
+    assert.equal(readFileSync(path.join(app.workDir(mission.id), 't1-code', 'source', 'index.html'), 'utf8'), '<h1>Original conservé</h1>');
+  });
+});
+
+test('un assemblage ne peut livrer un fichier obligatoire qu’il vient de supprimer, vider ou remplacer par un lien', async t => {
+  for (const damage of ['supprimé', 'vidé', 'lié']) await t.test(damage, async t => {
+    let assemblies = 0, exports = 0, reviews = 0;
+    const app = setup(t, async ({ schema, cwd }) => {
+      if (schema?.properties.tasks) return { text: JSON.stringify({ ...plan, tasks: [{ ...plan.tasks[0], role: 'code', deliverables: ['index.html'] }] }) };
+      if (schema?.properties.approved) { reviews++; return { text: JSON.stringify({ approved: true, feedback: 'Le modèle approuve la livraison.' }) }; }
+      if (path.basename(cwd) === 't1-code') { writeFileSync(path.join(cwd, 'index.html'), '<h1>Contribution validée</h1>'); return { text: 'index.html a été créé.' }; }
+      assemblies++; const file = path.join(cwd, 't1-code', 'index.html'); rmSync(file, { force: true });
+      if (damage === 'vidé') writeFileSync(file, '');
+      if (damage === 'lié') { writeFileSync(path.join(cwd, 't1-code', 'source.html'), '<h1>Support</h1>'); symlinkSync('source.html', file); }
+      return { text: 'Le résultat est dans t1-code/index.html.' };
+    }, { finalizeMission: async () => { exports++; } });
+    const mission = app.start({ prompt: 'Livrer index.html utilisable.', outputFormats: ['pdf'] }), done = await app.wait(mission.id);
+    assert.equal(done.status, 'needs_review'); assert.equal(done.tasks[0].status, 'approved'); assert.equal(done.finalReview.approved, false);
+    assert.match(done.finalReview.feedback, /t1-code\/index\.html/); assert.equal(assemblies, 2); assert.equal(reviews, 3); assert.equal(exports, 0);
+    assert.ok(!done.events.some(event => event.kind === 'success'));
+    assert.equal(new Atelier({ dataDir: app.dataDir }).get(mission.id).status, 'needs_review');
+  });
+});
+
+test('la réparation d’un livrable perdu pendant l’assemblage reçoit une nouvelle relecture avant succès', async t => {
+  let assemblies = 0, finalReviews = 0;
+  const app = setup(t, async ({ schema, cwd, prompt }) => {
+    if (schema?.properties.tasks) return { text: JSON.stringify({ ...plan, tasks: [{ ...plan.tasks[0], role: 'code', deliverables: ['index.html'] }] }) };
+    if (schema?.properties.approved) {
+      if (prompt.includes('contrôle final')) finalReviews++;
+      return { text: JSON.stringify({ approved: true, feedback: 'La relecture du modèle est favorable.' }) };
+    }
+    if (path.basename(cwd) === 't1-code') { writeFileSync(path.join(cwd, 'index.html'), '<h1>Original validé</h1>'); return { text: 'index.html est créé.' }; }
+    assemblies++; const file = path.join(cwd, 't1-code', 'index.html');
+    if (assemblies === 1) rmSync(file);
+    else { assert.match(prompt, /CORRECTIONS SUR L’ASSEMBLAGE/); assert.match(prompt, /t1-code\/index\.html/); writeFileSync(file, '<h1>Contribution restaurée</h1>'); }
+    return { text: 'Le livrable est conservé dans t1-code/index.html.' };
+  });
+  const mission = app.start({ prompt: 'Créer une page utilisable.' }), done = await app.wait(mission.id);
+  assert.equal(done.status, 'completed'); assert.equal(assemblies, 2); assert.equal(finalReviews, 2);
+  assert.equal(readFileSync(path.join(app.workDir(mission.id), 't1-code', 'index.html'), 'utf8'), '<h1>Contribution restaurée</h1>');
+  assert.ok(done.events.some(event => event.text.includes('Fichiers obligatoires absents ou vides')));
+});
+
+test('la garde des livrables s’applique aussi après l’export, avec correction et relecture distinctes', async t => {
+  for (const permanent of [false, true]) await t.test(permanent ? 'export toujours destructif' : 'export corrigé', async t => {
+    let assemblies = 0, exports = 0, finalReviews = 0;
+    const app = setup(t, async ({ schema, cwd, prompt }) => {
+      if (schema?.properties.tasks) return { text: JSON.stringify({ ...plan, tasks: [{ ...plan.tasks[0], role: 'code', deliverables: ['index.html'] }] }) };
+      if (schema?.properties.approved) {
+        if (prompt.includes('contrôle final')) finalReviews++;
+        return { text: JSON.stringify({ approved: true, feedback: 'La relecture est favorable.' }) };
+      }
+      if (path.basename(cwd) === 't1-code') { writeFileSync(path.join(cwd, 'index.html'), '<h1>Contribution validée</h1>'); return { text: 'index.html est prêt.' }; }
+      assemblies++; const file = path.join(cwd, 't1-code', 'index.html');
+      if (!existsSync(file)) { assert.match(prompt, /t1-code\/index\.html/); writeFileSync(file, '<h1>Contribution restaurée</h1>'); }
+      return { text: 'Livraison dans t1-code/index.html.' };
+    }, { finalizeMission: async mission => { exports++; if (permanent || exports === 1) rmSync(path.join(app.workDir(mission.id), 't1-code', 'index.html')); } });
+    const mission = app.start({ prompt: 'Créer une page et exporter son rapport.', outputFormats: ['pdf'] }), done = await app.wait(mission.id);
+    assert.equal(done.status, permanent ? 'needs_review' : 'completed'); assert.equal(assemblies, 2); assert.equal(exports, 2); assert.equal(finalReviews, 2);
+    assert.equal(done.finalReview.approved, !permanent);
+    if (permanent) assert.ok(!done.events.some(event => event.kind === 'success'));
+    else assert.ok(done.files.some(file => file.path === 't1-code/index.html'));
+  });
 });

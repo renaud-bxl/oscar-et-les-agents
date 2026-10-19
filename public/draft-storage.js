@@ -44,6 +44,7 @@ function sanitize(input, slot) {
   } else {
     if (typeof input.requestId === 'string' && REQUEST_ID.test(input.requestId)) value.requestId = input.requestId;
     if (typeof input.requestHash === 'string' && /^[a-f0-9]{64}$/.test(input.requestHash)) value.requestHash = input.requestHash;
+    if (slot === 'secretary' && input.requestKind === 'routine' && value.requestId && value.requestHash) value.requestKind = 'routine';
   }
   return Object.values(value).some(item => typeof item === 'string' && item.trim()) ? value : null;
 }

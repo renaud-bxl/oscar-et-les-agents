@@ -69,6 +69,13 @@ test('audio lookup stays within the two managed caches and closing releases both
   assert.ok(calls.some(([name]) => name === 'close-studio'));
   assert.ok(calls.some(([name]) => name === 'close-piper'));
 });
+test('request cancellation reaches both Studio and optional Piper engines', async () => {
+  const {service,piper,studio}=fixture(),controller=new AbortController(),signals=[];
+  piper.speak=async(body,options)=>{signals.push(options.signal);};studio.speak=piper.speak;
+  await service.speak({voiceId:'studio-oscar',text:'Bonjour.',language:'fr'},{signal:controller.signal});
+  await service.speak({voiceId:'fr-pierre',text:'Bonjour.',language:'fr'},{signal:controller.signal});
+  assert.deepEqual(signals,[controller.signal,controller.signal]);
+});
 
 test('closing a speech request aborts its local generation without closing the office server', async t => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'oscar-voice-abort-'));

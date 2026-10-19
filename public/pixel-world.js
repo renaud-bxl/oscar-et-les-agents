@@ -460,7 +460,7 @@ export class PixelWorld {
       this._sayStatus(a.task.status==='failed'?`${(a.name||ROLES[a.role].name)} signale le problème à Oscar. Les fichiers déjà produits sont conservés.`:`${(a.name||ROLES[a.role].name)} remet son résultat à Oscar pour validation.`);
       this._event('handoff',a);
     } else if(state==='review_queue') {a.direction=a.x<REVIEW.x?'right':'left';this._bubble(a,'Mon dossier est prêt.');}
-    else if(state==='waiting_review') {a.direction='up';a.paper=false;this._bubble(a,'J’attends le retour.');}
+    else if(state==='waiting_review') {a.direction='up';a.paper=false;if(a.task.status==='needs_review')this._visit(a,'needs_review');this._bubble(a,a.task.status==='needs_review'?'À vérifier':'J’attends le retour.');}
     else if(state==='coffee') {a.direction='left';a.mug=true;a.deadline=this.time+2.5+a.random()*2;this._bubble(a,'Un café bien mérité !');this._event('coffee',a);}
     else if(state==='chat') {
       a.direction=a.x<730?'right':'left';a.mug=a.random()>.45;a.deadline=this.time+3+a.random()*3;
@@ -489,9 +489,9 @@ export class PixelWorld {
     }
     if(!a.visible) return;
     const attempt=taskAttempt(a.task);
-    const needsWork=BUSY_TASKS.has(a.task.status)||a.task.status==='needs_review';
-    const awayFromWork=['to_oscar','to_review_queue','review_queue','handoff','to_review_wait','waiting_review','to_coffee','coffee','to_chat','chat','resting'].includes(a.state);
-    if(needsWork&&awayFromWork&&(attempt>a.handoffAttempt||a.task.status==='needs_review'||a.task.status==='revising')) this._returnToDesk(a);
+    const needsWork=BUSY_TASKS.has(a.task.status);
+    const awayFromWork=['to_oscar','to_review_queue','review_queue','handoff','to_review_wait','waiting_review','needs_review','to_coffee','coffee','to_chat','chat','resting'].includes(a.state);
+    if(needsWork&&awayFromWork&&(attempt>a.handoffAttempt||a.task.status==='revising')) this._returnToDesk(a);
     a.lastAttempt=attempt;
     if(TRAVEL_STATES.has(a.state)) {
       let remaining=a.speed*dt;
@@ -512,7 +512,7 @@ export class PixelWorld {
     }
     if(a.state==='working') {
       if(a.task.status==='queued') {this._visit(a,'waiting_task');return;}
-      if(['reviewing','approved','failed'].includes(a.task.status)&&this.time-a.workSince>.65) {
+      if(['reviewing','approved','needs_review','failed'].includes(a.task.status)&&this.time-a.workSince>.65) {
         if(!a.handoffAttempts.has(attempt)) this._startReview(a);
         else if(a.task.status==='approved') this._startCoffee(a);
         else this._travel(a,'to_review_wait',REVIEW_WAIT[a.slot%REVIEW_WAIT.length],'waiting_review');
@@ -532,10 +532,11 @@ export class PixelWorld {
       else this._travel(a,'to_review_wait',REVIEW_WAIT[a.slot%REVIEW_WAIT.length],'waiting_review');
       return;
     }
-    if(a.state==='waiting_review') {
+    if(a.state==='waiting_review'||a.state==='needs_review') {
       if(a.task.status==='approved') this._startCoffee(a);
       else if(needsWork) this._returnToDesk(a);
       else if(attempt>a.handoffAttempt) this._startReview(a);
+      else if(a.task.status==='needs_review'&&a.state!=='needs_review') {this._visit(a,'needs_review');this._bubble(a,'À vérifier');}
       return;
     }
     if(a.state==='coffee'&&this.time>=a.deadline) {a.mug=false;this._startSocial(a);return;}

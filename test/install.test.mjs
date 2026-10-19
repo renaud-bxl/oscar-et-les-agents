@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, readFile, writeFile, symlink, rm, realpath, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, symlink, rm, realpath, access, chmod, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -286,9 +286,83 @@ test('installer data overrides remain compatible and reach the existing preferen
   let received;
   state.dependencies.savePreferences = async (project, preferences, location) => { received = { project, preferences, location }; };
   await runInstaller(parseArgs(['--engine', 'codex', '--skip-login', '--no-open']), state.dependencies);
-  assert.deepEqual(received, { project: '/a/project', preferences: { preferredProvider: 'codex', setupComplete: true }, location: { dataDir: override } });
+  assert.deepEqual(received, { project: '/a/project', preferences: { preferredProvider: 'codex', setupComplete: true }, location: { dataDir: override, preservePreferredProvider: false } });
   assert.equal(resolveInstallerDataDirectory({ env: { ATELIER_DATA_DIR: override } }), override);
   delete state.dependencies.savePreferences;
   await runInstaller(parseArgs(['--engine', 'codex', '--skip-login', '--no-open']), state.dependencies);
   assert.equal(JSON.parse(await readFile(path.join(override, 'preferences.json'), 'utf8')).preferredProvider, 'codex');
+});
+
+test('reinstalling both engines preserves the preferred engine and unknown preferences; an explicit engine changes only that choice', async t => {
+  const temporary = await mkdtemp(path.join(await realpath(tmpdir()), 'oscar-preferences-upgrade-'));
+  t.after(() => rm(temporary, { recursive: true, force: true }));
+  const target = path.join(temporary, 'preferences.json');
+  const unknownPreference = { futureOption: ['conserver', 42] };
+  await writeFile(target, JSON.stringify({ preferredProvider: 'claude', setupComplete: true, unknownPreference }));
+  const state = fixture({ root: path.join(temporary, 'application'), env: { PATH: '/bin', OSCAR_DATA_DIR: temporary } });
+  delete state.dependencies.savePreferences;
+  const both = await runInstaller(parseArgs(['--engine', 'both', '--skip-login', '--no-open']), state.dependencies);
+  assert.equal(both.preferredProvider, 'claude');
+  assert.deepEqual(JSON.parse(await readFile(target, 'utf8')), { preferredProvider: 'claude', setupComplete: true, unknownPreference });
+  const codex = await runInstaller(parseArgs(['--engine', 'codex', '--skip-login', '--no-open']), state.dependencies);
+  assert.equal(codex.preferredProvider, 'codex');
+  assert.deepEqual(JSON.parse(await readFile(target, 'utf8')), { preferredProvider: 'codex', setupComplete: true, unknownPreference });
+});
+
+test('unreadable existing preferences fail safely instead of replacing their contents', async t => {
+  const temporary = await mkdtemp(path.join(await realpath(tmpdir()), 'oscar-preferences-invalid-'));
+  t.after(() => rm(temporary, { recursive: true, force: true }));
+  const target = path.join(temporary, 'preferences.json');
+  const original = '{"preferredProvider":"claude", unfinished';
+  await writeFile(target, original);
+  const state = fixture({ root: path.join(temporary, 'application'), env: { PATH: '/bin', OSCAR_DATA_DIR: temporary } });
+  delete state.dependencies.savePreferences;
+  await assert.rejects(runInstaller(parseArgs(['--engine', 'both', '--skip-login', '--no-open']), state.dependencies), /préférences existantes ne peuvent pas être lues/);
+  assert.equal(await readFile(target, 'utf8'), original);
+  assert.deepEqual(await readdir(temporary), ['preferences.json']);
+});
+
+test('a preferences write failure preserves the original file and leaves no temporary file', async t => {
+  if (process.platform === 'win32' || process.getuid?.() === 0) return t.skip('Requires POSIX permissions for a non-root account.');
+  const temporary = await mkdtemp(path.join(await realpath(tmpdir()), 'oscar-preferences-write-'));
+  t.after(async () => { await chmod(temporary, 0o700); await rm(temporary, { recursive: true, force: true }); });
+  const target = path.join(temporary, 'preferences.json');
+  const original = '{"preferredProvider":"claude","keep":"unchanged"}\n';
+  await writeFile(target, original);
+  await chmod(temporary, 0o500);
+  const state = fixture({ root: path.join(temporary, 'application'), env: { PATH: '/bin', OSCAR_DATA_DIR: temporary } });
+  delete state.dependencies.savePreferences;
+  await assert.rejects(runInstaller(parseArgs(['--engine', 'both', '--skip-login', '--no-open']), state.dependencies), { code: 'EACCES' });
+  assert.equal(await readFile(target, 'utf8'), original);
+  assert.deepEqual(await readdir(temporary), ['preferences.json']);
+});
+
+test('a real source reinstall with spaces preserves preferences, missions and connection metadata without login or network', async t => {
+  const temporary = await mkdtemp(path.join(await realpath(tmpdir()), 'oscar-upgrade espaces-'));
+  t.after(() => rm(temporary, { recursive: true, force: true }));
+  const source = path.join(temporary, 'source avec espaces');
+  const destination = path.join(temporary, 'application avec espaces');
+  const documents = path.join(temporary, 'documents avec espaces');
+  const tools = path.join(destination, '.tools', 'node_modules', '.bin');
+  await mkdir(path.join(source, 'scripts'), { recursive: true });
+  await mkdir(path.join(source, 'lib'));
+  await mkdir(tools, { recursive: true });
+  await mkdir(path.join(documents, 'missions'), { recursive: true });
+  for (const file of ['package.json', 'install.sh', 'scripts/install.mjs', 'lib/state-stream.mjs']) await writeFile(path.join(source, file), await readFile(path.join(root, file)));
+  await writeFile(path.join(source, 'server.mjs'), '// Installation fixture; no server is started.\n');
+  const fakeEngine = '#!/bin/sh\ncase "$1" in\n --version) case "$0" in *claude) echo "2.1.303";; *) echo "codex-cli 0.130.0";; esac;;\n --help) echo "--restricted --output-format --verbose --permission-mode --tools --allowedTools --strict-mcp-config";;\n exec) echo "--json --sandbox --color --skip-git-repo-check --output-schema";;\n *) echo "Login and model calls are forbidden in this test" >&2; exit 97;;\nesac\n';
+  for (const provider of ['codex', 'claude']) await writeFile(path.join(tools, provider), fakeEngine, { mode: 0o755 });
+  const preferences = { preferredProvider: 'claude', setupComplete: true, futureSetting: { keep: 'exactly' } };
+  await writeFile(path.join(documents, 'preferences.json'), JSON.stringify(preferences));
+  const sentinels = ['missions/existing.txt', 'connectors.json', 'automations.json'];
+  for (const file of sentinels) await writeFile(path.join(documents, file), `KEEP ${file}\n`);
+  const env = { ...process.env, PATH: `${path.dirname(process.execPath)}:${process.env.PATH}`, OSCAR_DATA_DIR: documents };
+  for (let pass = 0; pass < 2; pass++) {
+    const result = await exec('/bin/sh', [path.join(source, 'install.sh'), '--engine', 'both', '--dir', destination, '--skip-login', '--no-open'], { cwd: source, env });
+    assert.match(result.stdout, /Installation terminée/);
+    assert.doesNotMatch(result.stdout, /Téléchargement|Installation locale de/);
+    assert.deepEqual(JSON.parse(await readFile(path.join(documents, 'preferences.json'), 'utf8')), preferences);
+    for (const file of sentinels) assert.equal(await readFile(path.join(documents, file), 'utf8'), `KEEP ${file}\n`);
+    assert.deepEqual(await readFile(path.join(destination, 'lib/state-stream.mjs')), await readFile(path.join(source, 'lib/state-stream.mjs')));
+  }
 });

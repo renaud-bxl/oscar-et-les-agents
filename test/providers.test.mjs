@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { detectProviders, runAgent, MAX_AGENT_TIMEOUT_MS, isTrustedConnectorReadReceipt } from '../lib/providers.mjs';
 import {Connectors,GMAIL_MCP_URL} from '../lib/connectors.mjs';
-import {INHERITED_APPS,CLAUDE_READ_SERVICES,parseInheritedApps,parseInheritedClaudeConnectors} from '../lib/connector-clients.mjs';
+import {INHERITED_APPS,CLAUDE_READ_SERVICES,parseInheritedClaudeConnectors} from '../lib/connector-clients.mjs';
+import {parseInheritedApps} from './connector-fixtures.mjs';
 import {Atelier} from '../lib/orchestrator.mjs';
 
 const claudeReadFixture=async()=>parseInheritedClaudeConnectors([{name:'claude.ai Gmail',source:'claudeai',scope:'claudeai',status:'connected',config:{type:'claudeai-proxy',url:GMAIL_MCP_URL,id:'official-gmail'},tools:[...CLAUDE_READ_SERVICES.gmail.tools.map(name=>({name,annotations:{readOnly:true}})),{name:'send_message',annotations:{}}]}]);
@@ -68,8 +69,9 @@ if (args.includes('--version')) {
       }
     }
     if(mode==='connector-app-success'||mode==='connector-app-unrelated'){
-      emit({type:'item.completed',item:{type:'mcp_tool_call',server:'codex_apps',tool:mode==='connector-app-success'?'documents.files.read/list':'documents.send',status:'completed',result:{content:[{type:'text',text:'[]'}],isError:false}}});
+      emit({type:'item.completed',item:{type:'mcp_tool_call',server:'codex_apps',tool:mode==='connector-app-success'?'files.read/list':'send',status:'completed',result:{content:[{type:'text',text:'[]'}],isError:false}}});
     }
+    if(mode==='connector-identity')for(const event of JSON.parse(process.env.FAKE_CONNECTOR_EVENTS))emit(event);
     if(mode.startsWith('connector-receipt')){
       const reads=[['read-1','list_labels'],['read-1','list_labels'],['read-2','list_labels'],['read-3',provider==='codex'?'search_emails':'get_message']];
       for(const [id,name]of reads){
@@ -139,7 +141,7 @@ async function fixture(fn) {
   const cwd = join(directory, 'mission');
   await Promise.all([mkdir(bin), mkdir(cwd)]);
   await Promise.all(['codex', 'claude'].map(name => writeFile(join(bin, name), `#!${process.execPath}\n${fakeSource}`, { mode: 0o700 })));
-  const keys = ['PATH', 'FAKE_CAPTURE', 'FAKE_MODE', 'FAKE_PID', 'FAKE_OLD', 'FAKE_NO_SEARCH', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'];
+  const keys = ['PATH', 'FAKE_CAPTURE', 'FAKE_MODE', 'FAKE_PID', 'FAKE_OLD', 'FAKE_NO_SEARCH', 'FAKE_CONNECTOR_EVENTS', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'];
   const original = Object.fromEntries(keys.map(key => [key, process.env[key]]));
   process.env.PATH = bin;
   process.env.FAKE_CAPTURE = join(directory, 'capture.json');
@@ -229,6 +231,41 @@ test('Codex generic app execution preserves the captured tool identity and requi
    assert.ok(isTrustedConnectorReadReceipt(result.connectorReadReceipt));assert.deepEqual(result.connectorReadReceipt,{client:'codex',service:'app',name:`chatgpt-${id}`,displayName:'Documents',appId:id,successfulCalls:1,tools:[{name:'files.read/list',successfulCalls:1}]});
    const {args}=await capture();assert.ok(args.includes('apps.other-app.enabled=false'));assert.ok(args.includes(`apps.${id}.default_tools_enabled=false`));assert.ok(args.includes(`apps.${id}.destructive_enabled=false`));assert.ok(args.includes('web_search="disabled"'));const tools=args.find(value=>value.startsWith(`apps.${id}.tools=`));assert.ok(tools.includes('"files.read/list"={enabled=true,approval_mode="auto"}'));assert.ok(tools.includes('"send"={enabled=false}'));assert.ok(!args.includes('--search'));assert.equal(args[args.indexOf('--sandbox')+1],'read-only');
    process.env.FAKE_MODE='connector-app-unrelated';await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Préparer une synthèse locale',connectorPlan,readOnly:true}),cause=>cause.code==='CONNECTOR_NO_READ');
+  }finally{await manager.close();}
+ });
+});
+test('Codex read receipts require the exact raw server and declared tool, never an app namespace or homonymous suffix',async()=>{
+ await fixture(async({cwd})=>{
+  const app=INHERITED_APPS.gmail,manager=new Connectors({dataDir:cwd,find:async()=>'/fake/codex',run:async()=>({code:0,stdout:'[]'}),appInspector:async()=>parseInheritedApps({installed:{apps:[{id:app.id,enabled:true,callable:true}]},details:{apps:[{id:app.id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:app.tools.map(name=>({name,isEnabled:true,isReadOnly:true}))}]}})});
+  try{
+   const connectorPlan=await manager.readPlan({name:app.name});process.env.FAKE_MODE='connector-identity';
+   const success={id:'read-1',type:'mcp_tool_call',server:'codex_apps',tool:'gmail.list_labels',status:'completed',result:{content:[]}};
+   for(const item of [{...success,server:'other_service'},{...success,server:undefined},{...success,tool:'other_app.list_labels'},{...success,tool:'other_app__list_labels'},{...success,tool:'list_labels'},{...success,tool:'mcp__codex_apps__gmail__list_labels'}]){
+    process.env.FAKE_CONNECTOR_EVENTS=JSON.stringify([{type:'item.completed',item}]);
+    await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Lecture simulée',connectorPlan,readOnly:true}),cause=>cause.code==='CONNECTOR_NO_READ'&&cause.connectorReadReceipt===undefined);
+   }
+   process.env.FAKE_CONNECTOR_EVENTS=JSON.stringify([{type:'item.completed',item:{...success,result:undefined}}]);
+   await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Lecture sans résultat',connectorPlan,readOnly:true}),cause=>cause.code==='CONNECTOR_UNAVAILABLE'&&cause.connectorReadReceipt===undefined);
+   process.env.FAKE_CONNECTOR_EVENTS=JSON.stringify([{type:'item.completed',item:success}]);
+   const result=await runAgent({provider:'codex',cwd,prompt:'Lecture exacte',connectorPlan,readOnly:true});
+   assert.ok(isTrustedConnectorReadReceipt(result.connectorReadReceipt));assert.deepEqual(result.connectorReadReceipt.tools,[{name:'list_labels',successfulCalls:1}]);
+   process.env.FAKE_CONNECTOR_EVENTS=JSON.stringify([{type:'item.completed',item:success},{type:'error',message:'unrecoverable connector failure PRIVATE-PAYLOAD'}]);
+   await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Lecture interrompue par une erreur du flux',connectorPlan,readOnly:true}),cause=>cause.connectorReadReceipt===undefined&&!/PRIVATE/.test(cause.message));
+  }finally{await manager.close();}
+ });
+});
+test('Codex local MCP receipts bind the read to the selected server and exact tool',async()=>{
+ await fixture(async({cwd})=>{
+  const manager=new Connectors({dataDir:cwd,find:async()=>'/fake/codex',appInspector:async()=>[],run:async(binary,args)=>({code:0,stdout:args.includes('get')?JSON.stringify({name:'mail-selected',transport:{type:'streamable_http',url:GMAIL_MCP_URL}}):JSON.stringify([{name:'mail-selected',auth_status:'OAuth'},{name:'other',auth_status:'OAuth'}])})});
+  try{
+   const connectorPlan=await manager.readPlan({name:'mail-selected'});process.env.FAKE_MODE='connector-identity';
+   const success={id:'read-1',type:'mcp_tool_call',server:'mail-selected',tool:'list_labels',status:'completed',result:{content:[]}};
+   for(const item of [{...success,server:'other'},{...success,server:'codex_apps'},{...success,tool:'mail-selected.list_labels'}]){
+    process.env.FAKE_CONNECTOR_EVENTS=JSON.stringify([{type:'item.completed',item}]);
+    await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Lecture simulée',connectorPlan,readOnly:true}),cause=>cause.code==='CONNECTOR_NO_READ');
+   }
+   process.env.FAKE_CONNECTOR_EVENTS=JSON.stringify([{type:'item.completed',item:success}]);
+   assert.ok(isTrustedConnectorReadReceipt((await runAgent({provider:'codex',cwd,prompt:'Lecture locale exacte',connectorPlan,readOnly:true})).connectorReadReceipt));
   }finally{await manager.close();}
  });
 });
