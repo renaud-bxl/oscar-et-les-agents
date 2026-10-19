@@ -14,15 +14,20 @@ if(!Number.isFinite(until)||until<=started||until-started>12*3600000)throw new E
 const pulseMs=Math.max(2000,Number(process.env.OSCAR_QA_PULSE_MS||300000));
 const rotateLocales=process.env.OSCAR_QA_ROTATE_LOCALES==='1',localesExercised=new Set(['fr']);
 const output=process.env.OSCAR_QA_OUTPUT||path.join(os.tmpdir(),'oscar-office-soak');await mkdir(output,{recursive:true});
-const fixture=await startOfficeFixture(),browser=await launchBrowser();
-let stopped=false,page,errors=[],external=[],pulse=0,requests=0;
-for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>{stopped=true;});
+let fixture,browser,stopped=false,interruption=null,page,errors=[],external=[],pulse=0,requests=0;
+for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>{stopped=true;interruption??={signal,at:Date.now()};});
+const timing=()=>{const finished=Date.now();return{started:new Date(started).toISOString(),expectedFinished:new Date(until).toISOString(),finished:new Date(finished).toISOString(),expectedDurationMs:until-started,actualDurationMs:finished-started,interruptedBy:interruption?.signal??null,interruptedAt:interruption?new Date(interruption.at).toISOString():null};};
+const interruptedEarly=()=>interruption&&interruption.at<until;
+const interruptionError=()=>Object.assign(new Error(`QA interrupted by ${interruption.signal} before the expected deadline.`),{code:'QA_INTERRUPTED'});
+const requireCompletion=()=>{if(interruptedEarly())throw interruptionError();if(Date.now()<until)throw new Error('QA ended before the expected deadline.');};
 const sample=async extra=>{
  const cdp=await page.context().newCDPSession(page);const heap=await cdp.send('Runtime.getHeapUsage');await cdp.detach();
  const value={pid:process.pid,at:new Date().toISOString(),elapsedSeconds:Math.round((Date.now()-started)/1000),pulse,serverRSS:process.memoryUsage().rss,serverHeap:process.memoryUsage().heapUsed,browserHeap:heap.usedSize,missions:fixture.app.engine.missions.size,active:fixture.app.engine.runs.size,requests,sseOpened:fixture.metrics.sseOpened,sseActive:fixture.metrics.sseActive,errors:errors.length,external:external.length,...extra};
  await appendFile(path.join(output,'samples.jsonl'),JSON.stringify(value)+'\n');process.stdout.write(JSON.stringify(value)+'\n');
 };
 try{
+ fixture=await startOfficeFixture();browser=await launchBrowser();
+ if(interruptedEarly())throw interruptionError();
  ({page,errors,external}=await preparePage(browser,fixture.base));page.on('request',()=>requests++);
  await page.locator('.office-dock [data-open-panel=brief]').click();await page.locator('#mission-input').fill('Demande locale conservée pendant le contrôle prolongé.');
  const routine=fixture.app.automations.create({label:'Contrôle périodique simulé',prompt:'Préparer une réponse de contrôle locale.',provider:'codex',assistant:true,assistantMode:'free',schedule:{frequency:'interval',intervalMinutes:15}});
@@ -50,6 +55,6 @@ try{
   }
   if(Date.now()>=nextSample){await sample({phase:'heartbeat'});nextSample=Date.now()+45000;}
  }
- await sample({phase:'complete'});await writeFile(path.join(output,'rapport.json'),JSON.stringify({ok:true,started:new Date(started).toISOString(),finished:new Date().toISOString(),pulse,localesExercised:[...localesExercised],errors,external,metrics:fixture.metrics},null,2));
-}catch(error){await page?.screenshot({path:path.join(output,'echec.png')}).catch(()=>{});await writeFile(path.join(output,'rapport.json'),JSON.stringify({ok:false,error:error.stack,pulse,errors,external,metrics:fixture.metrics},null,2));throw error;}
-finally{await browser.close();await fixture.close();}
+ requireCompletion();await sample({phase:'complete'});await writeFile(path.join(output,'rapport.json'),JSON.stringify({ok:true,...timing(),pulse,localesExercised:[...localesExercised],errors,external,metrics:fixture.metrics},null,2));
+}catch(error){const failure=interruptedEarly()&&error.code!=='QA_INTERRUPTED'?interruptionError():error;await page?.screenshot({path:path.join(output,'echec.png')}).catch(()=>{});await writeFile(path.join(output,'rapport.json'),JSON.stringify({ok:false,...timing(),error:failure.stack,code:failure.code,...(failure!==error?{originalError:error.stack}:{}),pulse,localesExercised:[...localesExercised],errors,external,metrics:fixture?.metrics??null},null,2));throw failure;}
+finally{try{await browser?.close();}finally{await fixture?.close();}}

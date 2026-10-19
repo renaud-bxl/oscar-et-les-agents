@@ -16,7 +16,7 @@ OSCAR_QA_DURATION_MS=300000 node scripts/qa/office-soak.mjs
 
 Le contrôle prolongé tourne cinq minutes par défaut. `OSCAR_QA_UNTIL` accepte une échéance ISO explicite, dans les douze heures suivantes. Chaque passage exerce le planificateur avec une horloge simulée, puis vérifie la pause, les réponses, le focus et les brouillons. Il coupe périodiquement le flux de mises à jour pour vérifier sa reconnexion. Les mesures de mémoire et d'activité sont écrites toutes les 45 secondes ; leur évolution doit être interprétée avec le ramasse-miettes et le nombre de missions conservées, plutôt qu'avec un seuil arbitraire.
 
-`OSCAR_QA_PULSE_MS` règle l'espacement des passages (cinq minutes par défaut, minimum deux secondes pour vérifier l'outil lui-même). `Ctrl+C` termine le contrôle et ferme le serveur isolé.
+`OSCAR_QA_PULSE_MS` règle l'espacement des passages (cinq minutes par défaut, minimum deux secondes pour vérifier l'outil lui-même). `Ctrl+C` termine le contrôle et ferme le serveur isolé. Une interruption avant l'échéance produit un rapport `ok:false` et une sortie en échec ; le rapport conserve les dates de début, d'échéance et de fin, les durées prévue et réelle, ainsi que le signal reçu. Un arrêt anticipé ne constitue pas un contrôle terminé.
 
 `OSCAR_QA_ROTATE_LOCALES=1` fait alterner français, anglais et néerlandais à chaque passage, en vérifiant que le texte personnel, le focus et la sélection restent conservés. Le rapport indique les langues effectivement exercées.
 
