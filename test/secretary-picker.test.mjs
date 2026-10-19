@@ -142,6 +142,14 @@ test('a selected service lost during refresh or an engine change never falls bac
  dialog.client.value='claude';dialog.connections.push({...gmail,client:'claude'});dialog.connection.value=dialog.connectionChoice(dialog.available());assert.equal(dialog.connection.value,'');assert.equal(dialog.connectionChoice(dialog.available()),'');
 });
 
+test('changing tabs asks for a new service without falsely reporting a lost connection',()=>{
+ const dialog=harness();dialog.connections=[gmail,calendar];dialog.drafts={mail:'Mails',calendar:'Agenda',service:'Services',free:'Question'};dialog.prompt.focus=()=>{};dialog.requestChanged=()=>{};dialog.renderConnections=function(){this.connection.value=this.connectionChoice(this.available());};
+ dialog.choose('calendar');assert.equal(dialog.connection.value,'');assert.equal(dialog.requiresServiceChoice,true);assert.equal(dialog.serviceChoiceLost,false);assert.equal(dialog.connectionChoice(dialog.available()),'');
+ dialog.connection.value='codex:calendar';dialog.renderConnections();assert.equal(dialog.selectedConnection(),calendar);assert.equal(dialog.requiresServiceChoice,false);
+ dialog.connections=[gmail,{...calendar,stale:true}];dialog.renderConnections();assert.equal(dialog.connection.value,'');assert.equal(dialog.serviceChoiceLost,true);assert.equal(dialog.requiresServiceChoice,true);
+ dialog.choose('mail');assert.equal(dialog.serviceChoiceLost,false);assert.equal(dialog.connection.value,'');assert.equal(dialog.requiresServiceChoice,true);
+});
+
 test('an uncertain request recovers its durable mission before form, engine or service validation',async()=>{
  const calls=[],id='recovery_request_123',mission={id:'recovered-mission',assistant:true,assistantMode:'service',provider:'codex',status:'completed',secretaryRequest:{id}};
  const dialog=harness(async url=>{calls.push(url);return{status:'accepted',mission};});dialog.pendingRequest={id,hash:'a'.repeat(64)};dialog.mode='service';dialog.connections=[];dialog.runButton.disabled=true;dialog.form.reportValidity=()=>{throw new Error('Recovery must not validate a new form');};dialog.payload=()=>{throw new Error('Recovery must not prepare a new request');};
@@ -187,6 +195,20 @@ test('regular schedules preserve the chosen local time and reject invalid times'
   const dialog=harness();dialog.connections=[gmail];
   for(const frequency of ['daily','weekdays']){dialog.schedule.value=frequency;dialog.scheduleTime.value='17:45';assert.deepEqual(dialog.payload(true).schedule,{frequency,time:'17:45'});dialog.scheduleTime.value='25:00';assert.throws(()=>dialog.payload(true),/heure valide/u);}
   dialog.schedule.value='interval';assert.deepEqual(dialog.payload(true).schedule,{frequency:'interval',time:'02:00',intervalMinutes:60});
+});
+
+test('launch now ignores a selected routine and its empty or invalid time without bypassing request validation',async()=>{
+  for(const time of ['', '25:00']){
+    const posts=[],validationStates=[],dialog=harness(async(url,options)=>{posts.push([url,JSON.parse(options.body)]);return{id:'immediate-request',assistant:true,status:'completed'};});dialog.connections=[gmail];dialog.schedule.value='daily';dialog.scheduleTime.value=time;dialog.scheduleTime.disabled=false;
+    dialog.form.reportValidity=()=>{validationStates.push(dialog.scheduleTime.disabled);return dialog.scheduleTime.disabled;};
+    assert.equal(dialog.payload(false).schedule,null);assert.throws(()=>dialog.payload(true),/heure valide/u);
+    await dialog.submit(false);
+    assert.deepEqual(validationStates,[true]);assert.equal(dialog.scheduleTime.disabled,false);
+    assert.equal(posts.length,1);assert.equal(posts[0][0],'/api/secretary');assert.equal('schedule' in posts[0][1],false);
+    await dialog.submit(true);assert.deepEqual(validationStates,[true,false]);assert.equal(posts.length,1);
+  }
+  const dialog=harness();dialog.connections=[gmail];dialog.schedule.value='daily';dialog.scheduleTime.disabled=false;dialog.form.reportValidity=()=>false;dialog.request=()=>{throw new Error('An invalid request must not be sent');};
+  await dialog.submit(false);assert.equal(dialog.scheduleTime.disabled,false);assert.equal(dialog.submitting,undefined);
 });
 
 test('closing during a direct request aborts it and ignores a late mission response',async()=>{

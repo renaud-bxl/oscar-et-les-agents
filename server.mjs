@@ -22,8 +22,24 @@ import { MissionRequests } from './lib/mission-requests.mjs';
 import { StateStream } from './lib/state-stream.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
-const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.wav': 'audio/wav' };
-const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.wav': 'audio/wav', '.ttf': 'font/ttf', '.pfb': 'application/octet-stream', '.bcmap': 'application/octet-stream' };
+const CSP = "default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+const PDF_VENDOR='vendor/pdfjs/6.4.299/';
+const PDF_RUNTIME_PATH=/^(?:build\/pdf(?:\.worker)?\.min\.mjs|cmaps\/[A-Za-z0-9_-]+\.bcmap|standard_fonts\/[A-Za-z0-9_-]+\.(?:pfb|ttf)|wasm\/(?:jbig2|openjpeg)_nowasm_fallback\.js)$/u;
+async function verifiedPdfAssets(){
+  const bytes=await readFile(path.join(ROOT,'public',PDF_VENDOR,'manifest.json')),manifest=JSON.parse(bytes.toString('utf8'));
+  if(manifest.name!=='pdfjs-dist'||manifest.version!=='6.4.299'||!Array.isArray(manifest.files))throw new Error('Le lecteur PDF local n’est pas reconnu. Réinstallez Oscar.');
+  const assets=new Map();
+  for(const item of manifest.files){
+    if(item.role!=='runtime')continue;
+    if(!PDF_RUNTIME_PATH.test(item.path)||!/^[a-f0-9]{64}$/u.test(item.sha256)||assets.has(PDF_VENDOR+item.path))throw new Error('Le manifeste du lecteur PDF local est invalide. Réinstallez Oscar.');
+    const content=await readFile(path.join(ROOT,'public',PDF_VENDOR,item.path));
+    if(content.length!==item.bytes||createHash('sha256').update(content).digest('hex')!==item.sha256)throw new Error('Un fichier du lecteur PDF local a changé. Réinstallez Oscar.');
+    assets.set(PDF_VENDOR+item.path,content);
+  }
+  if(!assets.has(PDF_VENDOR+'build/pdf.min.mjs')||!assets.has(PDF_VENDOR+'build/pdf.worker.min.mjs'))throw new Error('Le lecteur PDF local est incomplet. Réinstallez Oscar.');
+  return{assets,manifestBytes:bytes};
+}
 const NATIVE_FILE_TYPES = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff', '.avif', '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp', '.txt', '.md', '.json', '.csv', '.log']);
 const fileError = (message, code) => Object.assign(new Error(message), { code });
 const TERMINAL = new Set(['completed', 'needs_review', 'failed', 'cancelled']);
@@ -152,9 +168,10 @@ function openNativeFile(file) {
   });
 }
 export async function createAtelierServer({ port = 4850, dataDir = resolveServerDataDirectory(), providers, runner = runAgent, demoDelay = 1800, openFolder = openDataFolder, openFile = openNativeFile, detect = detectProviders, installer = runInstaller, loginFactory = options => new BrowserLogin(options), publishingFactory = options => new Publishing(options), connectorsFactory = options => new Connectors(options), automationFactory = options => new Automations(options), voiceFactory = options => new VoiceService(options), personalizationFactory = options => new Personalization(options), documentFactory = options => new DocumentLibrary(options), dictationFactory = options => new DictationService(options) } = {}) {
+  const pdfVendor=await verifiedPdfAssets();
   const assetNames=(await readdir(path.join(ROOT,'public'),{withFileTypes:true})).filter(entry=>entry.isFile()&&/\.(?:html|css|js)$/u.test(entry.name)).map(entry=>entry.name).sort();
   const [packageBytes,...assets]=await Promise.all(['package.json',...assetNames.map(name=>`public/${name}`)].map(name=>readFile(path.join(ROOT,name))));
-  const buildHash=createHash('sha256').update(packageBytes);for(let i=0;i<assetNames.length;i++)buildHash.update(assetNames[i]).update('\0').update(assets[i]);
+  const buildHash=createHash('sha256').update(packageBytes).update(pdfVendor.manifestBytes);for(let i=0;i<assetNames.length;i++)buildHash.update(assetNames[i]).update('\0').update(assets[i]);
   const version=JSON.parse(packageBytes.toString('utf8')).version,buildId=buildHash.digest('hex').slice(0,24);
   let engine, closing = false, closePromise;
   const assertOpen = () => { if (closing) throw fileError('Le bureau se ferme. Votre texte reste conservé ; relancez Oscar avant de réessayer.', 'SERVER_CLOSING'); };
@@ -532,7 +549,8 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
       if (pathname.startsWith('/api/')) { json(res, 404, { error: 'Route inconnue.' }); return; }
       if (!['GET', 'HEAD'].includes(req.method)) { json(res, 405, { error: 'Méthode non prise en charge.' }); return; }
       const staticName = pathname === '/' ? 'index.html' : pathname.replace(/^\//, '');
-      if (!['index.html', 'style.css', 'immersive.css', 'app.js', 'pixel-world.js', 'pixel-scene.css', 'mission-catalog.js', 'mission-catalog.css', 'mission-extras.js', 'coffee-dialog.js', 'coffee-dialog.css', 'ambience.js', 'welcome-guide.js', 'welcome-guide.css', 'i18n.js', 'translations-catalog.js', 'translations-interface.js', 'translations-guide.js', 'publication-dialog.js', 'publication-dialog.css', 'office-speech.js', 'clock-dialog.js', 'clock-dialog.css', 'creative-studio.js', 'creative-studio.css', 'automations-dialog.js', 'automations-dialog.css', 'connectors-dialog.js', 'connectors-dialog.css', 'completion-dialog.js', 'completion-dialog.css', 'artifact-viewer.js', 'artifact-viewer.css', 'secretary-dialog.js', 'secretary-dialog.css', 'voice-dialog.js', 'voice-preview-oscar-fr.wav', 'voice-preview-oscar-en.wav', 'voice-preview-oscar-nl.wav', 'voice-preview-zoe-fr.wav', 'voice-preview-zoe-en.wav', 'voice-preview-zoe-nl.wav', 'voice-dialog.css', 'voice-preview-oscar-2-fr.wav', 'voice-preview-oscar-2-en.wav', 'voice-preview-oscar-2-nl.wav', 'voice-preview-zoe-2-fr.wav', 'voice-preview-zoe-2-en.wav', 'voice-preview-zoe-2-nl.wav', 'personalization-dialog.js', 'personalization-dialog.css', 'character-lines.js', 'document-library.js', 'document-library.css', 'dictation-dialog.js', 'dictation-dialog.css', 'draft-storage.js'].includes(staticName)) { res.writeHead(404); res.end('Introuvable'); return; }
+      if(pdfVendor.assets.has(staticName)){res.writeHead(200,{'Content-Type':MIME[path.extname(staticName)],'Content-Security-Policy':CSP,'Cache-Control':'public, max-age=31536000, immutable'});res.end(req.method==='HEAD'?undefined:pdfVendor.assets.get(staticName));return;}
+      if (!['index.html', 'style.css', 'immersive.css', 'app.js', 'pixel-world.js', 'pixel-scene.css', 'mission-catalog.js', 'mission-catalog.css', 'mission-extras.js', 'coffee-dialog.js', 'coffee-dialog.css', 'ambience.js', 'welcome-guide.js', 'welcome-guide.css', 'i18n.js', 'translations-catalog.js', 'translations-interface.js', 'translations-guide.js', 'publication-dialog.js', 'publication-dialog.css', 'office-speech.js', 'clock-dialog.js', 'clock-dialog.css', 'creative-studio.js', 'creative-studio.css', 'automations-dialog.js', 'automations-dialog.css', 'connectors-dialog.js', 'connectors-dialog.css', 'completion-dialog.js', 'completion-dialog.css', 'artifact-viewer.js', 'artifact-viewer.css', 'pdf-preview.js', 'secretary-dialog.js', 'secretary-dialog.css', 'voice-dialog.js', 'voice-preview-oscar-fr.wav', 'voice-preview-oscar-en.wav', 'voice-preview-oscar-nl.wav', 'voice-preview-zoe-fr.wav', 'voice-preview-zoe-en.wav', 'voice-preview-zoe-nl.wav', 'voice-dialog.css', 'voice-preview-oscar-2-fr.wav', 'voice-preview-oscar-2-en.wav', 'voice-preview-oscar-2-nl.wav', 'voice-preview-zoe-2-fr.wav', 'voice-preview-zoe-2-en.wav', 'voice-preview-zoe-2-nl.wav', 'personalization-dialog.js', 'personalization-dialog.css', 'character-lines.js', 'document-library.js', 'document-library.css', 'dictation-dialog.js', 'dictation-dialog.css', 'draft-storage.js'].includes(staticName)) { res.writeHead(404); res.end('Introuvable'); return; }
       const content = await readFile(path.join(ROOT, 'public', staticName));
       res.writeHead(200, { 'Content-Type': MIME[path.extname(staticName)], 'Content-Security-Policy': CSP, 'Cache-Control': 'no-cache' }); res.end(req.method === 'HEAD' ? undefined : content);
     } catch (error) {

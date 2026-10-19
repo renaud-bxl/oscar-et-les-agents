@@ -1,6 +1,21 @@
 // French source text stays in the interface; these entries only change its display.
 // Personal names, product names, file paths and mission content are not translated.
 const entries = [
+  ['Le PDF n’a pas pu être affiché ici. Réessayez, téléchargez-le ou ouvrez-le dans son application.','The PDF could not be displayed here. Try again, download it or open it in its application.','De PDF kon hier niet worden weergegeven. Probeer opnieuw, download hem of open hem in de bijbehorende app.'],
+  ['PDF · lecture dans le bureau','PDF · read in the office','PDF · lezen in het kantoor'],
+  ['Page précédente','Previous page','Vorige pagina'],
+  ['Page suivante','Next page','Volgende pagina'],
+  ['Page $1 sur $2','Page $1 of $2','Pagina $1 van $2'],
+  ['PDF de $1 pages : l’aperçu donne accès aux 200 premières. Téléchargez le document pour consulter la suite.','This PDF has $1 pages: the preview shows the first 200. Download the document to read the rest.','Deze PDF heeft $1 pagina’s: het voorbeeld toont de eerste 200. Download het document om de rest te lezen.'],
+  ['Aperçu local en lecture seule. Les liens, formulaires et scripts du PDF restent inactifs.','Local, read-only preview. PDF links, forms and scripts remain inactive.','Lokaal voorbeeld dat alleen kan worden gelezen. Links, formulieren en scripts in de PDF blijven inactief.'],
+  ['Les dimensions de cette page ne permettent pas un aperçu. Ouvrez le PDF dans son application.','This page’s dimensions cannot be previewed. Open the PDF in its application.','De afmetingen van deze pagina zijn niet geschikt voor een voorbeeld. Open de PDF in de bijbehorende app.'],
+  ['L’aperçu PDF a dépassé le délai de vingt secondes. Réessayez ou ouvrez le fichier dans son application.','The PDF preview exceeded the twenty-second limit. Try again or open the file in its application.','Het PDF-voorbeeld heeft de limiet van twintig seconden overschreden. Probeer opnieuw of open het bestand in de bijbehorende app.'],
+  ['Ce PDF ne contient aucune page affichable.','This PDF has no displayable pages.','Deze PDF bevat geen weer te geven pagina’s.'],
+  ['Ce PDF est protégé par un mot de passe. Ouvrez-le dans votre application pour le déverrouiller.','This PDF is password protected. Open it in your application to unlock it.','Deze PDF is beveiligd met een wachtwoord. Open hem in je app om hem te ontgrendelen.'],
+  ['Le navigateur ne peut pas afficher cette page PDF. Téléchargez le fichier ou ouvrez-le dans son application.','The browser cannot display this PDF page. Download the file or open it in its application.','De browser kan deze PDF-pagina niet weergeven. Download het bestand of open het in de bijbehorende app.'],
+  ['Éléments exclus de cet envoi','Items excluded from this upload','Onderdelen die niet worden geüpload'],
+  ['Ces éléments ne seront pas envoyés. Si votre site en dépend, préparez une livraison adaptée avant de publier.','These items will not be uploaded. If your site depends on them, prepare a suitable delivery before publishing.','Deze onderdelen worden niet geüpload. Als je website ervan afhankelijk is, bereid dan een geschikte levering voor voordat je publiceert.'],
+  ['La liste des exclusions est limitée aux 100 premiers éléments.','The exclusion list is limited to the first 100 items.','De lijst met uitgesloten onderdelen is beperkt tot de eerste 100.'],
   ['Vos outils et vos habitudes','Your tools and routines','Je tools en gewoonten'],
   ['Connectez vos services et préparez des missions récurrentes.','Connect your services and prepare recurring missions.','Verbind je diensten en bereid terugkerende opdrachten voor.'],
   ['Créez vos visuels en SVG et PNG, ou reprenez les images de votre mission.','Create visuals in SVG and PNG, or continue editing your mission’s images.','Maak beelden in SVG en PNG, of bewerk de afbeeldingen van je opdracht verder.'],

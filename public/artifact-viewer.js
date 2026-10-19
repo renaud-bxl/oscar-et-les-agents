@@ -1,5 +1,6 @@
 import {getLocale,translate} from './i18n.js';
 import {sanitizeStudioSvg} from './creative-studio.js';
+import {PdfCanvasPreview} from './pdf-preview.js';
 
 const MAX_BYTES=20*1024*1024,MAX_TEXT=512*1024;
 const TEXT_TYPES=new Set('txt md markdown csv tsv json jsonl log py js mjs cjs ts tsx jsx html htm css scss sass less yaml yml toml ini cfg conf sql xml rst tex ipynb c cpp h hpp java rs go sh bash zsh ps1 bat'.split(' '));
@@ -26,11 +27,11 @@ const jsonRequest=async(url,options={})=>{const response=await fetch(url,{creden
 
 export class ArtifactViewer {
   constructor({request=jsonRequest,onClose=()=>{}}={}) {
-    Object.assign(this,{request,onClose});this.epoch=0;this.urls=new Set();this.timers=new Set();this.destroyed=false;this.opened=false;this.nativeBusy=false;this.folderBusy=false;this.current=null;
+    Object.assign(this,{request,onClose});this.epoch=0;this.urls=new Set();this.destroyed=false;this.opened=false;this.nativeBusy=false;this.folderBusy=false;this.current=null;
     this.build();
     this._onClose=()=>{if(!this.dialog.open)this.finishedClosing();};this._onCancel=event=>{event.preventDefault();this.close();};
     this._onBackdrop=event=>{if(event.target!==this.dialog)return;const box=this.dialog.getBoundingClientRect();if(event.clientX<box.left||event.clientX>box.right||event.clientY<box.top||event.clientY>box.bottom)this.close();};
-    this._onLanguage=()=>{if(this.opened&&this.current){this.updateMeta();if(this.frame)this.frame.title=translate('Aperçu PDF du fichier');}};
+    this._onLanguage=()=>{if(this.opened&&this.current){this.updateMeta();this.pdfPreview?.updateLabels();}};
     this.dialog.addEventListener('close',this._onClose);this.dialog.addEventListener('cancel',this._onCancel);this.dialog.addEventListener('click',this._onBackdrop);document.addEventListener('oscar:language',this._onLanguage);
   }
   build() {
@@ -61,8 +62,7 @@ export class ArtifactViewer {
   }
   cleanup() {
     this.controller?.abort();this.controller=null;
-    for(const timer of this.timers)clearTimeout(timer);this.timers.clear();
-    if(this.frame){this.frame.onload=null;this.frame.onerror=null;this.frame.src='about:blank';this.frame.remove();this.frame=null;}
+    this.pdfPreview?.close();this.pdfPreview=null;
     for(const image of this.content.querySelectorAll('img'))image.removeAttribute('src');this.content.replaceChildren();
     for(const url of this.urls)URL.revokeObjectURL(url);this.urls.clear();
   }
@@ -90,23 +90,10 @@ export class ArtifactViewer {
     });
     if(!this.active(epoch))return;this.content.replaceChildren(image);this.mode.textContent=caption;
   }
-  previewForPdf() {
-    const {mission,info}=this.current,files=Array.isArray(mission.files)?mission.files:[],stem=info.path.replace(/\.pdf$/i,'');
-    const exact=files.find(file=>['.png','.jpg','.jpeg','.webp'].some(extension=>file.path?.toLowerCase()===(stem+extension).toLowerCase()));if(exact)return exact;
-    if(files.filter(file=>/\.pdf$/i.test(file.path||'')).length===1)return files.find(file=>/(?:^|\/)(?:apercu|preview)-pdf(?:[-_](?:page[-_]?)?1)?\.png$/i.test(file.path||''))||null;
-    return null;
-  }
-  showPdf(blob,epoch) {
-    const hint='Si le lecteur PDF reste vide, utilisez « Ouvrir dans mon application » pour lire le document complet. Le dossier et le téléchargement restent disponibles.';
-    this.hint.textContent=hint;this.hint.hidden=false;
-    if(navigator.pdfViewerEnabled!==true){this.placeholder('Le PDF est prêt à ouvrir.','Ce navigateur ne propose pas de lecteur PDF intégré. Ouvrez le document avec votre application habituelle.');this.mode.textContent='PDF · application recommandée';return;}
-    const frame=node('iframe','artifact-pdf');frame.title=translate('Aperçu PDF du fichier');frame.setAttribute('sandbox','allow-same-origin');frame.referrerPolicy='no-referrer';frame.src=this.url(blob);
-    frame.onerror=()=>{if(this.active(epoch))this.pdfUnavailable();};this.frame=frame;this.content.replaceChildren(frame);this.mode.textContent='PDF · aperçu selon le navigateur';
-    const timer=setTimeout(()=>{this.timers.delete(timer);if(!this.active(epoch)||this.frame!==frame)return;let embedded=false;try{embedded=!!frame.contentDocument?.querySelector('embed[type="application/pdf"],object[type="application/pdf"]');}catch{/* The browser may isolate its native PDF viewer. */}if(!embedded)this.pdfUnavailable();},1800);this.timers.add(timer);
-  }
-  pdfUnavailable() {
-    if(this.frame){this.frame.onload=null;this.frame.onerror=null;this.frame.src='about:blank';this.frame.remove();this.frame=null;}
-    this.placeholder('Le lecteur PDF intégré n’est pas disponible ici.','Ouvrez le document dans votre application habituelle, ou retrouvez-le dans le dossier de la mission.');this.mode.textContent='PDF · application recommandée';
+  async showPdf(bytes,epoch) {
+    const preview=new PdfCanvasPreview({onError:error=>{if(!this.active(epoch))return;this.showError(translate(error.message));this.placeholder('Votre fichier reste accessible.','Le dossier et le téléchargement restent disponibles pendant que vous réessayez.');this.mode.textContent='Aperçu indisponible';this.retry.hidden=false;}});this.pdfPreview=preview;
+    await preview.open(bytes,this.content);if(!this.active(epoch))return;
+    this.mode.textContent='PDF · lecture dans le bureau';this.hint.textContent='Aperçu local en lecture seule. Les liens, formulaires et scripts du PDF restent inactifs.';this.hint.hidden=false;
   }
   async load() {
     if(!this.current||!this.opened)return;const epoch=++this.epoch;this.cleanup();this.controller=new AbortController();this.showError('');this.showStatus('');this.retry.hidden=true;this.hint.hidden=true;
@@ -121,9 +108,7 @@ export class ArtifactViewer {
         if(info.extension==='svg'){const source=sanitizeStudioSvg(new TextDecoder('utf-8').decode(bytes));await this.showImage(new Blob([source],{type:'image/svg+xml'}),epoch,{caption:'SVG vérifié · aperçu sans éléments actifs'});}
         else if(info.extension==='pdf') {
           if(!isPdf(bytes))throw new Error('Le contenu de ce fichier ne correspond pas à un PDF reconnu.');
-          const supplied=this.previewForPdf();let imageShown=false;
-          if(supplied){try{const imageInfo=fileInfo(this.current.mission,supplied),data=await this.bytes(imageInfo.url,MAX_BYTES),mime=rasterMime(data.bytes);if(mime){await this.showImage(new Blob([data.bytes],{type:mime}),epoch,{caption:'Aperçu image fourni avec le PDF'});imageShown=this.active(epoch);if(imageShown){this.hint.textContent='Cette image d’aperçu accompagne le PDF. Ouvrez le document dans votre application pour consulter toutes ses pages.';this.hint.hidden=false;}}}catch(error){if(error.name==='AbortError')throw error;}}
-          if(!this.active(epoch))return;if(!imageShown)this.showPdf(new Blob([bytes],{type:'application/pdf'}),epoch);
+          await this.showPdf(bytes,epoch);
         } else {const mime=rasterMime(bytes);if(!mime)throw new Error('Le contenu de ce fichier n’est pas une image PNG, JPEG ou WebP reconnue.');await this.showImage(new Blob([bytes],{type:mime}),epoch);}
       } else {
         this.placeholder('Ce format s’ouvre dans son application.','Téléchargez le fichier ou ouvrez son dossier. Aucun contenu de ce fichier n’est exécuté dans le bureau.');this.mode.textContent='Fichier à conserver';

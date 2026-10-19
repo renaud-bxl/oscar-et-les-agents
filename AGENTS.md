@@ -1,6 +1,6 @@
 # Oscar et les Agents
 
-Version 0.6.3 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
+Version 0.6.4 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
 
 ## Installer et lancer pour une personne
 
@@ -65,6 +65,7 @@ Ne demande jamais de clé API pour cette application. N’extrais ni ne copie le
 - Higgsfield utilise son serveur officiel avec OAuth ; son ajout ne permet pas une génération automatique. Prépare un brief pour le client interactif, avec modèle, paramètres, coût vérifié et confirmation avant toute génération. Ne prétends pas qu’un transfert de brief a exécuté un outil.
 - Les routines sont locales et nécessitent un serveur lancé et un ordinateur éveillé. Respecte le fuseau local, l’absence de chevauchement et la limite de quatre missions. Une reprise après fermeture ne doit pas provoquer une rafale de rattrapage. La pause empêche les prochains départs et préserve la mission déjà active.
 - Les aperçus de documents et l’ouverture native doivent rester limités aux fichiers connus de la mission. Refuse liens symboliques, traversées et formats exécutables ; ne rends pas les pages actives dans l’interface.
+- L’aperçu PDF utilise PDF.js local en canvas, avec intégrité des assets vérifiée au démarrage, une seule page active, limites de pages/pixels/délai et annulation. Conserve isEvalSupported:false, XFA et WebAssembly désactivés ; aucun sandbox de scripts ni CDN. Les liens et formulaires PDF ne reçoivent pas d’interface interactive. Préserve les licences et le téléchargement/application native de secours.
 
 ## Publication confirmée
 

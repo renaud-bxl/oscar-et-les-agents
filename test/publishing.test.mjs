@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, existsSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { Publishing, publishingEnvironment } from '../lib/publishing.mjs';
+import { PublicationDialog } from '../public/publication-dialog.js';
+import { translate } from '../public/i18n.js';
 
 const until = async predicate => { for (let i = 0; i < 200; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('État publication attendu non atteint.'); };
 const ftp = { host: 'ftp.exemple.be', protocol: 'ftps', username: 'renaud', password: 'ONE-SHOT-SECRET', directory: '/public_html', publicUrl: 'https://exemple.be/' };
@@ -41,9 +43,56 @@ test('aperçu : sélection Livraison, exclusions privées, liens ignorés et man
   const result = await publisher.preview('mission', { kind: 'ftp', entry: '', ftp });
   assert.equal(result.root, 'Livraison'); assert.equal(result.kind, 'ftp');
   assert.deepEqual(result.files.map(file => file.path), ['index.html', 'style.css']);
+  assert.deepEqual([...result.exclusions.paths].sort(), ['.git/', 'node_modules/', 'Rapports/', 'data/', '.env', '.env.production', 'state.json', 'Livraison.md', 'token.json', 'credentials.json', 'secret.txt', 'id_rsa.pem', 'external.html'].sort());
+  assert.equal(result.exclusions.count,13); assert.equal(result.exclusions.truncated,false); assert.match(result.exclusions.digest,/^[a-f\d]{64}$/);
+  assert(!JSON.stringify(result).includes('PRIVATE')); assert(!JSON.stringify(result).includes('secret.js'));
   assert.equal(result.totalBytes, result.files.reduce((size, file) => size + file.size, 0));
   assert.match(result.digest, /^[a-f\d]{64}$/); assert(!JSON.stringify(result).includes('ONE-SHOT')); assert(!JSON.stringify(result).includes('renaud'));
   assert.deepEqual(result.destination, { host: 'ftp.exemple.be', port: 21, protocol: 'ftps', directory: '/public_html', publicUrl: 'https://exemple.be/' });
+});
+
+test('aperçu FTP : images AVIF et audio OGG sont inclus sans lire les fichiers exclus', async t => {
+  const { publisher, delivery, calls } = fixture(t);
+  mkdirSync(path.join(delivery,'assets'));
+  writeFileSync(path.join(delivery,'assets','hero.avif'),Buffer.from([0,1,2,3]));
+  writeFileSync(path.join(delivery,'assets','ambience.ogg'),Buffer.from([79,103,103,83]));
+  writeFileSync(path.join(delivery,'source.psd'),'UNSUPPORTED-PRIVATE-CONTENT');
+  writeFileSync(path.join(delivery,'.env'),'FIRST-PRIVATE-CONTENT');
+  const body={kind:'ftp',ftp},first=await publisher.preview('mission',body);
+  assert.deepEqual(first.files.map(file=>file.path),['assets/ambience.ogg','assets/hero.avif','index.html','style.css']);
+  assert.deepEqual(first.exclusions.paths,['.env','source.psd']);
+  writeFileSync(path.join(delivery,'.env'),'CHANGED-PRIVATE-CONTENT');
+  const second=await publisher.preview('mission',body);
+  assert.equal(first.digest,second.digest);assert(!JSON.stringify(second).includes('PRIVATE-CONTENT'));assert.equal(calls.length,0);
+});
+
+test('une exclusion ajoutée ou renommée hors de la liste bornée exige un nouvel aperçu', async t => {
+  const { publisher, delivery, calls } = fixture(t);
+  const body={kind:'ftp',ftp},before=await publisher.preview('mission',body);
+  writeFileSync(path.join(delivery,'.env'),'PRIVATE');
+  await assert.rejects(publisher.publish('mission',{...body,confirmation:true,digest:before.digest}),/ont changé/);
+  for(let index=0;index<150;index++)writeFileSync(path.join(delivery,`.ignored-${String(index).padStart(3,'0')}`),'PRIVATE');
+  const first=await publisher.preview('mission',body);
+  assert.equal(first.exclusions.count,151);assert.equal(first.exclusions.paths.length,100);assert.equal(first.exclusions.truncated,true);
+  renameSync(path.join(delivery,'.ignored-149'),path.join(delivery,'.ignored-999'));
+  await assert.rejects(publisher.publish('mission',{...body,confirmation:true,digest:first.digest}),/ont changé/);
+  const second=await publisher.preview('mission',body);
+  assert.deepEqual(first.exclusions.paths,second.exclusions.paths);assert.equal(first.exclusions.count,second.exclusions.count);assert.notEqual(first.exclusions.digest,second.exclusions.digest);assert.notEqual(first.digest,second.digest);assert.equal(calls.length,0);
+});
+
+test('l’aperçu affiche les exclusions avant confirmation sans traduire les chemins', async t => {
+  const original=globalThis.document;t.after(()=>{if(original===undefined)delete globalThis.document;else globalThis.document=original;});
+  globalThis.document={createElement:()=>({attributes:new Map(),setAttribute(name,value){this.attributes.set(name,value);}})};
+  const list=()=>({items:[],replaceChildren(...items){this.items=items;}});
+  let preview={kind:'ftp',destination:{protocol:'ftps',host:'ftp.exemple.be',port:21,directory:'/public_html'},files:[{path:'index.html'}],totalBytes:42,exclusions:{paths:['data/','.env'],count:151,truncated:true}};
+  const dialog=Object.assign(Object.create(PublicationDialog.prototype),{epoch:1,missionId:'mission',error:{},target:{},list:list(),excludedList:list(),exclusions:{hidden:true},excludedLimit:{hidden:true},review:{hidden:true},confirm:{focus(){}},body:()=>({kind:'ftp',ftp}),request:async()=>preview,updateControls(){},showError(message){assert.fail(message);}});
+  await dialog.inspectFiles();
+  assert.equal(dialog.review.hidden,false);assert.equal(dialog.confirm.disabled,false);assert.equal(dialog.exclusions.hidden,false);assert.equal(dialog.excludedLimit.hidden,false);
+  assert.deepEqual(dialog.excludedList.items.map(item=>item.textContent),['data/','.env']);
+  for(const item of [...dialog.list.items,...dialog.excludedList.items])assert.equal(item.attributes.get('data-no-translate'),'');
+  for(const source of ['Éléments exclus de cet envoi','Ces éléments ne seront pas envoyés. Si votre site en dépend, préparez une livraison adaptée avant de publier.','La liste des exclusions est limitée aux 100 premiers éléments.'])for(const locale of ['en','nl'])assert.notEqual(translate(source,locale),source);
+  preview={...preview,exclusions:{paths:[],count:0,truncated:false}};await dialog.inspectFiles();
+  assert.equal(dialog.exclusions.hidden,true);assert.equal(dialog.excludedLimit.hidden,true);assert.deepEqual(dialog.excludedList.items,[]);
 });
 
 test('aperçu : mission active, choix ambigu, traversée et liens racine sont refusés', async t => {

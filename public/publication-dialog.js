@@ -38,8 +38,12 @@ export class PublicationDialog {
     this.error=node('p','publication-error');this.error.setAttribute('role','alert');this.error.hidden=true;
     this.review=node('section','publication-review');this.review.hidden=true;
     this.target=node('p','publication-target');this.list=node('ul','publication-files');this.list.setAttribute('aria-label','Fichiers qui seront publiés');
+    this.exclusions=node('section','publication-exclusions');this.exclusions.hidden=true;
+    this.excludedList=node('ul','publication-files');this.excludedList.setAttribute('aria-label','Éléments exclus de cet envoi');
+    this.excludedLimit=node('p','publication-note','La liste des exclusions est limitée aux 100 premiers éléments.');this.excludedLimit.hidden=true;
+    this.exclusions.append(node('h3','','Éléments exclus de cet envoi'),node('p','publication-note','Ces éléments ne seront pas envoyés. Si votre site en dépend, préparez une livraison adaptée avant de publier.'),this.excludedList,this.excludedLimit);
     this.confirm=node('button','primary-button','Confirmer et publier');this.confirm.type='button';this.confirm.disabled=true;this.confirm.addEventListener('click',()=>this.publish());
-    this.review.append(node('h3','','Vérifiez avant l’envoi'),this.target,this.list,this.confirm);
+    this.review.append(node('h3','','Vérifiez avant l’envoi'),this.target,this.list,this.exclusions,this.confirm);
     this.status=node('p','publication-job-status');this.status.setAttribute('role','status');this.result=node('a','publication-result');this.result.target='_blank';this.result.rel='noopener noreferrer';this.result.hidden=true;
     const body=node('div','publication-body');body.append(intro,tabs,this.github,this.ftp,entry.wrapper,this.inspect,this.error,this.review,this.status,this.result);this.dialog.append(header,body);
   }
@@ -82,7 +86,14 @@ export class PublicationDialog {
   showError(message){this.error.textContent=message;this.error.hidden=false;}
   async inspectFiles(){
     this.busy=true;this.error.hidden=true;this.updateControls();const epoch=this.epoch;
-    try{const data=await this.request(`/api/missions/${encodeURIComponent(this.missionId)}/publication/preview`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.body())});if(epoch!==this.epoch)return;this.preview=data;const destination=data.kind==='github'?`${data.destination.repo} · ${data.destination.visibility==='public'?'Public':'Privé'}`:`${data.destination.protocol.toUpperCase()} · ${data.destination.host}:${data.destination.port}${data.destination.directory}`;this.target.textContent=`${destination} · ${data.files.length} fichiers · ${Math.ceil(data.totalBytes/1024)} Ko`;this.list.replaceChildren(...data.files.map(file=>node('li','',file.path)));this.review.hidden=false;this.confirm.disabled=false;this.confirm.focus({preventScroll:true});}
+    try{
+      const data=await this.request(`/api/missions/${encodeURIComponent(this.missionId)}/publication/preview`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.body())});if(epoch!==this.epoch)return;this.preview=data;
+      const destination=data.kind==='github'?`${data.destination.repo} · ${data.destination.visibility==='public'?'Public':'Privé'}`:`${data.destination.protocol.toUpperCase()} · ${data.destination.host}:${data.destination.port}${data.destination.directory}`;this.target.textContent=`${destination} · ${data.files.length} fichiers · ${Math.ceil(data.totalBytes/1024)} Ko`;
+      const pathItem=value=>{const item=node('li','',value);item.setAttribute('data-no-translate','');return item;};
+      this.list.replaceChildren(...data.files.map(file=>pathItem(file.path)));
+      this.excludedList.replaceChildren(...(data.exclusions?.paths||[]).map(pathItem));this.exclusions.hidden=!(data.exclusions?.count>0);this.excludedLimit.hidden=data.exclusions?.truncated!==true;
+      this.review.hidden=false;this.confirm.disabled=false;this.confirm.focus({preventScroll:true});
+    }
     catch(error){if(epoch===this.epoch)this.showError(error.message);}finally{this.busy=false;this.updateControls();}
   }
   async publish(){
