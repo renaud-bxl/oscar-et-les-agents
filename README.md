@@ -86,11 +86,13 @@ Documents/
 
 Les briefs, le journal d’activité, les validations et les fichiers restent dans ce dossier. **Mes missions dans Documents** l’ouvre depuis le menu. Arrêter un agent conserve les fichiers déjà produits.
 
-## Un bureau avec de la vie
+## Un bureau qui occupe toute la fenêtre
+
+Le bureau est l’écran principal : il remplit toute la fenêtre, avec un menu flottant et des panneaux qui s’ouvrent par-dessus la scène. Le tableau des missions, l’équipe et l’armoire des livraisons sont cliquables ; le menu donne aussi accès aux mêmes fonctions au clavier.
 
 Le grand bureau adopte un dessin lisse, des couleurs douces, des ombres et des personnages expressifs. Cinq îlots de quatre postes rassemblent les métiers. Les agents entrent par la porte, marchent jusqu’à leur bureau, apportent leurs dossiers à Oscar puis vont au café après validation. Ils discutent et réagissent quand vous cliquez sur eux. Vous pouvez aussi changer l’ambiance par la fenêtre, jouer avec l’horloge, allumer les lampes, réveiller le chat et faire tourner la machine à café. Les animations peuvent être mises en pause ; les missions continuent.
 
-**Voir une démo** montre ce parcours avec huit personnages, dont quatre designers, sans appeler un modèle. **Agrandir le bureau** donne encore plus de place à la scène et à l’équipe. Le bandeau précise qu’il s’agit d’une simulation.
+**Voir une démo** montre ce parcours avec huit personnages, dont quatre designers, sans appeler un modèle. Les missions guidées, le brief, les connexions, l’historique, le suivi et les fichiers restent accessibles sans quitter le bureau. Le bouton de plein écran inclut le menu et les panneaux. Le bandeau précise qu’il s’agit d’une simulation.
 
 La machine à café propose un soutien volontaire de **0,20 €** à Renaud via PayPal. Le montant et le destinataire sont visibles avant de quitter l’application. Le paiement se confirme uniquement sur PayPal et ne débloque aucune fonction.
 

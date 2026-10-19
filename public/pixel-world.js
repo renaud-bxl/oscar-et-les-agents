@@ -40,6 +40,9 @@ const HOTSPOTS=[
   {kind:'window',label:'Fenêtre de gauche',x:180,y:60,w:220,h:134},
   {kind:'window',label:'Fenêtre de droite',x:1080,y:60,w:220,h:134},
   {kind:'clock',label:'Horloge',x:973,y:76,w:60,h:60},
+  {kind:'missions',label:'Tableau des missions · ouvrir le catalogue',x:431,y:142,w:127,h:57},
+  {kind:'delivery',label:'Armoire des livraisons · ouvrir les résultats',x:1260,y:636,w:126,h:80},
+  {kind:'team',label:'Le collectif · rencontrer les talents',x:866,y:146,w:98,h:49},
   ...LAMPS.map((p,index)=>({kind:'lights',label:`Suspension ${index+1}`,index,x:p.x-28,y:p.y-20,w:56,h:46})),
   {kind:'door',label:'Porte d’entrée',x:74,y:80,w:78,h:147},
   {kind:'plant',label:'Grand ficus',x:61,y:342,w:65,h:104},
@@ -50,7 +53,7 @@ const OBSTACLES=[
   ...ISLANDS.map(i=>({x:i.x,y:i.y,w:i.w,h:i.h})),
   {x:610,y:220,w:220,h:70},{x:65,y:650,w:105,h:90},
   {x:670,y:690,w:120,h:85},{x:550,y:690,w:50,h:100},{x:860,y:690,w:50,h:100},{x:70,y:385,w:50,h:60},
-  {x:1320,y:390,w:50,h:60},{x:1300,y:715,w:70,h:80}
+  {x:1320,y:390,w:50,h:60},{x:1300,y:715,w:70,h:80},{x:1270,y:650,w:110,h:64}
 ];
 
 function hash(text) {
@@ -85,7 +88,7 @@ export class PixelWorld {
     if(!this.ctx) throw new Error('Le dessin de l’atelier est indisponible dans ce navigateur.');
     this.pixelRatio=Math.min(2,Math.max(1,window.devicePixelRatio||1));
     canvas.width=Math.round(W*this.pixelRatio);canvas.height=Math.round(H*this.pixelRatio);
-    this.ctx.scale(this.pixelRatio,this.pixelRatio);
+    this.viewport={width:W,height:H,scale:1,offsetX:0,offsetY:0,dpr:this.pixelRatio};
     this.ctx.imageSmoothingEnabled=true;
     this.onSelect=onSelect;this.onStatus=onStatus;this.onEvent=onEvent;this.onInteract=onInteract;
     this.mission=null;this.missionId=null;this.agents=new Map();
@@ -102,7 +105,9 @@ export class PixelWorld {
     this._onClick=e=>this._select(e);
     this._onKey=e=>{if(e.key==='Enter'||e.key===' ') {e.preventDefault();this._selectActor({role:'oscar',id:null});}};
     this._onPointer=e=>this._pointer(e);
-    this._onLeave=()=>{this.canvas.style.cursor='';this._hoveredProp=null;this._draw();};
+    this._initialTitle=canvas.title||'';
+    this._onLeave=()=>{this.canvas.style.cursor='';this.canvas.title=this._initialTitle;this._hoveredProp=null;this._draw();};
+    this._onResize=()=>this._resizeViewport();
     document.addEventListener('visibilitychange',this._onVisibility);
     this._media?.addEventListener?.('change',this._onMotion);
     canvas.addEventListener('click',this._onClick);
@@ -110,7 +115,10 @@ export class PixelWorld {
     canvas.addEventListener('pointermove',this._onPointer);
     canvas.addEventListener('pointerleave',this._onLeave);
     this._background=this._makeBackground();
-    this._tick=this._tick.bind(this);this._draw();this._schedule();
+    this._tick=this._tick.bind(this);this._resizeViewport();
+    this._resizeObserver=typeof ResizeObserver==='function'?new ResizeObserver(this._onResize):null;
+    this._resizeObserver?.observe(canvas);window.addEventListener?.('resize',this._onResize);
+    this._draw();this._schedule();
   }
 
   update(mission) {
@@ -207,6 +215,15 @@ export class PixelWorld {
     } else if(kind==='cat') {
       this.props.catUntil=this.time+2.7;x=1324;y=549;bubble='Miaou. J’approuve cette sieste.';
       text='Miaou ! Le petit chat de l’étagère est responsable qualité des siestes. Son rapport : ronron.';
+    } else if(kind==='missions') {
+      x=494;y=103;bubble='Une nouvelle idée à construire ?';
+      text='Le tableau des missions : choisissez une idée dans le catalogue ou confiez votre propre projet à Oscar.';
+    } else if(kind==='delivery') {
+      x=1308;y=588;bubble='Les bonnes idées se retrouvent ici.';
+      text=this.mission?.files?.length?'L’armoire des livraisons est ouverte : retrouvez les résultats et les fichiers de cette mission.':'L’armoire des livraisons est ouverte. Les résultats et fichiers de la mission y seront conservés.';
+    } else if(kind==='team') {
+      x=914;y=103;bubble='Cinq métiers, plein de personnalités.';
+      text='Rencontrez les talents : chaque spécialiste a son métier, sa personnalité et les tâches confiées par Oscar.';
     } else return null;
     this._propBubble={text:bubble,x,y,until:this.time+3.6};
     this._lastInteraction={kind,text,at:this.time};
@@ -216,7 +233,7 @@ export class PixelWorld {
 
   snapshot() {
     return {
-      missionId:this.missionId,bounds:{width:W,height:H},frame:this.frame,time:Math.round(this.time*100)/100,
+      missionId:this.missionId,bounds:{width:W,height:H},viewport:{...this.viewport},frame:this.frame,time:Math.round(this.time*100)/100,
       paused:this._manualPaused||document.hidden,reducedMotion:this.reducedMotion,oscarState:this.oscarState,
       doorOpen:this._doorOpen,reviewOwner:this._reviewOwner,
       bubbles:this._visibleBubbles.map(b=>({...b})),
@@ -244,11 +261,13 @@ export class PixelWorld {
     this._raf=null;
     document.removeEventListener('visibilitychange',this._onVisibility);
     this._media?.removeEventListener?.('change',this._onMotion);
+    this._resizeObserver?.disconnect();window.removeEventListener?.('resize',this._onResize);
     this.canvas.removeEventListener('click',this._onClick);
     this.canvas.removeEventListener('keydown',this._onKey);
     this.canvas.removeEventListener('pointermove',this._onPointer);
     this.canvas.removeEventListener('pointerleave',this._onLeave);
     this.canvas.style.cursor='';
+    this.canvas.title=this._initialTitle;
     this.agents.clear();
     this._reactions.clear();
   }
@@ -487,7 +506,19 @@ export class PixelWorld {
 
   _coordinates(event) {
     const r=this.canvas.getBoundingClientRect();
-    return {x:(event.clientX-r.left)*W/r.width,y:(event.clientY-r.top)*H/r.height};
+    const v=this.viewport,x=(event.clientX-r.left)*v.width/Math.max(1,r.width),y=(event.clientY-r.top)*v.height/Math.max(1,r.height);
+    return {x:(x-v.offsetX)/v.scale,y:(y-v.offsetY)/v.scale};
+  }
+  _resizeViewport() {
+    if(this._destroyed)return;
+    const r=this.canvas.getBoundingClientRect();
+    const width=Math.max(1,r.width||this.canvas.clientWidth||window.innerWidth||W),height=Math.max(1,r.height||this.canvas.clientHeight||window.innerHeight||H);
+    const dpr=Math.max(1,Math.min(2,Number(window.devicePixelRatio)||1)),scale=Math.min(width/W,height/H);
+    this.viewport={width,height,scale,offsetX:(width-W*scale)/2,offsetY:(height-H*scale)/2,dpr};
+    const rasterWidth=Math.max(1,Math.round(width*dpr)),rasterHeight=Math.max(1,Math.round(height*dpr));
+    if(this.canvas.width!==rasterWidth||this.canvas.height!==rasterHeight){this.canvas.width=rasterWidth;this.canvas.height=rasterHeight;}
+    if(this.pixelRatio!==dpr){this.pixelRatio=dpr;this._background=this._makeBackground();}
+    this.ctx.imageSmoothingEnabled=true;if(this._background)this._draw();
   }
   _hit(p) {
     const agents=[...this.agents.values()].filter(a=>a.visible).sort((a,b)=>b.y-a.y);
@@ -530,6 +561,7 @@ export class PixelWorld {
   _pointer(event) {
     const p=this._coordinates(event),actor=this._hit(p),prop=actor?null:this._hitProp(p);
     this.canvas.style.cursor=actor||prop?'pointer':'';
+    this.canvas.title=actor?`${actor.name||ROLES[actor.role].name} · voir sa personnalité et sa mission`:prop?.label||this._initialTitle;
     if(prop!==this._hoveredProp) {this._hoveredProp=prop;if(this._manualPaused) this._draw();}
   }
 
@@ -545,19 +577,34 @@ export class PixelWorld {
     c.font=`${weight} ${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
     c.textBaseline='alphabetic';c.textAlign=align;c.fillStyle=color;c.fillText(String(text),x,y);
   }
+  _drawViewportBackdrop(c) {
+    const {width,height,scale,offsetX,offsetY}=this.viewport,floorY=offsetY+209*scale;
+    const wall=c.createLinearGradient(0,offsetY+24*scale,0,offsetY+224*scale);wall.addColorStop(0,'#f7faf6');wall.addColorStop(1,'#e1ebe4');
+    c.fillStyle=wall;c.fillRect(0,0,width,height);
+    const floor=c.createLinearGradient(0,offsetY+214*scale,0,offsetY+822*scale);floor.addColorStop(0,'#eee5d4');floor.addColorStop(1,'#e2d2b6');
+    c.fillStyle=floor;c.fillRect(0,floorY,width,height-floorY);
+    this._line(c,0,offsetY+212*scale,width,offsetY+212*scale,'#b9c7b980',6*scale);
+    this._line(c,0,offsetY+218*scale,width,offsetY+218*scale,'#fdfbf4',4*scale);
+    const maxRow=Math.ceil(((height-offsetY)/scale-224)/38),firstCol=Math.floor((-offsetX/scale-42)/220)-1,lastCol=Math.ceil(((width-offsetX)/scale-42)/220)+1;
+    for(let row=0;row<=maxRow;row++) {
+      const y=offsetY+(224+row*38)*scale;this._line(c,0,y,width,y,'#cbbb9d38',Math.max(.4,scale));
+      for(let j=firstCol;j<=lastCol;j++){const x=offsetX+(42+j*220+(row%2)*110)*scale;this._line(c,x,y,x,y+38*scale,'#cbbb9d2c',Math.max(.4,scale));}
+    }
+    const count=this.props.lights.filter(Boolean).length,night=this.props.windowMode==='night',sunset=this.props.windowMode==='sunset';
+    const alpha=night?[.36,.28,.21,.13][count]:sunset?[.19,.14,.09,.035][count]:[.12,.08,.04,0][count];
+    if(alpha){c.fillStyle=`rgba(50,73,86,${alpha})`;c.fillRect(0,offsetY+210*scale,width,height-offsetY-210*scale);}
+  }
   _makeBackground() {
     const canvas=document.createElement('canvas');canvas.width=Math.round(W*this.pixelRatio);canvas.height=Math.round(H*this.pixelRatio);
     const c=canvas.getContext('2d');c.scale(this.pixelRatio,this.pixelRatio);c.imageSmoothingEnabled=true;
     const wall=c.createLinearGradient(0,24,0,224);wall.addColorStop(0,'#f7faf6');wall.addColorStop(1,'#e1ebe4');
-    this._round(c,28,24,1384,800,32,'#d4d8cb');
-    this._round(c,36,22,1368,796,30,'#faf7ef');
-    this._round(c,42,28,1356,784,25,wall);
+    c.fillStyle=wall;c.fillRect(0,0,W,H);
     const floor=c.createLinearGradient(0,214,0,822);floor.addColorStop(0,'#eee5d4');floor.addColorStop(1,'#e2d2b6');
-    this._round(c,42,209,1356,603,[0,0,24,24],floor);
-    this._line(c,42,212,1398,212,'#b9c7b980',6);this._line(c,43,218,1397,218,'#fdfbf4',4);
-    c.save();c.beginPath();c.roundRect(43,218,1354,593,[0,0,24,24]);c.clip();
-    for(let row=0;row<16;row++) {
-      const y=224+row*38;this._line(c,42,y,1398,y,'#cbbb9d38');
+    c.fillStyle=floor;c.fillRect(0,209,W,H-209);
+    this._line(c,0,212,W,212,'#b9c7b980',6);this._line(c,0,218,W,218,'#fdfbf4',4);
+    c.save();c.beginPath();c.rect(0,218,W,H-218);c.clip();
+    for(let row=0;row<18;row++) {
+      const y=224+row*38;this._line(c,0,y,W,y,'#cbbb9d38');
       for(let j=0;j<7;j++){const x=42+j*220+(row%2)*110;this._line(c,x,y,x,y+38,'#cbbb9d2c');}
     }
     for(let i=0;i<32;i++){const x=90+(i*137)%1250,y=250+(i*71)%520;this._line(c,x,y,x+22+(i%4)*5,y+1,'#f5ecdc50',2);}
@@ -569,10 +616,12 @@ export class PixelWorld {
     this._round(c,63,227,102,27,12,'#d9b4a2');this._text(c,'BIENVENUE',114,245,'#fffaf1',10,'center',650);
     this._round(c,431,142,127,57,9,'#cfb593');this._round(c,437,148,115,45,6,'#ecd7b6');
     [[449,156,-.08,'#fffaf0'],[484,161,.1,'#d6e5d4'],[517,153,-.04,'#f0c6b2']].forEach(([x,y,a,color])=>{c.save();c.translate(x,y);c.rotate(a);this._round(c,0,0,24,28,3,color);this._ellipse(c,12,3,2,2,'#aa8c72');this._line(c,5,12,18,12,'#8da28d',1.5);this._line(c,5,17,15,17,'#8da28d',1.5);c.restore();});
-    this._round(c,866,146,98,49,8,'#fafaf0');this._text(c,'LES IDÉES',915,167,'#91a58c',11,'center',650);this._text(c,'prennent forme ici.',915,183,'#a6ad9b',9,'center');
+    this._round(c,866,146,98,49,8,'#fafaf0');this._text(c,'LE COLLECTIF',915,160,'#91a58c',10,'center',650);
+    for(let i=0;i<5;i++)this._ellipse(c,887+i*14,174,4,4,[P.coral,P.blue,P.gold,P.mint,'#b4a9c6'][i]);
+    this._text(c,'Talents & métiers',915,188,'#a6ad9b',8,'center');
     this._text(c,'Oscar et les Agents',720,43,'#6e897a',16,'center',550);
     this._plant(c,94,421,1.05);this._plant(c,1347,424,1.16);this._plant(c,1335,761,1.2);
-    this._coffeeCorner(c);this._lounge(c);
+    this._coffeeCorner(c);this._lounge(c);this._deliveryCabinet(c);
     for(const island of ISLANDS) this._island(c,island);
     this._oscarDesk(c,false);
     // Books, an original porcelain companion, and the studio's small everyday objects.
@@ -647,6 +696,14 @@ export class PixelWorld {
     this._text(c,'Le petit café',118,594,'#9c9c84',12,'center',550);
     this._round(c,95,745,46,9,4,'#90765d');
   }
+  _deliveryCabinet(c) {
+    this._shadow(c,()=>this._round(c,1270,656,110,58,11,'#b99e7f'),13,6);
+    this._round(c,1267,647,116,14,6,'#e3cdb1');
+    this._round(c,1278,665,43,37,4,'#d3b797');this._round(c,1328,665,43,37,4,'#d3b797');
+    this._line(c,1317,677,1317,689,'#9e876d',2);this._line(c,1332,677,1332,689,'#9e876d',2);
+    for(let i=0;i<3;i++){this._round(c,1282+i*22,628-i%2*4,20,18,4,[P.mint,'#e8d5b2',P.coral][i]);this._round(c,1285+i*22,624-i%2*4,9,5,2,[P.mint,'#e8d5b2',P.coral][i]);}
+    this._text(c,'Livraisons',1325,736,'#8b9a85',11,'center');
+  }
   _lounge(c) {
     this._round(c,525,650,395,163,66,'#a8beb71c');
     for(const x of [552,864]) {
@@ -718,7 +775,7 @@ export class PixelWorld {
   _drawAtmosphere(c) {
     const count=this.props.lights.filter(Boolean).length,night=this.props.windowMode==='night',sunset=this.props.windowMode==='sunset';
     const alpha=night?[.36,.28,.21,.13][count]:sunset?[.19,.14,.09,.035][count]:[.12,.08,.04,0][count];
-    if(alpha){c.save();c.fillStyle=`rgba(50,73,86,${alpha})`;c.beginPath();c.roundRect(42,210,1356,602,[0,0,24,24]);c.fill();c.restore();}
+    if(alpha){c.fillStyle=`rgba(50,73,86,${alpha})`;c.fillRect(0,210,W,H-210);}
     for(const [i,lamp] of LAMPS.entries()) if(this.props.lights[i]) {
       const g=c.createRadialGradient(lamp.x,355,10,lamp.x,355,280);g.addColorStop(0,night?'#fff1c41b':'#fff1c409');g.addColorStop(1,'#fff1c400');this._ellipse(c,lamp.x,355,280,300,g);
     }
@@ -843,7 +900,10 @@ export class PixelWorld {
     if(this._hoveredProp){const p=this._hoveredProp;this._round(c,p.x-4,p.y-4,p.w+8,p.h+8,12,null,'#a5ba8a75');}
   }
   _draw() {
-    if(this._destroyed)return;const c=this.ctx;c.imageSmoothingEnabled=true;c.clearRect(0,0,W,H);c.drawImage(this._background,0,0,W,H);
+    if(this._destroyed)return;
+    const c=this.ctx,v=this.viewport;c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,this.canvas.width,this.canvas.height);
+    c.setTransform(v.dpr,0,0,v.dpr,0,0);c.imageSmoothingEnabled=true;this._drawViewportBackdrop(c);
+    c.translate(v.offsetX,v.offsetY);c.scale(v.scale,v.scale);c.drawImage(this._background,0,0,W,H);
     this._drawWindows(c);
     const open=this._doorOpen;
     if(open>.01){this._round(c,80,85,67,136,7,'#5d746c');this._round(c,83,88,Math.max(6,61*(1-open)),128,5,'#91afa0');}

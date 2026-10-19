@@ -35,6 +35,13 @@ let pixelWorld = null;
 let animationPaused = false;
 let missionWizard = null;
 let coffeeDialog = null;
+let activePanel = null;
+let panelReturnFocus = null;
+let memberReturnPanel = null;
+let wizardReturnPanel = null;
+let lastMemberSignature = '';
+let onboardingDismissed = false;
+try { onboardingDismissed = sessionStorage.getItem('oscar-welcome-dismissed') === '1'; } catch {}
 let openedQuip = "";
 const QUIPS = {oscar:["J’ai un plan. Le café, c’est le plan B.","Je recrute les talents. Je garde les biscuits."],recherche:["J’ai recoupé mes sources. Même celle du café.","Le premier lien était un chat. J’ai poursuivi l’enquête."],redaction:["Je pose une virgule et j’arrive.","Un café, deux adjectifs. Pas l’inverse."],code:["Chez moi, ça marche. Chez toi, je vais vérifier.","Le bug était entre la chaise et la cafetière."],design:["Encore deux pixels à gauche… parfait.","Le café manque un peu de contraste."],analyse:["Je compte les cafés. Pour la science.","Selon mon tableau, il est l’heure de faire un tableau."]};
 
@@ -43,6 +50,37 @@ function node(tag, className, value) {
   if (className) el.className = className;
   if (value !== undefined && value !== null) el.textContent = String(value);
   return el;
+}
+const PANEL_LABELS = {catalog:['Les missions','36 points de départ pour vos idées'],brief:['Parlez à Oscar','Votre prochaine mission'],team:['Votre équipe','Les talents de cette mission'],delivery:['Votre livraison','Fichiers et comptes rendus'],progress:['Le suivi du projet','Du brief à la livraison'],history:['Mes missions','Jusqu’à quatre bureaux en même temps'],settings:['Les réglages','Votre connexion et votre bureau']};
+function restorePanel() {
+  const content=$('office-panel-body').firstElementChild;
+  if(content) $('office-panel-storage').append(content);
+  activePanel=null;
+  document.querySelectorAll('[data-open-panel]').forEach(button=>button.setAttribute('aria-expanded','false'));
+}
+function closeOfficePanel({restoreFocus=true}={}) {
+  if($('office-panel').open) $('office-panel').close();
+  restorePanel();
+  if(restoreFocus&&panelReturnFocus?.isConnected) panelReturnFocus.focus({preventScroll:true});
+}
+function openPanel(name,{focus=true}={}) {
+  const content=document.querySelector(`[data-panel-section="${name}"]`);
+  if(!content || !PANEL_LABELS[name]) return;
+  if(!$('office-panel').open) panelReturnFocus=document.activeElement;
+  if(content.parentElement!==$('office-panel-body')) {restorePanel();$('office-panel-body').append(content);}
+  activePanel=name;$('office-panel').dataset.panel=name;
+  $('office-panel-title').textContent=PANEL_LABELS[name][0];$('office-panel-kicker').textContent=PANEL_LABELS[name][1];
+  $('panel-error').textContent=$('global-error').textContent;$('panel-error').hidden=$('global-error').hidden;
+  if(!$('office-panel').open) $('office-panel').showModal();
+  document.querySelectorAll('[data-open-panel]').forEach(button=>button.setAttribute('aria-expanded',String(button.dataset.openPanel===name)));
+  if(focus) {const target=name==='catalog'?$('template-search'):name==='brief'?$('mission-input'):name==='settings'?$('provider-select'):$('close-office-panel');target.focus({preventScroll:true});}
+}
+function closeMemberForNavigation() {memberReturnPanel=null;if($('member-dialog').open)$('member-dialog').close();openedRole=null;openedTaskId=null;lastMemberSignature='';}
+function dismissWelcome() {onboardingDismissed=true;$('office-onboarding').hidden=true;try{sessionStorage.setItem('oscar-welcome-dismissed','1');}catch{}}
+function rememberFocus(container) {
+  const target=document.activeElement?.closest('[data-task],[data-mission]');
+  const key=target&&container.contains(target)?{task:target.dataset.task,mission:target.dataset.mission}:null;
+  return ()=>{if(!key)return;const attribute=key.task?'data-task':'data-mission',value=key.task||key.mission;container.querySelector(`[${attribute}="${CSS.escape(value)}"]`)?.focus({preventScroll:true});};
 }
 function roleOf(value) {
   const key = String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
@@ -87,8 +125,8 @@ function portrait(role,index=0) {
 function providerName(id) { return id === 'demo' ? 'Démonstration sans IA' : state.providers.find(p => p.id === id)?.name || (id === 'claude' ? 'Claude' : id === 'codex' ? 'Codex' : 'Moteur local'); }
 function isRunning(value) { return !!value && runningStatuses.has(value.status); }
 function activeMissions(){return (Array.isArray(state.activeMissions)?state.activeMissions:state.active?[state.active]:[]).filter(isRunning);}
-function openAnotherOffice(templateId){if(activeMissions().length>=4){showError('Quatre missions sont déjà en cours. Attendez une livraison avant d’ouvrir une autre équipe.');return;}const url=new URL(location.href);url.search='';url.searchParams.set('new','1');if(templateId)url.searchParams.set('template',templateId);window.open(url.href,'_blank','noopener');}
-function openGuidedTemplate(template){$('guided-provider').value=$('provider-select').value;$('mission-wizard-dialog').showModal();missionWizard.open(template.id);}
+function openAnotherOffice(templateId){if(activeMissions().length>=4){showError('Quatre missions sont déjà en cours. Attendez une livraison avant d’ouvrir une autre équipe.');return;}closeOfficePanel({restoreFocus:false});showError('');const url=new URL(location.href);url.search='';url.searchParams.set('new','1');if(templateId)url.searchParams.set('template',templateId);window.open(url.href,'_blank','noopener');}
+function openGuidedTemplate(template){wizardReturnPanel='catalog';closeOfficePanel({restoreFocus:false});$('guided-provider').value=$('provider-select').value;$('mission-wizard-dialog').showModal();missionWizard.open(template.id);}
 function dateLabel(value) {
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('fr-BE',{day:'numeric',month:'short'});
@@ -98,7 +136,7 @@ function timeLabel(value) {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'});
 }
 function announce(message) { if(message && message !== lastAnnouncement) { $('live-announcement').textContent = message; lastAnnouncement = message; } }
-function showError(message) { $('global-error').textContent = message; $('global-error').hidden = !message; }
+function showError(message) { $('global-error').textContent = message; $('global-error').hidden = !message;$('panel-error').textContent=message;$('panel-error').hidden=!message; }
 async function request(url, options) {
   const response = await fetch(url, {credentials:'same-origin',...options});
   let data;
@@ -138,6 +176,8 @@ function updateForm() {
   const authMessage = provider?.auth?.loggedIn === false ? 'Connexion à renouveler dans votre application.' : provider?.auth?.loggedIn === true ? 'Connexion détectée · votre abonnement local' : 'Connexion vérifiée au lancement de la mission.';
   const message = provider?.message || (available ? `${provider.name || providerName(provider.id)}${provider.version ? ` ${provider.version}` : ''} · ${authMessage}` : state.providers.length ? 'Ce moteur n’est pas disponible. Connectez-vous à son application, puis relancez l’atelier.' : 'Vérification de vos outils locaux…');
   $('provider-message').textContent = message;
+  $('brief-provider-name').textContent = provider?.name || 'Choisir mon moteur';
+  $('office-onboarding').hidden = onboardingDismissed || !!mission || creating;
   $('provider-message').classList.toggle('unavailable', !available || provider?.auth?.loggedIn === false);
   $('launch-button').disabled = creating || !available || active || atCapacity;
   $('launch-button').firstElementChild.textContent = creating ? 'Oscar prépare le bureau…' : active ? 'Cette mission est en cours' : atCapacity ? 'Quatre équipes déjà au travail' : 'Confier la mission à Oscar';
@@ -157,11 +197,15 @@ function updateForm() {
 function renderHistory() {
   $('mission-count').textContent = state.missions.length;
   const history = $('mission-history');
+  const signature=JSON.stringify([selectedId,state.missions.map(m=>[m.id,m.title,m.status,m.provider,m.createdAt])]);
+  if(history.dataset.signature===signature)return;history.dataset.signature=signature;
+  const restoreFocus=rememberFocus(history),scrollTop=history.scrollTop;
   history.replaceChildren();
   if (!state.missions.length) { history.append(node('p','history-empty','L’atelier attend votre première idée.')); return; }
   for(const item of state.missions) {
     const button = node('button','history-item');
     button.type = 'button';
+    button.dataset.mission=item.id;
     button.dataset.status = item.status || '';
     button.classList.toggle('selected', item.id === selectedId);
     if(item.id === selectedId) button.setAttribute('aria-current','true');
@@ -169,9 +213,10 @@ function renderHistory() {
     const copy = node('span');
     copy.append(node('strong','',item.title || item.prompt || 'Nouvelle mission'),node('small','',`${dateLabel(item.createdAt)}${item.provider ? ` · ${providerName(item.provider)}` : ''}`));
     button.append(copy);
-    button.addEventListener('click',()=>selectMission(item.id));
+    button.addEventListener('click',()=>selectMission(item.id,{fromHistory:true}));
     history.append(button);
   }
+  history.scrollTop=scrollTop;restoreFocus();
 }
 function renderScene() {
   const busy = isRunning(mission);
@@ -179,7 +224,7 @@ function renderScene() {
     pixelWorld = new PixelWorld($('pixel-canvas'), {
       onSelect: (role, taskId) => openMember(role, taskId),
       onStatus: text => { $('pixel-world-status').textContent = String(text).slice(0, 150); },
-      onInteract: (kind) => { if(kind==='coffee') coffeeDialog?.open(); }
+      onInteract: (kind) => { if(kind==='coffee'){closeOfficePanel({restoreFocus:false});coffeeDialog?.open();}else if(kind==='missions')openPanel('catalog');else if(kind==='delivery')openPanel('delivery');else if(kind==='team')openPanel('team'); }
     });
     window.__oscarWorld = pixelWorld;
   }
@@ -202,7 +247,10 @@ function renderTeam() {
   $('team-count').textContent=tasks.length;
   $('oscar-team-status').textContent=mission?.phase || 'Prêt à vous écouter';
   const lead=$('team-oscar').querySelector('.team-avatar');if(!lead.firstElementChild)lead.replaceChildren(portrait('oscar'));
-  const list=$('team-list');list.replaceChildren();
+  const brand=document.querySelector('.brand-portrait');if(!brand.firstElementChild)brand.replaceChildren(portrait('oscar'));
+  const list=$('team-list'),signature=JSON.stringify([mission?.id,tasks.map(t=>[t.id,t.role,t.agentName,t.title,t.status])]);
+  if(list.dataset.signature===signature)return;list.dataset.signature=signature;
+  const restoreFocus=rememberFocus(list),scrollTop=list.scrollTop;list.replaceChildren();
   if(!tasks.length){list.append(node('p','history-empty',mission?.status==='planning'?'Oscar étudie votre projet avant de recruter les talents.':'Oscar compose l’équipe adaptée à votre mission. Jusqu’à quatre personnes par métier.'));return;}
   const counts={};
   for(const task of tasks) {
@@ -212,6 +260,7 @@ function renderTeam() {
     const detail=node('span','team-detail');detail.append(node('strong','',agentName(task)),node('small','',getRole(role).label),node('span','team-assignment',task.title),node('span',`team-status ${task.status}`,taskStatus[task.status] || task.status));
     button.append(avatar,detail,node('span','team-arrow','↗'));button.addEventListener('click',()=>openMember(role,task.id));list.append(button);
   }
+  list.scrollTop=scrollTop;restoreFocus();
 }
 
 function renderPhase() {
@@ -233,11 +282,14 @@ function renderPhase() {
 }
 function renderTasks() {
   const list=$('task-list');
+  const signature=JSON.stringify([mission?.id,mission?.tasks]);if(list.dataset.signature===signature)return;list.dataset.signature=signature;
+  const restoreFocus=rememberFocus(list),scrollTop=list.scrollTop;
   list.replaceChildren();
   for(const task of mission?.tasks || []) {
     const info=getRole(task.role);
     const button=node('button','task-row');
     button.type='button';
+    button.dataset.task=task.id;
     const avatar=node('span','task-avatar');avatar.append(portrait(roleOf(task.role),(mission.tasks || []).filter(t=>t.role===task.role).findIndex(t=>t.id===task.id)));button.append(avatar);
     const main=node('span','task-main');
     main.append(node('span','task-title',task.title || info.label));
@@ -246,6 +298,7 @@ function renderTasks() {
     button.addEventListener('click',()=>openMember(roleOf(task.role),task.id));
     list.append(button);
   }
+  list.scrollTop=scrollTop;restoreFocus();
 }
 function renderEvents() {
   const events = mission?.events || [];
@@ -268,6 +321,8 @@ function renderDeliveries() {
   const files=mission?.files || [];
   const reports=(mission?.tasks || []).filter(t=>t.report);
   const result=mission?.result;
+  const signature=JSON.stringify([mission?.id,mission?.status,mission?.provider,mission?.error,files,result,reports.map(t=>[t.id,t.title,t.agentName,t.report,t.review])]);
+  if($('file-list').dataset.signature===signature)return;$('file-list').dataset.signature=signature;
   $('delivery-empty').hidden=!!(result || files.length || reports.length || mission?.error);
   $('result-summary').hidden=!result;
   $('result-content').textContent=typeof result === 'string' ? result : result ? JSON.stringify(result,null,2) : '';
@@ -312,7 +367,9 @@ function renderMission() {
   if(openedRole && $('member-dialog').open) renderMember(openedRole,openedTaskId);
 }
 function renderAll() { renderHistory();renderProviders();renderMission(); }
-async function selectMission(id) {
+async function selectMission(id,{fromHistory=false}={}) {
+  if(id!==selectedId)closeMemberForNavigation();
+  if(fromHistory)closeOfficePanel();
   browsingNew=false;selectedId=id;history.replaceState(null,'',`/?mission=${encodeURIComponent(id)}`);
   const seq=++refreshSequence;
   const active=activeMissions().find(m=>m.id===id);
@@ -344,27 +401,27 @@ async function acceptState(next) {
   renderAll();
   if(pendingTemplate && browsingNew && state.providers.length){const template=MISSION_TEMPLATES.find(t=>t.id===pendingTemplate);pendingTemplate=null;if(template)openGuidedTemplate(template);}
 }
-function newMission({forceLocal=false}={}) {
+function newMission({forceLocal=false,reveal=true}={}) {
   if(!forceLocal && isRunning(mission)){openAnotherOffice();return;}
+  closeMemberForNavigation();
   history.replaceState(null,'','/?new=1');
   ++refreshSequence;selectedId=null;mission=null;browsingNew=true;lastMissionSignature='';
   $('form-error').hidden=true;
   $('mission-placeholder').lastElementChild.firstElementChild.textContent='Une équipe prête à se mettre au travail';
-  renderAll();$('mission-input').focus();
+  renderAll();if(reveal)openPanel('brief');
 }
-async function launch(provider) {
-  if(creating || isRunning(mission) || activeMissions().length>=4) return;
+async function launch(provider,{strict=false}={}) {
+  if(creating || isRunning(mission) || activeMissions().length>=4) {if(strict)throw new Error(activeMissions().length>=4?'Quatre missions sont déjà en cours. Attendez une livraison puis réessayez : votre brief est conservé.':'Cette mission est déjà en cours. Ouvrez un autre bureau pour un nouveau projet.');return;}
   const prompt=$('mission-input').value.trim();
-  if(provider!=='demo' && !prompt) { $('mission-input').reportValidity();return; }
+  if(provider!=='demo' && !prompt) {if(strict)throw new Error('Ajoutez une mission avant de la confier à Oscar.');$('mission-input').reportValidity();return; }
   creating=true;$('form-error').hidden=true;updateForm();
   try {
     const detail=await request('/api/missions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt || 'Imaginer le lancement d’un café de quartier : positionnement, idées de communication et une page de présentation.',provider})});
     selectedId=detail.id;mission=detail;state.active=detail;state.activeMissions=[...activeMissions().filter(m=>m.id!==detail.id),detail];browsingNew=false;history.replaceState(null,'',`/?mission=${encodeURIComponent(detail.id)}`);
     const previous=state.missions.findIndex(m=>m.id===detail.id);
     if(previous<0) state.missions.unshift(detail);else state.missions[previous]=detail;
-    showError('');renderAll();
-    if(window.matchMedia('(max-width:680px)').matches) $('scene-title').scrollIntoView({block:'start',behavior:window.matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth'});
-  } catch(error) { $('form-error').textContent=error.message;$('form-error').hidden=false; }
+    closeMemberForNavigation();dismissWelcome();closeOfficePanel({restoreFocus:false});showError('');renderAll();$('pixel-canvas').focus({preventScroll:true});return detail;
+  } catch(error) { $('form-error').textContent=error.message;$('form-error').hidden=false;if(strict)throw error; }
   finally { creating=false;updateForm(); }
 }
 async function stopMission() {
@@ -380,6 +437,8 @@ async function stopMission() {
 function renderMember(role,taskId) {
   const info=getRole(role);
   const selected=(mission?.tasks || []).find(t=>t.id===taskId&&roleOf(t.role)===role);
+  const signature=JSON.stringify([mission?.id,role,taskId,selected||mission?.tasks,role==='oscar'?[mission?.title,mission?.status,mission?.prompt,mission?.result]:null,openedQuip]);
+  if(signature===lastMemberSignature)return;lastMemberSignature=signature;
   $('member-title').textContent=selected?agentName(selected):role==='oscar'?'Oscar':`L’îlot ${info.label.toLowerCase()}`;
   $('member-role').textContent=info.label;
   $('member-quip').textContent=openedQuip;
@@ -410,6 +469,8 @@ function renderMember(role,taskId) {
   if(taskId) list.querySelector(`[data-task="${CSS.escape(String(taskId))}"]`)?.scrollIntoView({block:'nearest'});
 }
 function openMember(role,taskId) {
+  memberReturnPanel=activePanel;closeOfficePanel({restoreFocus:false});
+  lastMemberSignature='';
   openedRole=role;openedTaskId=taskId || null;const quips=QUIPS[role] || QUIPS.oscar;openedQuip=quips[Math.floor(Math.random()*quips.length)];renderMember(role,taskId);
   const dialog=$('member-dialog');
   if(!dialog.open) dialog.showModal();
@@ -434,19 +495,22 @@ async function refreshState() {
 $('mission-form').addEventListener('submit',event=>{event.preventDefault();launch($('provider-select').value);});
 $('provider-select').addEventListener('change',updateForm);
 $('demo-button').addEventListener('click',()=>launch('demo'));
-$('new-mission').addEventListener('click',()=>{const running=isRunning(mission);newMission();if(!running)$('mission-library').scrollIntoView({behavior:'smooth',block:'start'});});
+$('new-mission').addEventListener('click',()=>{if(isRunning(mission)){closeOfficePanel({restoreFocus:false});openAnotherOffice();}else{newMission({reveal:false});openPanel('catalog');}});
 $('free-mission').addEventListener('click',newMission);
 $('stop-mission').addEventListener('click',stopMission);
 $('close-dialog').addEventListener('click',()=>$('member-dialog').close());
 $('member-dialog').addEventListener('click',event=>{if(event.target===$('member-dialog')) {const box=$('member-dialog').getBoundingClientRect();if(event.clientX<box.left || event.clientX>box.right || event.clientY<box.top || event.clientY>box.bottom) $('member-dialog').close();}});
-$('member-dialog').addEventListener('close',()=>{openedRole=null;openedTaskId=null;});
+$('member-dialog').addEventListener('close',()=>{openedRole=null;openedTaskId=null;lastMemberSignature='';const previous=memberReturnPanel;memberReturnPanel=null;if(previous)openPanel(previous);});
 $('team-oscar').addEventListener('click',()=>openMember('oscar'));
-$('choose-mission').addEventListener('click',()=>$('mission-library').scrollIntoView({block:'start',behavior:'smooth'}));
-$('focus-office').addEventListener('click',()=>{const focused=document.body.classList.toggle('office-focus');$('focus-office').setAttribute('aria-pressed',String(focused));$('focus-office').textContent=focused?'Retrouver tout l’espace ↙':'Agrandir le bureau ↗';window.scrollTo({top:0,behavior:'smooth'});});
+document.addEventListener('click',event=>{const button=event.target.closest('[data-open-panel]');if(button)openPanel(button.dataset.openPanel);});
+$('close-office-panel').addEventListener('click',()=>closeOfficePanel());
+$('office-panel').addEventListener('close',()=>{if(!$('office-panel').open){restorePanel();if(panelReturnFocus?.isConnected)panelReturnFocus.focus({preventScroll:true});}});
+$('office-panel').addEventListener('click',event=>{if(event.target!==$('office-panel'))return;const box=$('office-panel').getBoundingClientRect();if(event.clientX<box.left||event.clientX>box.right||event.clientY<box.top||event.clientY>box.bottom)closeOfficePanel();});
+$('dismiss-onboarding').addEventListener('click',dismissWelcome);
 document.querySelectorAll('[data-pixel-prop]').forEach(button=>button.addEventListener('click',()=>pixelWorld?.interact(button.dataset.pixelProp)));
 document.querySelectorAll('[data-pixel-role]').forEach(button=>button.addEventListener('click',()=>openMember(button.dataset.pixelRole)));
-$('pixel-pause').addEventListener('click',()=>{animationPaused=!animationPaused;pixelWorld.setPaused(animationPaused);$('pixel-pause').setAttribute('aria-pressed',String(animationPaused));$('pixel-pause').textContent=animationPaused?'Reprendre les animations':'Pause animations';$('atelier-scene').dataset.paused=String(animationPaused);});
-$('pixel-fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await $('atelier-scene').requestFullscreen();}catch{$('pixel-world-status').textContent='Utilisez le zoom du navigateur pour agrandir le bureau.';}});
+$('pixel-pause').addEventListener('click',()=>{animationPaused=!animationPaused;pixelWorld.setPaused(animationPaused);$('pixel-pause').setAttribute('aria-pressed',String(animationPaused));$('pixel-pause').setAttribute('aria-label',animationPaused?'Reprendre les animations':'Pause animations');$('pixel-pause').title=animationPaused?'Reprendre les animations':'Pause animations';$('pixel-pause').querySelector('.dock-label').textContent=animationPaused?'Reprendre':'Pause';$('atelier-scene').dataset.paused=String(animationPaused);});
+$('pixel-fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{$('pixel-world-status').textContent='Le bureau utilise déjà toute la fenêtre. Le plein écran du navigateur peut aussi l’agrandir.';}});
 document.querySelectorAll('[data-prompt]').forEach(button=>button.addEventListener('click',()=>{$('mission-input').value=button.dataset.prompt;$('mission-input').focus();}));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshState();});
 window.addEventListener('online',refreshState);
@@ -454,11 +518,11 @@ window.addEventListener('beforeunload',()=>{eventSource?.close();pixelWorld?.des
 
 coffeeDialog = new CoffeeDialog({recipient:'renaud2005@gmail.com'});
 missionWizard = new MissionWizard($('mission-wizard-host'), {
-  onComplete: (prompt) => {
+  onComplete: async (prompt) => {
     const provider = $('guided-provider').value;
-    $('mission-wizard-dialog').close(); newMission({forceLocal:true});
     $('mission-input').value = prompt; $('provider-select').value = provider;
-    launch(provider);
+    await launch(provider,{strict:true});
+    wizardReturnPanel=null;$('mission-wizard-dialog').close();
   },
   onCancel: () => $('mission-wizard-dialog').close(),
 });
@@ -489,10 +553,11 @@ for(const category of MISSION_CATEGORIES) {
 }
 $('template-search').addEventListener('input',renderCatalog);
 renderCatalog();
-$('close-wizard').addEventListener('click',()=>{$('mission-wizard-dialog').close();missionWizard.close();});
+$('close-wizard').addEventListener('click',()=>$('mission-wizard-dialog').close());
+$('mission-wizard-dialog').addEventListener('close',()=>{missionWizard.close();const previous=wizardReturnPanel;wizardReturnPanel=null;if(previous)openPanel(previous);});
 $('open-missions-folder').addEventListener('click',async()=>{try{await request('/api/open-data',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch(error){showError(error.message);}});
 $('connect-provider').addEventListener('click',async()=>{
-  try{await request(`/api/providers/${encodeURIComponent($('provider-select').value)}/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});await refreshState();}catch(error){$('form-error').textContent=error.message;$('form-error').hidden=false;}
+  try{await request(`/api/providers/${encodeURIComponent($('provider-select').value)}/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});await refreshState();}catch(error){$('login-message').textContent=error.message;$('login-message').hidden=false;}
 });
 
 renderAll();

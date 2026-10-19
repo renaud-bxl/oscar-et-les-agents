@@ -468,11 +468,11 @@ export class MissionWizard {
     try {
       await this.onComplete(prompt, template);
       if (session === this.session) this.close();
-    } catch {
+    } catch (error) {
       if (session !== this.session) return;
       this.busy = false;
       this.render();
-      this.showError('La mission n’a pas pu être transmise. Votre texte est conservé ; vous pouvez réessayer.', this.input);
+      this.showError(error?.message || 'La mission n’a pas pu être transmise. Votre texte est conservé ; vous pouvez réessayer.', this.input);
     }
   }
 }

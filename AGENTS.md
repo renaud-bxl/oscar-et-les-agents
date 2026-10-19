@@ -20,5 +20,6 @@ Ne demande jamais de clé API pour cette application. N’extrais ni ne copie le
 - Ne versionne ni `data/`, ni `.tools/`, ni `.runtime/`, ni identifiants, journaux, briefs ou fichiers personnels.
 - Les quatre missions utilisent des dossiers et contrôleurs d’arrêt indépendants.
 - Oscar peut recruter jusqu’à vingt agents, au maximum quatre par métier, avec quatre spécialistes actifs à la fois par mission.
+- Le bureau occupe toute la fenêtre. Les vues utilisent les panneaux flottants existants ; conserve les mêmes nœuds DOM pour préserver les formulaires et le focus.
 - Les personnages suivent l’état des tâches. Les animations et objets décoratifs ne modifient pas la progression réelle.
 - Aucun paiement n’est effectué par le logiciel : le café ouvre un choix volontaire puis un lien vers la confirmation PayPal.
