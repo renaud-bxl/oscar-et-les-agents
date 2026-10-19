@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, rename, symlink } from 'node:fs/promises';
 import { LocalVoice, LOCAL_VOICES, downloadModel, validateVoiceArchive, validWave } from '../lib/local-voice.mjs';
 import { createAtelierServer } from '../server.mjs';
 
@@ -72,6 +72,35 @@ test('a failed synthesis stays explicit and never exposes native diagnostics', a
   await f.voice.install({voiceId:'fr-siwis',confirmed:true}); await f.voice.operation;
   await assert.rejects(f.voice.speak({text:'FAIL',voiceId:'fr-siwis'}),error=>!error.message.includes('NEVER_DISPLAY') && /sous-titres/.test(error.message));
   assert.equal(f.voice.speaking,null);
+});
+
+test('Piper refuses an outside cache for reads, synthesis and cleanup',async t=>{
+  const f=await fixture(t,{maxCacheFiles:0});await f.voice.install({voiceId:'fr-siwis',confirmed:true});await f.voice.operation;
+  const outside=path.join(f.dataDir,'private'),hash='a'.repeat(64),file=path.join(outside,hash+'.wav');
+  await mkdir(outside);await writeFile(file,wave());await rm(f.voice.cacheDir,{recursive:true});await symlink(outside,f.voice.cacheDir);
+  const count=f.calls.synthesize;
+  await assert.rejects(f.voice.audio(hash),{code:'VOICE_AUDIO_NOT_FOUND'});
+  await assert.rejects(f.voice.pruneCache());
+  await assert.rejects(f.voice.speak({voiceId:'fr-siwis',text:'Outside cache'}));
+  assert.equal(f.calls.synthesize,count);assert.deepEqual(await readFile(file),wave());
+});
+
+for(const relative of ['.','modeles','modeles/siwis','runtime','runtime/node_modules','runtime/node_modules/sherpa-onnx-node'])test(`Piper rejects replaced ${relative} directories before native synthesis`,async t=>{
+  const f=await fixture(t);await f.voice.install({voiceId:'fr-siwis',confirmed:true});await f.voice.operation;
+  const directory=path.join(f.voice.root,relative),outside=path.join(f.dataDir,'redirected');
+  await rename(directory,outside);await symlink(outside,directory);const count=f.calls.synthesize;
+  await assert.rejects(f.voice.speak({voiceId:'fr-siwis',text:'Changed folder'}));
+  assert.equal(f.calls.synthesize,count);
+});
+
+test('Piper keeps its initial parent anchor and refuses oversized or linked audio files',async t=>{
+  const f=await fixture(t);await f.voice.install({voiceId:'fr-siwis',confirmed:true});await f.voice.operation;
+  const hash='b'.repeat(64);await writeFile(path.join(f.voice.cacheDir,hash+'.wav'),wave(8*1024*1024+1));
+  await assert.rejects(f.voice.audio(hash),{code:'VOICE_AUDIO_NOT_FOUND'});
+  const retained=f.dataDir+'-retained';await rename(f.dataDir,retained);await symlink(retained,f.dataDir);
+  t.after(()=>rm(retained,{recursive:true,force:true}));const count=f.calls.synthesize;
+  await assert.rejects(f.voice.audio(hash),{code:'VOICE_AUDIO_NOT_FOUND'});
+  await assert.rejects(f.voice.speak({voiceId:'fr-siwis',text:'Changed parent'}));assert.equal(f.calls.synthesize,count);
 });
 
 test('archives reject traversal and links and downloads verify size and published digest', async t => {

@@ -1334,3 +1334,71 @@ const localVoiceEntries = [
  ['La synthèse vocale locale n’a pas produit de son valide.','Local speech synthesis did not produce valid audio.','De lokale spraaksynthese heeft geen geldige audio opgeleverd.'],
 ];
 Object.assign(translations,Object.fromEntries(localVoiceEntries.map(([source,en,nl])=>[source,{en,nl}])));
+const studioVoiceEntries = [
+ ['Oscar vous accompagne. Zoé vous aide à vous organiser. Les spécialistes travaillent en silence.','Oscar guides you. Zoé helps you get organised. The specialists work quietly.','Oscar begeleidt je. Zoé helpt je organiseren. De specialisten werken in stilte.'],
+ ['Automatique · voix recommandée','Automatic · recommended voice','Automatisch · aanbevolen stem'],
+ ['LE DUO DU BUREAU','THE OFFICE DUO','HET KANTOORDUO'],
+ ['Oscar et Zoé, dans vos trois langues.','Oscar and Zoé, in all three languages.','Oscar en Zoé, in alle drie de talen.'],
+ ['Un seul téléchargement installe les deux voix en français, anglais et néerlandais. La lecture se fait ensuite sur cet ordinateur.','One download installs both voices in French, English and Dutch. Playback then runs on this computer.','Eén download installeert beide stemmen in het Frans, Engels en Nederlands. Het afspelen gebeurt daarna op deze computer.'],
+ ['Installer le pack Oscar + Zoé','Install the Oscar + Zoé pack','Het Oscar + Zoé-pakket installeren'],
+ ['Le duo est installé. Écoutez Oscar et Zoé ci-dessus pour choisir leurs voix.','The duo is installed. Listen to Oscar and Zoé above to choose their voices.','Het duo is geïnstalleerd. Beluister Oscar en Zoé hierboven om hun stemmen te kiezen.'],
+ ['Des voix de synthèse préétablies, sans importer ni cloner votre voix. Aucun texte envoyé à un service vocal externe. Le rendu et la vitesse dépendent de la langue et de cet ordinateur.','Preset synthetic voices, without importing or cloning your voice. No text is sent to an external speech service. Quality and speed depend on the language and this computer.','Vooraf ingestelde synthetische stemmen, zonder je stem te importeren of te klonen. Er wordt geen tekst naar een externe spraakdienst gestuurd. Het resultaat en de snelheid hangen af van de taal en deze computer.'],
+ ['Autres voix locales · ancien moteur','Other local voices · previous engine','Andere lokale stemmen · vorige engine'],
+ ['Autres voix locales','Other local voices','Andere lokale stemmen'],
+ ['Ces voix plus légères restent facultatives. Leurs langues et leurs licences sont indiquées pour chaque voix.','These smaller voices remain optional. Languages and licences are shown for each voice.','Deze kleinere stemmen blijven optioneel. De talen en licenties staan bij elke stem vermeld.'],
+ ['Télécharger le duo Oscar + Zoé ?','Download the Oscar + Zoé duo?','Het Oscar + Zoé-duo downloaden?'],
+ ['Le moteur, les trois langues et les deux voix seront téléchargés depuis les sources officielles indiquées. Cette installation est commune à Oscar et Zoé. Aucune clé API ni abonnement vocal supplémentaire.','The engine, three languages and two voices will be downloaded from the official sources shown. Oscar and Zoé share this installation. No API key or additional voice subscription.','De engine, drie talen en twee stemmen worden van de vermelde officiële bronnen gedownload. Oscar en Zoé delen deze installatie. Geen API-sleutel of extra stemabonnement.'],
+ ['Téléchargement du pack','Pack download','Pakketdownload'],
+ ['Espace à prévoir','Disk space needed','Benodigde schijfruimte'],
+ ['Mo','MB','MB'],
+ ['Recommandée','Recommended','Aanbevolen'],
+ ['Néerlandais','Dutch','Nederlands'],
+ ['Français · Anglais · Néerlandais','French · English · Dutch','Frans · Engels · Nederlands'],
+];
+Object.assign(translations,Object.fromEntries(studioVoiceEntries.map(([source,en,nl])=>[source,{en,nl}])));
+Object.assign(translations,{
+ 'Faire parler Oscar et Zoé':{en:'Let Oscar and Zoé speak',nl:'Oscar en Zoé laten spreken'},
+ 'Voix d’Oscar et Zoé':{en:'Oscar and Zoé’s voices',nl:'Stemmen van Oscar en Zoé'},
+ 'Réplique d’Oscar ou de Zoé':{en:'A line from Oscar or Zoé',nl:'Een tekst van Oscar of Zoé'},
+});
+Object.assign(translations,{
+ 'Écouter la voix avant de télécharger':{en:'Hear the voice before downloading',nl:'Beluister de stem vóór het downloaden'},
+ 'Extrait de démonstration généré avec ce modèle. La lecture de vos propres textes nécessite le pack installé.':{en:'Demonstration sample generated with this model. Speaking your own text requires the installed pack.',nl:'Demonstratiefragment gemaakt met dit model. Om je eigen tekst uit te spreken, moet het pakket geïnstalleerd zijn.'},
+});
+const pocketVoiceEntries = [
+ ['Deux voix de conversation locales pour Oscar et Zoé, en français, anglais et néerlandais. Pack commun d’environ 1,2 Go, plus Python et ses dépendances. Téléchargement volontaire uniquement. La première réplique peut demander un chargement ; les modèles restent ensuite en mémoire. Les voix sont des presets publiés par Kyutai, sans import de voix personnelle ; aucun texte envoyé à un service vocal.','Two local conversational voices for Oscar and Zoé, in French, English and Dutch. A shared pack of about 1.2 GB, plus Python and its dependencies. Voluntary download only. The first line may require loading; models then stay in memory. The voices are presets published by Kyutai, without importing a personal voice; no text is sent to a speech service.','Twee lokale gespreksstemmen voor Oscar en Zoé, in het Frans, Engels en Nederlands. Een gedeeld pakket van ongeveer 1,2 GB, plus Python en de bijbehorende onderdelen. Alleen een vrijwillige download. De eerste tekst kan laadtijd vragen; daarna blijven de modellen in het geheugen. De stemmen zijn presets van Kyutai, zonder een persoonlijke stem te importeren; er wordt geen tekst naar een spraakdienst gestuurd.'],
+ ['Pocket TTS 3.3.0 : code MIT ; poids publics sans clonage : CC BY 4.0, Kyutai. Marius provient des dons de voix et Estelle des enregistrements Kyutai : CC0. Aucun échantillon personnel ni voix de célébrité. Sources et attributions conservées dans le dossier du pack.','Pocket TTS 3.3.0: MIT code; public weights without cloning: CC BY 4.0, Kyutai. Marius comes from voice donations and Estelle from Kyutai recordings: CC0. No personal samples or celebrity voices. Sources and credits are kept in the pack folder.','Pocket TTS 3.3.0: MIT-code; publieke gewichten zonder klonen: CC BY 4.0, Kyutai. Marius komt uit stemdonaties en Estelle uit Kyutai-opnamen: CC0. Geen persoonlijke fragmenten of stemmen van beroemdheden. Bronnen en naamsvermeldingen worden in de pakketmap bewaard.'],
+ ['Code MIT · modèle CC BY 4.0 · presets Marius et Estelle CC0','MIT code · CC BY 4.0 model · Marius and Estelle presets CC0','MIT-code · CC BY 4.0-model · Marius- en Estelle-presets CC0'],
+ ['Ce pack demande un programme local compatible. Consultez les indications du bureau avant de l’installer.','This pack requires a compatible local program. Check the office instructions before installing it.','Dit pakket vereist een geschikt lokaal programma. Lees de aanwijzingen van het kantoor voordat je het installeert.'],
+ ['Programme local si nécessaire','Local program if needed','Lokaal programma indien nodig'],
+ ['supplémentaires','extra','extra'],
+ ['Cette réplique a été interrompue.','This line was interrupted.','Deze tekst is onderbroken.'],
+ ['La préparation du moteur de conversation local a échoué.','Preparing the local conversational speech engine failed.','Het voorbereiden van de lokale gespreksengine is mislukt.'],
+ ['Le modèle public n’a pas pu être téléchargé.','The public model could not be downloaded.','Het publieke model kon niet worden gedownload.'],
+ ['La signature du fichier vocal n’est pas celle publiée par le fournisseur.','The voice file signature does not match the one published by the provider.','De handtekening van het stembestand komt niet overeen met die van de aanbieder.'],
+ ['La voix locale n’a pas produit cette réplique. Les sous-titres restent disponibles.','The local voice could not produce this line. Captions remain available.','De lokale stem kon deze tekst niet uitspreken. Ondertitels blijven beschikbaar.'],
+ ['Le moteur de conversation n’est pas disponible.','The conversational speech engine is unavailable.','De gespreksengine is niet beschikbaar.'],
+ ['Le moteur de conversation local s’est arrêté. Les sous-titres restent disponibles.','The local conversational speech engine stopped. Captions remain available.','De lokale gespreksengine is gestopt. Ondertitels blijven beschikbaar.'],
+ ['Le pack vocal est incomplet.','The voice pack is incomplete.','Het stempakket is onvolledig.'],
+ ['Les voix de conversation demandent Python 3.10 à 3.14 sur macOS ou Linux. Préparez Python sur cet ordinateur, puis relancez le bureau. Aucune clé API nécessaire.','Conversational voices require Python 3.10 to 3.14 on macOS or Linux. Set up Python on this computer, then restart the office. No API key required.','De gespreksstemmen vereisen Python 3.10 tot 3.14 op macOS of Linux. Installeer Python op deze computer en start het kantoor opnieuw. Geen API-sleutel nodig.'],
+ ['Confirmez le téléchargement du pack de voix de conversation.','Confirm the download of the conversational voice pack.','Bevestig de download van het pakket met gespreksstemmen.'],
+ ['Le moteur vocal est occupé.','The speech engine is busy.','De spraakengine is bezig.'],
+ ['Python 3.10 à 3.14 est nécessaire. Préparez Python puis relancez le bureau.','Python 3.10 to 3.14 is required. Set up Python, then restart the office.','Python 3.10 tot 3.14 is vereist. Installeer Python en start het kantoor opnieuw.'],
+ ['Le dossier du modèle ne peut pas être un lien.','The model folder cannot be a link.','De modelmap mag geen koppeling zijn.'],
+ ['Le pack n’a pas produit de son valide.','The pack did not produce valid audio.','Het pakket heeft geen geldige audio opgeleverd.'],
+ ['Le pack de conversation n’a pas pu être installé et vérifié. Les sous-titres restent disponibles. Vérifiez Python, la connexion et l’espace disque, puis réessayez.','The conversational pack could not be installed and verified. Captions remain available. Check Python, the connection and disk space, then try again.','Het gesprekspakket kon niet worden geïnstalleerd en gecontroleerd. Ondertitels blijven beschikbaar. Controleer Python, de verbinding en de schijfruimte en probeer opnieuw.'],
+ ['Choisissez une voix, une langue et un texte de 1 à 500 caractères.','Choose a voice, a language and text of 1 to 500 characters.','Kies een stem, een taal en tekst van 1 tot 500 tekens.'],
+ ['Le pack de conversation n’est pas installé. Téléchargez-le volontairement dans les réglages.','The conversational pack is not installed. Choose to download it in settings.','Het gesprekspakket is niet geïnstalleerd. Je kunt het zelf downloaden in de instellingen.'],
+ ['Une réplique plus récente a remplacé cette demande.','A newer line replaced this request.','Een recentere tekst heeft dit verzoek vervangen.'],
+ ['La voix n’a pas produit de son valide.','The voice did not produce valid audio.','De stem heeft geen geldige audio opgeleverd.'],
+ ['Cette réplique n’a pas pu être lue. Les sous-titres restent disponibles.','This line could not be spoken. Captions remain available.','Deze tekst kon niet worden uitgesproken. Ondertitels blijven beschikbaar.'],
+ ['Choisissez une voix proposée par le bureau.','Choose a voice offered by the office.','Kies een stem die door het kantoor wordt aangeboden.'],
+ ['Une installation vocale est déjà en cours.','A voice installation is already running.','Er wordt al een stem geïnstalleerd.'],
+ ['Cette langue vocale n’est pas proposée par le bureau.','This speech language is not offered by the office.','Deze spreektaal wordt niet door het kantoor aangeboden.'],
+ ['Cette voix légère ne correspond pas à la langue du bureau. Choisissez une voix multilingue.','This lightweight voice does not match the office language. Choose a multilingual voice.','Deze kleine stem past niet bij de taal van het kantoor. Kies een meertalige stem.'],
+];
+Object.assign(translations,Object.fromEntries(pocketVoiceEntries.map(([source,en,nl])=>[source,{en,nl}])));
+const studioLicense='Pocket TTS 3.3.0 : code MIT ; poids publics sans clonage : CC BY 4.0, Kyutai. Marius provient des dons de voix et Estelle des enregistrements Kyutai : CC0. Aucun échantillon personnel ni voix de célébrité. Sources et attributions conservées dans le dossier du pack.';
+const oldLicense='Sherpa ONNX : Apache 2.0. Modèles Piper : voir chaque fiche. Prononciation eSpeak NG : GPL 3 ou ultérieure ; sources https://github.com/espeak-ng/espeak-ng. Les notices des modèles sont conservées dans leur dossier.';
+translations[studioLicense+'\n'+oldLicense]={en:translations[studioLicense].en+'\n'+translations[oldLicense].en,nl:translations[studioLicense].nl+'\n'+translations[oldLicense].nl};
+patterns.push({source:String.raw`^(Oscar|Zoé) · conversation$`,en:'$1 · conversation',nl:'$1 · gesprek'});

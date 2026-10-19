@@ -120,6 +120,7 @@ function rememberFocus(container) {
 }
 function roleOf(value) {
   const key = String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  if(key==='zoe')return 'secretaire';
   if (roleInfo[key]) return key;
   if (/recherch|research/.test(key)) return 'recherche';
   if (/redac|writ/.test(key)) return 'redaction';
@@ -583,7 +584,7 @@ function openMember(role,taskId) {
   openedRole=role;openedTaskId=taskId || null;const quips=QUIPS[role] || QUIPS.oscar;openedQuip=quips[Math.floor(Math.random()*quips.length)];renderMember(role,taskId);
   const dialog=$('member-dialog');
   if(!dialog.open) dialog.showModal();
-  officeSpeech?.speak(role,`${translate(openedQuip)} ${translate((ROLE_DETAILS[role]||ROLE_DETAILS.oscar)[0])}`);
+  if(role==='oscar'||role==='secretaire')officeSpeech?.speak(role,`${translate(openedQuip)} ${translate((ROLE_DETAILS[role]||ROLE_DETAILS.oscar)[0])}`);
 }
 function setConnection(connected) {
   $('connection-dot').classList.toggle('connected',connected);
@@ -701,9 +702,10 @@ for(const id of ['hud-guide','replay-guide'])$(id).addEventListener('click',()=>
 officeSpeech=new OfficeSpeech({onChange:info=>{
   $('hud-voice').setAttribute('aria-pressed',String(info.enabled));$('hud-voice').textContent=info.enabled?'♪':'♩';$('hud-voice').setAttribute('aria-label',info.enabled?'Couper les voix':'Activer les voix');$('voice-enabled').checked=info.enabled;
   $('voice-status').textContent=info.error||info.message;
-  $('speech-stop').hidden=!info.speaking&&!info.preparing;
-  pixelWorld?.setSpeaking(info.speaking?info.role:null);
-  if(info.text){$('speech-caption').hidden=false;$('speech-name').textContent=getRole(info.role).name;$('speech-text').textContent=info.text;}
+  const speaking=info.audioSpeaking??info.speaking,preparing=info.audioPreparing??info.preparing;
+  $('speech-stop').hidden=!speaking&&!preparing;
+  pixelWorld?.setSpeaking(speaking?roleOf(info.audioRole||info.role):null);
+  if(info.text&&!info.muted){$('speech-caption').hidden=false;$('speech-name').textContent=getRole(info.role).name;$('speech-text').textContent=info.text;}
   voiceDialog?.refresh();
 },onVoices:voices=>{const selected=$('voice-select').value;const auto=node('option','','Automatique · une voix par personnage');auto.value='auto';$('voice-select').replaceChildren(auto);for(const voice of voices){if(voice.installed===false)continue;const option=node('option','',`${voice.name} · ${voice.lang}`);option.value=voice.id||voice.name;$('voice-select').append(option);}if([...$('voice-select').options].some(o=>o.value===selected))$('voice-select').value=selected;}});
 $('voice-select').value=officeSpeech.voiceName;

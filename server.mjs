@@ -12,10 +12,10 @@ import { runInstaller } from './scripts/install.mjs';
 import { Publishing } from './lib/publishing.mjs';
 import { Connectors } from './lib/connectors.mjs';
 import { Automations } from './lib/automations.mjs';
-import { LocalVoice } from './lib/local-voice.mjs';
+import { VoiceService } from './lib/voice-service.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
-const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.csv': 'text/csv; charset=utf-8' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.wav': 'audio/wav' };
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 const NATIVE_FILE_TYPES = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff', '.avif', '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp', '.txt', '.md', '.json', '.csv', '.log']);
 const fileError = (message, code) => Object.assign(new Error(message), { code });
@@ -57,7 +57,7 @@ function openNativeFile(file) {
     execFile(command, [file], error => error ? reject(new Error('Impossible d’ouvrir ce fichier dans son application sur cet ordinateur.')) : resolve());
   });
 }
-export async function createAtelierServer({ port = 4850, dataDir = resolveServerDataDirectory(), providers, runner = runAgent, demoDelay = 1800, openFolder = openDataFolder, openFile = openNativeFile, detect = detectProviders, installer = runInstaller, loginFactory = options => new BrowserLogin(options), publishingFactory = options => new Publishing(options), connectorsFactory = options => new Connectors(options), automationFactory = options => new Automations(options), voiceFactory = options => new LocalVoice(options) } = {}) {
+export async function createAtelierServer({ port = 4850, dataDir = resolveServerDataDirectory(), providers, runner = runAgent, demoDelay = 1800, openFolder = openDataFolder, openFile = openNativeFile, detect = detectProviders, installer = runInstaller, loginFactory = options => new BrowserLogin(options), publishingFactory = options => new Publishing(options), connectorsFactory = options => new Connectors(options), automationFactory = options => new Automations(options), voiceFactory = options => new VoiceService(options) } = {}) {
   let engine;
   const connectors = connectorsFactory({ dataDir, find: findBinary, onChange: () => engine?.emit('change', engine.state()) });
   await connectors.ready;
@@ -128,7 +128,14 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
         }
         if (req.method !== 'POST') { json(res, 404, { error: 'Action inconnue.' }); return; }
         if (pathname === '/api/voice/install') { json(res, 202, await voice.install(body)); return; }
-        if (pathname === '/api/voice/synthesize') { json(res, 200, await voice.speak(body)); return; }
+        if (pathname === '/api/voice/synthesize') {
+          const controller = new AbortController();
+          const disconnected = () => { if (!res.writableEnded) controller.abort(); };
+          res.once('close', disconnected);
+          try { const clip = await voice.speak(body, { signal: controller.signal }); if (!res.destroyed) json(res, 200, clip); }
+          finally { res.off('close', disconnected); }
+          return;
+        }
         if (pathname === '/api/connectors/refresh') { json(res, 200, await connectors.state({ refresh: true })); return; }
         if (pathname === '/api/connectors/handoff') { json(res, 200, await connectors.handoff(body)); return; }
         if (pathname === '/api/connectors/setup' || pathname === '/api/connectors/auth') {
@@ -191,10 +198,11 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
       if (pathname.startsWith('/api/')) { json(res, 404, { error: 'Route inconnue.' }); return; }
       if (!['GET', 'HEAD'].includes(req.method)) { json(res, 405, { error: 'Méthode non prise en charge.' }); return; }
       const staticName = pathname === '/' ? 'index.html' : pathname.replace(/^\//, '');
-      if (!['index.html', 'style.css', 'immersive.css', 'app.js', 'pixel-world.js', 'pixel-scene.css', 'mission-catalog.js', 'mission-catalog.css', 'mission-extras.js', 'coffee-dialog.js', 'coffee-dialog.css', 'ambience.js', 'welcome-guide.js', 'welcome-guide.css', 'i18n.js', 'translations-catalog.js', 'translations-interface.js', 'translations-guide.js', 'publication-dialog.js', 'publication-dialog.css', 'office-speech.js', 'clock-dialog.js', 'clock-dialog.css', 'creative-studio.js', 'creative-studio.css', 'automations-dialog.js', 'automations-dialog.css', 'connectors-dialog.js', 'connectors-dialog.css', 'completion-dialog.js', 'completion-dialog.css', 'artifact-viewer.js', 'artifact-viewer.css', 'secretary-dialog.js', 'secretary-dialog.css', 'voice-dialog.js', 'voice-dialog.css'].includes(staticName)) { res.writeHead(404); res.end('Introuvable'); return; }
+      if (!['index.html', 'style.css', 'immersive.css', 'app.js', 'pixel-world.js', 'pixel-scene.css', 'mission-catalog.js', 'mission-catalog.css', 'mission-extras.js', 'coffee-dialog.js', 'coffee-dialog.css', 'ambience.js', 'welcome-guide.js', 'welcome-guide.css', 'i18n.js', 'translations-catalog.js', 'translations-interface.js', 'translations-guide.js', 'publication-dialog.js', 'publication-dialog.css', 'office-speech.js', 'clock-dialog.js', 'clock-dialog.css', 'creative-studio.js', 'creative-studio.css', 'automations-dialog.js', 'automations-dialog.css', 'connectors-dialog.js', 'connectors-dialog.css', 'completion-dialog.js', 'completion-dialog.css', 'artifact-viewer.js', 'artifact-viewer.css', 'secretary-dialog.js', 'secretary-dialog.css', 'voice-dialog.js', 'voice-preview-oscar-fr.wav', 'voice-preview-oscar-en.wav', 'voice-preview-oscar-nl.wav', 'voice-preview-zoe-fr.wav', 'voice-preview-zoe-en.wav', 'voice-preview-zoe-nl.wav', 'voice-dialog.css'].includes(staticName)) { res.writeHead(404); res.end('Introuvable'); return; }
       const content = await readFile(path.join(ROOT, 'public', staticName));
       res.writeHead(200, { 'Content-Type': MIME[path.extname(staticName)], 'Content-Security-Policy': CSP, 'Cache-Control': 'no-cache' }); res.end(req.method === 'HEAD' ? undefined : content);
     } catch (error) {
+      if (res.destroyed) return;
       if (!res.headersSent) json(res, ['PUBLICATION_NOT_FOUND', 'AUTOMATION_NOT_FOUND', 'MISSION_FILE_NOT_FOUND', 'VOICE_AUDIO_NOT_FOUND'].includes(error.code) ? 404 : error.code === 'MISSION_FILE_FORBIDDEN' ? 403 : ['MISSION_CAPACITY', 'PUBLICATION_BUSY', 'PUBLICATION_CHANGED', 'CONNECTOR_BUSY', 'AUTOMATION_BUSY', 'VOICE_BUSY'].includes(error.code) ? 409 : 400, { error: error.message?.slice(0, 2000) ?? 'La demande a échoué.' });
       else res.destroy();
     }

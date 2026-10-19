@@ -2,7 +2,7 @@
 
 Donnez une mission à Oscar. Il recrute les bons spécialistes, ils arrivent dans un grand bureau illustré et animé, travaillent, rendent leurs dossiers… et prennent un café quand leur travail est validé.
 
-**Version 0.4** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
+**Version 0.5.0** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
 
 ![Le bureau illustré d’Oscar, les îlots de travail et le coin café](docs/bureau.png)
 
@@ -97,7 +97,8 @@ Documents/
     ├── preferences.json
     ├── automations.json
     ├── connectors.json
-    ├── voix-locales/             # uniquement après installation d’une voix
+    ├── voix-conversation/        # après installation du pack Oscar et Zoé
+    ├── voix-locales/             # anciennes voix légères facultatives
     └── missions/
         └── 2026-10-19 — Mon projet/
             ├── state.json
@@ -124,11 +125,13 @@ Par défaut, la lumière suit **l’heure locale de votre ordinateur** : aube de
 
 **Voir une démo** montre ce parcours avec huit personnages, dont quatre designers, sans appeler un modèle. Les missions guidées, le brief, les connexions, l’historique, le suivi et les fichiers restent accessibles sans quitter le bureau. Le bouton de plein écran inclut le menu et les panneaux. Le bandeau précise qu’il s’agit d’une simulation.
 
-Les personnages gardent leurs **sous-titres** tant qu’aucune voix naturelle compatible n’est installée. Les réglages proposent un téléchargement volontaire de **voix neuronales Piper locales** : Siwis, Jessica ou Pierre en français, Alba en anglais. Le français représente environ **21 à 23 Mo de modèle**, plus le moteur local la première fois ; comptez environ **70 Mo sur le disque** pour une première voix. Jessica et Pierre partagent leur modèle. Le téléchargement et une phrase de vérification doivent réussir avant que la voix soit annoncée prête.
+**Oscar et Zoé sont les deux voix du bureau** ; les spécialistes gardent leurs répliques écrites. Le pack recommandé utilise [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) en local pour le français, l’anglais et le néerlandais. Un seul téléchargement volontaire prépare les deux personnages et les trois langues. Les tailles de téléchargement et d’installation sont indiquées avant confirmation. Les sous-titres restent disponibles pendant la préparation ou si aucune voix compatible n’est prête.
 
-Après installation, la synthèse fonctionne sur votre ordinateur, sans clé API, service vocal payant ou clonage de voix. Un cache local limité à **32 Mo et 100 extraits** évite de recalculer les mêmes répliques. Chaque demande est limitée à 500 caractères ; la lecture peut prendre un instant selon l’ordinateur. Le néerlandais conserve les sous-titres. Le son peut être coupé, les voix écoutées avant le choix d’un personnage, et la synthèse du système reste un choix volontaire distinct. Sa qualité et son fonctionnement hors ligne dépendent alors du navigateur et du système.
+Ce pack demande **Python 3.10 à 3.14 sur macOS ou Linux**. Le bureau prépare un environnement vocal séparé à partir du Python présent ; s’il manque, les réglages l’indiquent et conservent les sous-titres. Le pack privilégie le modèle français à 24 couches, et les modèles anglais et néerlandais à 6 couches : environ **1,2 Go de modèles et voix**, plus le programme local et ses dépendances, avec environ **2,2 Go à prévoir sur le disque**. Les tailles détaillées affichées par le serveur priment sur ces indications arrondies.
 
-Le moteur [Sherpa ONNX](https://k2-fsa.github.io/sherpa/onnx/javascript-api/examples/api_offline_tts.html) et chaque modèle conservent leurs propres notices et licences. Les fiches des modèles sont accessibles dans les réglages ; les données Siwis et Alba sont attribuées sous CC BY 4.0, celles de Jessica/Pierre sous CC BY-SA 4.0. La prononciation utilise eSpeak NG, sous GPL 3 ou ultérieure. Ces composants facultatifs sont téléchargés séparément et ne changent pas la licence du code propre à l’application.
+Après installation, la synthèse fonctionne sur votre ordinateur, sans clé API ni service vocal distant. Le pack utilise uniquement les presets officiels **Marius pour Oscar** et **Estelle pour Zoé**, depuis les [poids sans clonage](https://huggingface.co/kyutai/pocket-tts-without-voice-cloning) ; aucun fichier de voix personnelle n’est demandé ou importé. Les extraits de démonstration permettent d’écouter les deux voix dans chaque langue **avant le téléchargement**. Ils ne démarrent pas automatiquement ; vos propres textes nécessitent ensuite le pack installé. Un cache local limité à **32 Mo et 100 extraits** évite de recalculer les mêmes répliques. Chaque demande est limitée à 500 caractères. Le premier chargement et la lecture peuvent prendre un instant ; le rendu, l’accent et la vitesse varient selon la langue et l’ordinateur. Préécoutez les voix pour les choisir. Les voix du système restent une option volontaire distincte ; elles ne sont jamais activées comme repli automatique.
+
+Le code Pocket TTS est MIT et ses poids sont CC BY 4.0. Les presets Marius (don volontaire) et Estelle (enregistrement Kyutai) sont CC0 ; les notices et la [provenance des voix](https://huggingface.co/kyutai/tts-voices) restent consultables. Les modèles et leurs licences sont conservés séparément du code de l’application. Les anciennes voix Piper restent dans une option secondaire : Siwis, Jessica et Pierre en français, Alba en anglais. Plus légères, elles conservent leurs propres notices : [Sherpa ONNX](https://k2-fsa.github.io/sherpa/onnx/javascript-api/examples/api_offline_tts.html) Apache 2.0, données Siwis/Alba CC BY 4.0 et Jessica/Pierre CC BY-SA 4.0, prononciation eSpeak NG GPL 3 ou ultérieure. Aucun composant vocal n’est téléchargé par une simple consultation de l’état.
 
 La machine à café ouvre quatre soutiens volontaires à Renaud via PayPal : **Café 1 €**, **Sandwich 5 €**, **Snack 20 €** et **Resto 50 €**. Le choix revient à 1 € à chaque ouverture. Montant et destinataire sont visibles avant le départ vers PayPal ; cliquer sur un palier ne lance aucun paiement. La confirmation se fait uniquement sur PayPal. Ces noms sont symboliques : aucun repas ni fonction supplémentaire n’est vendu.
 

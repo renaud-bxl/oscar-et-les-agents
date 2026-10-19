@@ -191,7 +191,7 @@ try {
   if (source === destination) process.exit(0);
   if (destination.startsWith(source + path.sep) || source.startsWith(destination + path.sep)) throw new Error('Choisissez un dossier d’installation extérieur au dossier source.');
   const entries = [];
-  const excluded = new Set(['data', 'node_modules', '.runtime', '.tools']);
+  const excluded = new Set(['data', 'node_modules', '.runtime', '.tools', '__pycache__']);
   const list = (relative = '') => {
     for (const name of fs.readdirSync(path.join(source, relative))) {
       if ((name.startsWith('.') && name !== '.gitignore') || excluded.has(name) || name.endsWith('.log')) continue;

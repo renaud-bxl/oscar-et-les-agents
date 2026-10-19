@@ -622,6 +622,7 @@ export class PixelWorld {
   _hit(p) {
     const agents=[...this.agents.values()].filter(a=>a.visible).sort((a,b)=>b.y-a.y);
     for(const a of agents) if(Math.abs(p.x-a.x)<27&&p.y>a.y-82&&p.y<a.y+32) return a;
+    if(Math.abs(p.x-1160)<30&&p.y>=174&&p.y<=267||p.x>=1078&&p.x<=1253&&p.y>=255&&p.y<=313)return {role:'secretaire',name:'Zoé',id:null,type:'secretary'};
     if(Math.abs(p.x-this.oscar.x)<34&&p.y>this.oscar.y-90&&p.y<this.oscar.y+25)return {role:'oscar',id:null};
     if(p.x>610&&p.x<830&&p.y>218&&p.y<290)return {role:'oscar',id:null,type:'desk'};
     for(const island of ISLANDS)if(p.x>=island.x-12&&p.x<=island.x+island.w+12&&p.y>=island.y-78&&p.y<=island.y+island.h+65)return {role:island.role,id:null,type:'desk'};
@@ -629,6 +630,7 @@ export class PixelWorld {
   }
   _hitProp(p) {return HOTSPOTS.find(h=>p.x>=h.x&&p.x<h.x+h.w&&p.y>=h.y&&p.y<h.y+h.h)||null;}
   _selectActor(a) {
+    if(a.type==='secretary'){this.interact('secretary');return;}
     if(a.type==='desk'){this.onSelect(a.role,null);return;}
     const info={...ROLES[a.role],name:a.name||ROLES[a.role].name},key=a.key||'oscar';
     const n=this._clickCounts.get(key)||0;this._clickCounts.set(key,n+1);
