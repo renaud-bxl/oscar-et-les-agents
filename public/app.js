@@ -1,6 +1,6 @@
 import { CoffeeDialog } from '/coffee-dialog.js';
 import { PixelWorld } from '/pixel-world.js';
-import { MISSION_TEMPLATES, MissionWizard } from '/mission-catalog.js';
+import { MISSION_TEMPLATES, MISSION_CATEGORIES, MissionWizard } from '/mission-catalog.js';
 'use strict';
 
 const $ = (id) => document.getElementById(id);
@@ -26,6 +26,8 @@ let eventSource = null;
 let refreshSequence = 0;
 let lastAnnouncement = '';
 let openedRole = null;
+let openedTaskId = null;
+let catalogCategory = 'all';
 let lastMissionSignature = '';
 let fetchErrorCount = 0;
 let providerInitialized = false;
@@ -54,6 +56,34 @@ function roleOf(value) {
   return key;
 }
 function getRole(value) { return roleInfo[roleOf(value)] || {name:String(value || 'Équipe'),label:'Spécialiste',initial:'·'}; }
+const agentPools = {recherche:['Lina','Camille','Nora','Iris'],redaction:['Noé','Hugo','Inès','Lou'],code:['Sam','Alex','Théo','Rémi'],design:['Alma','Maya','Jade','Rose'],analyse:['Jules','Léon','Éva','Nils']};
+function agentName(task) {
+  if(task.agentName) return task.agentName;
+  const peers=(mission?.tasks || []).filter(t=>t.role===task.role);
+  return agentPools[task.role]?.[Math.max(0,peers.findIndex(t=>t.id===task.id))] || getRole(task.role).name;
+}
+function portrait(role,index=0) {
+  const ns='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 56 56');svg.setAttribute('aria-hidden','true');
+  const tones=['#edbd9a','#d8a07c','#efc7a7','#bc8c6b'];
+  const shirts={oscar:'#6e9780',recherche:'#d8a18c',redaction:'#91aebd',code:'#d6bd87',design:'#9ebca9',analyse:'#b4a9c6'};
+  const hair=['#634f43','#9c7257','#3c4845','#7f6254'][index%4];
+  const shape=(tag,attrs)=>{const s=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))s.setAttribute(k,String(v));svg.append(s);return s;};
+  shape('circle',{cx:28,cy:28,r:28,fill:role==='oscar'?'#e7edf5':'#f1f1f4'});
+  shape('path',{d:'M9 56 Q9 35 28 35 Q47 35 47 56Z',fill:shirts[role]||'#6b94c0'});
+  shape('rect',{x:24,y:32,width:8,height:9,rx:3,fill:tones[index%4]});
+  shape('ellipse',{cx:28,cy:24,rx:13,ry:15,fill:tones[index%4]});
+  if(index%4===1)shape('circle',{cx:16,cy:12,r:7,fill:hair});
+  shape('path',{d:index%2?'M15 25 Q9 7 28 7 Q45 6 42 25 L38 19 Q27 22 22 15Z':'M15 23 Q11 7 28 7 Q44 7 41 22 Q35 12 28 15 Q23 19 15 19Z',fill:hair});
+  for(const cx of [23,33])shape('circle',{cx,cy:25,r:1.35,fill:'#303a48'});
+  shape('path',{d:'M24 31 Q28 34 32 30',fill:'none',stroke:'#864e46','stroke-width':1.5,'stroke-linecap':'round'});
+  if(role!=='oscar'&&index%4===0){for(const x of [18,29])shape('rect',{x,y:21,width:9,height:8,rx:3,fill:'none',stroke:'#465263','stroke-width':1.4});shape('path',{d:'M27 24H29',stroke:'#465263','stroke-width':1.4});}
+  if(index%4===2)shape('path',{d:'M17 31 Q28 43 39 31 Q28 37 17 31Z',fill:hair,opacity:.6});
+  if(role==='code'&&index%2===1){shape('rect',{x:14,y:9,width:28,height:8,rx:5,fill:'#829b94'});shape('rect',{x:12,y:15,width:33,height:3,rx:1.5,fill:'#6e8880'});}
+  if(role==='design'&&index%2===1)shape('rect',{x:34,y:14,width:7,height:3,rx:1.5,fill:'#d5a28f'});
+  if(role==='oscar')shape('path',{d:'M24 38L32 38L29 43L31 51L26 51L27 43Z',fill:'#e7d4ad'});
+  return svg;
+}
 function providerName(id) { return id === 'demo' ? 'Démonstration sans IA' : state.providers.find(p => p.id === id)?.name || (id === 'claude' ? 'Claude' : id === 'codex' ? 'Codex' : 'Moteur local'); }
 function isRunning(value) { return !!value && runningStatuses.has(value.status); }
 function activeMissions(){return (Array.isArray(state.activeMissions)?state.activeMissions:state.active?[state.active]:[]).filter(isRunning);}
@@ -110,10 +140,11 @@ function updateForm() {
   $('provider-message').textContent = message;
   $('provider-message').classList.toggle('unavailable', !available || provider?.auth?.loggedIn === false);
   $('launch-button').disabled = creating || !available || active || atCapacity;
-  $('launch-button').firstElementChild.textContent = creating ? 'Oscar prépare l’atelier…' : active ? 'Cette mission est en cours' : atCapacity ? 'Quatre équipes déjà au travail' : 'Lancer la mission';
+  $('launch-button').firstElementChild.textContent = creating ? 'Oscar prépare le bureau…' : active ? 'Cette mission est en cours' : atCapacity ? 'Quatre équipes déjà au travail' : 'Confier la mission à Oscar';
   $('demo-button').disabled = creating || active || atCapacity;
   $('new-mission').lastChild.textContent = activeMissions().length ? ' Créer une autre mission' : ' Nouvelle mission';
   $('new-mission').disabled = creating || atCapacity;
+  $('office-capacity').textContent = `${activeMissions().length} / 4 missions en cours`;
   $('provider-select').disabled = creating || active;
   $('mission-input').disabled = creating;
   const login = state.logins?.[provider?.id];
@@ -154,11 +185,33 @@ function renderScene() {
   }
   pixelWorld.update(mission);
   $('atelier-scene').dataset.mode = mission?.provider === 'demo' ? 'demo' : busy ? 'live' : 'idle';
-  $('pixel-mode').textContent = mission?.provider === 'demo' ? 'DÉMO SIMULÉE' : busy ? 'EN MISSION' : 'AU REPOS';
+  $('pixel-mode').textContent = mission?.provider === 'demo' ? 'VISITE SIMULÉE' : busy ? 'EN MISSION' : 'BUREAU OUVERT';
   const pill = $('scene-live');
   pill.classList.toggle('busy',busy);
   pill.lastChild.textContent = busy ? ' Au travail' : mission?.status === 'completed' ? ' Mission livrée' : ' Prêt à recruter';
   $('scene-caption').textContent = busy ? mission.phase || missionStatus[mission.status] : mission?.status === 'completed' ? 'Les rapports sont rendus. Une pause café bien méritée.' : 'Oscar attend votre mission pour faire venir les bons spécialistes.';
+}
+
+function renderTeam() {
+  const tasks=mission?.tasks || [];
+  $('office-mission-title').textContent=mission?.title || 'Une idée à transformer en projet ?';
+  $('stat-agents').textContent=tasks.length;
+  $('stat-working').textContent=tasks.filter(t=>['working','revising'].includes(t.status)).length;
+  $('stat-approved').textContent=tasks.filter(t=>t.status==='approved').length;
+  $('stat-files').textContent=mission?.files?.length || 0;
+  $('team-count').textContent=tasks.length;
+  $('oscar-team-status').textContent=mission?.phase || 'Prêt à vous écouter';
+  const lead=$('team-oscar').querySelector('.team-avatar');if(!lead.firstElementChild)lead.replaceChildren(portrait('oscar'));
+  const list=$('team-list');list.replaceChildren();
+  if(!tasks.length){list.append(node('p','history-empty',mission?.status==='planning'?'Oscar étudie votre projet avant de recruter les talents.':'Oscar compose l’équipe adaptée à votre mission. Jusqu’à quatre personnes par métier.'));return;}
+  const counts={};
+  for(const task of tasks) {
+    const role=roleOf(task.role),index=counts[role] || 0;counts[role]=index+1;
+    const button=node('button','team-member');button.type='button';button.dataset.task=task.id;button.dataset.status=task.status;button.dataset.role=role;
+    const avatar=node('span','team-avatar');avatar.dataset.role=role;avatar.append(portrait(role,index));
+    const detail=node('span','team-detail');detail.append(node('strong','',agentName(task)),node('small','',getRole(role).label),node('span','team-assignment',task.title),node('span',`team-status ${task.status}`,taskStatus[task.status] || task.status));
+    button.append(avatar,detail,node('span','team-arrow','↗'));button.addEventListener('click',()=>openMember(role,task.id));list.append(button);
+  }
 }
 
 function renderPhase() {
@@ -185,10 +238,10 @@ function renderTasks() {
     const info=getRole(task.role);
     const button=node('button','task-row');
     button.type='button';
-    button.append(node('span','task-avatar',info.initial));
+    const avatar=node('span','task-avatar');avatar.append(portrait(roleOf(task.role),(mission.tasks || []).filter(t=>t.role===task.role).findIndex(t=>t.id===task.id)));button.append(avatar);
     const main=node('span','task-main');
     main.append(node('span','task-title',task.title || info.label));
-    main.append(node('span','task-subtitle',`${info.name}${task.activity ? ` · ${String(task.activity).slice(0,150)}` : ` · ${info.label}`}`));
+    main.append(node('span','task-subtitle',`${agentName(task)}${task.activity ? ` · ${String(task.activity).slice(0,150)}` : ` · ${info.label}`}`));
     button.append(main,node('span',`task-state ${task.status || ''}`,taskStatus[task.status] || task.status || 'À venir'));
     button.addEventListener('click',()=>openMember(roleOf(task.role),task.id));
     list.append(button);
@@ -239,7 +292,7 @@ function renderDeliveries() {
     const detail=node('details','report-item');
     detail.dataset.task=task.id;
     detail.open=oldOpen.has(String(task.id));
-    detail.append(node('summary','',`${info.name} · ${task.title || info.label}`));
+    detail.append(node('summary','',`${agentName(task)} · ${task.title || info.label}`));
     if(task.review && !task.review.approved && task.review.feedback) detail.append(node('p','report-review',`Retour d’Oscar : ${task.review.feedback}`));
     detail.append(node('pre','report-content',task.report));
     $('report-list').append(detail);
@@ -254,9 +307,9 @@ function renderMission() {
   $('mission-status').classList.toggle('problem',!!mission && ['failed','needs_review','cancelled'].includes(mission.status));
   $('mission-provider').textContent=mission ? `${providerName(mission.provider)} · ${dateLabel(mission.createdAt)} à ${timeLabel(mission.createdAt)}` : '';
   $('stop-mission').hidden=!isRunning(mission);
-  renderPhase();renderTasks();renderEvents();renderDeliveries();renderScene();
+  renderPhase();renderTasks();renderEvents();renderDeliveries();renderScene();renderTeam();
   if(mission) announce(`${mission.title || 'Mission'} : ${missionStatus[mission.status] || mission.phase || mission.status}`);
-  if(openedRole && $('member-dialog').open) renderMember(openedRole);
+  if(openedRole && $('member-dialog').open) renderMember(openedRole,openedTaskId);
 }
 function renderAll() { renderHistory();renderProviders();renderMission(); }
 async function selectMission(id) {
@@ -326,12 +379,13 @@ async function stopMission() {
 }
 function renderMember(role,taskId) {
   const info=getRole(role);
-  $('member-title').textContent=info.name;
+  const selected=(mission?.tasks || []).find(t=>t.id===taskId&&roleOf(t.role)===role);
+  $('member-title').textContent=selected?agentName(selected):role==='oscar'?'Oscar':`L’îlot ${info.label.toLowerCase()}`;
   $('member-role').textContent=info.label;
   $('member-quip').textContent=openedQuip;
-  $('member-intro').textContent=info.intro || 'Un membre de l’équipe d’Oscar.';
+  $('member-intro').textContent=selected?`${agentName(selected)} · ${info.label}. Une tâche à soi, une équipe pour avancer et Oscar pour relire le résultat.`:role==='oscar'?info.intro:`Jusqu’à quatre spécialistes de ${info.label.toLowerCase()} peuvent travailler ici. Chacun garde son prénom, sa tâche et ses fichiers.`;
   const list=$('member-tasks');list.replaceChildren();
-  const tasks=role==='oscar' ? [] : (mission?.tasks || []).filter(t=>roleOf(t.role)===role);
+  const tasks=role==='oscar' ? [] : (mission?.tasks || []).filter(t=>roleOf(t.role)===role&&(!selected||t.id===selected.id));
   if(role==='oscar' && mission) {
     const section=node('section','dialog-task');
     section.append(node('h3','',mission.title || 'La mission'),node('span',`task-state ${mission.status}`,missionStatus[mission.status] || mission.status));
@@ -356,7 +410,7 @@ function renderMember(role,taskId) {
   if(taskId) list.querySelector(`[data-task="${CSS.escape(String(taskId))}"]`)?.scrollIntoView({block:'nearest'});
 }
 function openMember(role,taskId) {
-  openedRole=role;const quips=QUIPS[role] || QUIPS.oscar;openedQuip=quips[Math.floor(Math.random()*quips.length)];renderMember(role,taskId);
+  openedRole=role;openedTaskId=taskId || null;const quips=QUIPS[role] || QUIPS.oscar;openedQuip=quips[Math.floor(Math.random()*quips.length)];renderMember(role,taskId);
   const dialog=$('member-dialog');
   if(!dialog.open) dialog.showModal();
 }
@@ -385,7 +439,10 @@ $('free-mission').addEventListener('click',newMission);
 $('stop-mission').addEventListener('click',stopMission);
 $('close-dialog').addEventListener('click',()=>$('member-dialog').close());
 $('member-dialog').addEventListener('click',event=>{if(event.target===$('member-dialog')) {const box=$('member-dialog').getBoundingClientRect();if(event.clientX<box.left || event.clientX>box.right || event.clientY<box.top || event.clientY>box.bottom) $('member-dialog').close();}});
-$('member-dialog').addEventListener('close',()=>{openedRole=null;});
+$('member-dialog').addEventListener('close',()=>{openedRole=null;openedTaskId=null;});
+$('team-oscar').addEventListener('click',()=>openMember('oscar'));
+$('choose-mission').addEventListener('click',()=>$('mission-library').scrollIntoView({block:'start',behavior:'smooth'}));
+$('focus-office').addEventListener('click',()=>{const focused=document.body.classList.toggle('office-focus');$('focus-office').setAttribute('aria-pressed',String(focused));$('focus-office').textContent=focused?'Retrouver tout l’espace ↙':'Agrandir le bureau ↗';window.scrollTo({top:0,behavior:'smooth'});});
 document.querySelectorAll('[data-pixel-prop]').forEach(button=>button.addEventListener('click',()=>pixelWorld?.interact(button.dataset.pixelProp)));
 document.querySelectorAll('[data-pixel-role]').forEach(button=>button.addEventListener('click',()=>openMember(button.dataset.pixelRole)));
 $('pixel-pause').addEventListener('click',()=>{animationPaused=!animationPaused;pixelWorld.setPaused(animationPaused);$('pixel-pause').setAttribute('aria-pressed',String(animationPaused));$('pixel-pause').textContent=animationPaused?'Reprendre les animations':'Pause animations';$('atelier-scene').dataset.paused=String(animationPaused);});
@@ -405,17 +462,33 @@ missionWizard = new MissionWizard($('mission-wizard-host'), {
   },
   onCancel: () => $('mission-wizard-dialog').close(),
 });
-for (const template of MISSION_TEMPLATES) {
-  const button=node('button','mission-template');button.type='button';
-  button.append(node('span','mission-template-icon',template.icon));
-  const copy=node('span','mission-template-copy');copy.append(node('strong','',template.title),node('small','',template.description));button.append(copy,node('span','mission-template-arrow','↗'));
-  button.addEventListener('click',()=>{
-    if(activeMissions().length>=4){showError('Quatre missions sont déjà en cours. Attendez une livraison pour lancer une autre équipe.');return;}
-    if(isRunning(mission)){openAnotherOffice(template.id);return;}
-    openGuidedTemplate(template);
-  });
-  $('mission-template-grid').append(button);
+function searchable(value){return String(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();}
+function renderCatalog() {
+  const query=searchable($('template-search').value.trim());
+  const featured=['logiciel-sur-mesure','jeu-video','site-internet','reseaux-sociaux','concurrents','identite-visuelle','application-web','jeu-plateforme'];
+  const templates=[...MISSION_TEMPLATES].sort((a,b)=>{const x=featured.indexOf(a.id),y=featured.indexOf(b.id);return(x<0?100:x)-(y<0?100:y);}).filter(t=>(catalogCategory==='all'||t.category===catalogCategory)&&(!query||query.split(/\s+/).every(word=>searchable(`${t.title} ${t.description} ${MISSION_CATEGORIES.find(c=>c.id===t.category)?.label || ''}`).includes(word))));
+  $('mission-template-grid').replaceChildren();
+  $('catalog-count').textContent=`${templates.length} ${templates.length===1?'idée':'idées'} pour démarrer`;
+  $('catalog-empty').hidden=!!templates.length;
+  for(const template of templates) {
+    const button=node('button','mission-template');button.type='button';button.dataset.template=template.id;button.dataset.category=template.category;
+    button.append(node('span','mission-template-icon',template.icon));
+    const copy=node('span','mission-template-copy');copy.append(node('strong','',template.title),node('small','',template.description));button.append(copy,node('span','mission-template-arrow','↗'));
+    button.addEventListener('click',()=>{
+      if(activeMissions().length>=4){showError('Quatre missions sont déjà en cours. Attendez une livraison pour lancer une autre équipe.');return;}
+      if(isRunning(mission)){openAnotherOffice(template.id);return;}
+      openGuidedTemplate(template);
+    });
+    $('mission-template-grid').append(button);
+  }
 }
+for(const category of MISSION_CATEGORIES) {
+  const button=node('button','catalog-filter',category.label);button.type='button';button.dataset.category=category.id;button.setAttribute('aria-pressed',String(category.id===catalogCategory));
+  button.addEventListener('click',()=>{catalogCategory=category.id;for(const other of $('catalog-filters').children)other.setAttribute('aria-pressed',String(other===button));renderCatalog();});
+  $('catalog-filters').append(button);
+}
+$('template-search').addEventListener('input',renderCatalog);
+renderCatalog();
 $('close-wizard').addEventListener('click',()=>{$('mission-wizard-dialog').close();missionWizard.close();});
 $('open-missions-folder').addEventListener('click',async()=>{try{await request('/api/open-data',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch(error){showError(error.message);}});
 $('connect-provider').addEventListener('click',async()=>{

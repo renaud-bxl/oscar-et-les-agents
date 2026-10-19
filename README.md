@@ -1,16 +1,16 @@
-# Oscar et les agents
+# Oscar et les Agents
 
-Donnez une mission à Oscar. Il recrute les bons spécialistes, ils arrivent dans un bureau en pixel art, travaillent, rendent leurs dossiers… et prennent un café quand leur travail est validé.
+Donnez une mission à Oscar. Il recrute les bons spécialistes, ils arrivent dans un grand bureau illustré et animé, travaillent, rendent leurs dossiers… et prennent un café quand leur travail est validé.
 
 Une application locale en français, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
 
-![Le bureau d’Oscar, les agents et le coin café en pixel art](docs/bureau.png)
+![Le bureau illustré d’Oscar, les îlots de travail et le coin café](docs/bureau.png)
 
 ## Installer et ouvrir
 
 Dans **Codex/ChatGPT** ou **Claude Code**, vous pouvez simplement demander :
 
-> Installe et lance Oscar et les agents : https://github.com/renaud-bxl/oscar-et-les-agents
+> Installe et lance Oscar et les Agents : https://github.com/renaud-bxl/oscar-et-les-agents
 
 L’agent trouve les instructions du dépôt et prépare le bon moteur.
 
@@ -37,7 +37,7 @@ curl -fsSL https://raw.githubusercontent.com/renaud-bxl/oscar-et-les-agents/main
 
 Node.js 22.18 ou plus récent est nécessaire ; s’il manque, l’installateur prépare une version portable de Node.js 24 depuis le site officiel. Il ne demande pas de droits administrateur et ne remplace pas vos outils globaux. Le bootstrap automatique vise macOS et Linux ; Windows n’est pas encore validé.
 
-Les fois suivantes, ouvrez **Oscar et les agents** dans votre dossier Applications sur Mac, ou double-cliquez sur **Lancer.command**. Le bureau est disponible sur **http://localhost:4850**. Le lanceur retrouve un bureau déjà ouvert.
+Les fois suivantes, ouvrez **Oscar et les Agents** dans votre dossier Applications sur Mac, ou double-cliquez sur **Lancer.command**. Le bureau est disponible sur **http://localhost:4850**. Le lanceur retrouve un bureau déjà ouvert.
 
 ## Une équipe qui travaille vraiment
 
@@ -52,9 +52,11 @@ Chaque tâche démarre un agent distinct. Oscar choisit les métiers nécessaire
 
 Un résultat refusé repasse une fois en correction. Les fichiers obligatoires sont contrôlés sur le disque. L’assemblage final est ensuite relu. Un refus persistant reste **à revoir** et n’est pas annoncé comme une livraison validée. Ces contrôles IA et matériels complètent votre relecture ; ils ne garantissent pas l’absence d’erreur.
 
-## Quatorze missions pour démarrer
+## Trente-six missions pour démarrer
 
-Réseaux sociaux, site internet, analyse de concurrents, stratégie de contenu, newsletter, lancement de produit, identité visuelle, dossier de présentation, analyse de données, automatisation, article SEO, préparation de réunion, plan commercial et script de podcast.
+La bibliothèque propose 36 points de départ, avec catégories et recherche : logiciels sur mesure, applications web, tableaux de bord, gestion clients, outils pour fichiers, extensions de navigateur, prototypes mobiles, outils pédagogiques, boutiques, sites, communication, analyse, design et organisation.
+
+Huit parcours sont dédiés aux jeux : jeu 2D sur mesure, plateforme, puzzle, gestion, cartes, quiz, aventure à choix et arcade. Les livraisons visent une première version locale jouable ou utilisable, avec son mode d’emploi et ses vérifications. Un prototype mobile reste une application web ; une boutique de démonstration n’encaisse aucun paiement.
 
 Choisissez une carte, répondez à quelques questions, ajustez le brief récapitulatif, puis confiez-le à Oscar. Les missions de réseaux sociaux préparent des contenus et des calendriers ; elles ne publient ni n’envoient de messages automatiquement.
 
@@ -62,7 +64,7 @@ Choisissez une carte, répondez à quelques questions, ajustez le brief récapit
 
 Pendant une mission, **Créer une autre mission** ouvre une nouvelle fenêtre avec son propre Oscar, son bureau et son équipe. Jusqu’à quatre missions peuvent avancer simultanément. Chaque bureau conserve son lien et ses fichiers ; arrêter une mission n’arrête pas les autres.
 
-Deux spécialistes au maximum travaillent en parallèle dans chaque mission. L’utilisation des modèles reste soumise aux quotas et limites de vos abonnements.
+Oscar peut recruter jusqu’à **vingt spécialistes par mission**, au maximum **quatre par métier**. Alma, Maya, Jade et Rose peuvent par exemple proposer quatre contributions de design. Chaque personne garde son prénom, sa tâche et son dossier. **Quatre spécialistes au maximum travaillent réellement en parallèle** dans chaque mission. L’utilisation des modèles reste soumise aux quotas et limites de vos abonnements.
 
 ## Tout retrouver dans Documents
 
@@ -86,9 +88,9 @@ Les briefs, le journal d’activité, les validations et les fichiers restent da
 
 ## Un bureau avec de la vie
 
-Les agents entrent par la porte, marchent jusqu’à leur bureau, apportent leurs dossiers à Oscar puis vont au café après validation. Ils discutent et réagissent quand vous cliquez sur eux. Vous pouvez aussi changer l’ambiance par la fenêtre, jouer avec l’horloge, allumer les lampes, réveiller le chat et faire tourner la machine à café. Les animations peuvent être mises en pause ; les missions continuent.
+Le grand bureau adopte un dessin lisse, des couleurs douces, des ombres et des personnages expressifs. Cinq îlots de quatre postes rassemblent les métiers. Les agents entrent par la porte, marchent jusqu’à leur bureau, apportent leurs dossiers à Oscar puis vont au café après validation. Ils discutent et réagissent quand vous cliquez sur eux. Vous pouvez aussi changer l’ambiance par la fenêtre, jouer avec l’horloge, allumer les lampes, réveiller le chat et faire tourner la machine à café. Les animations peuvent être mises en pause ; les missions continuent.
 
-**Essayer la démonstration** montre ce parcours sans appeler un modèle. Le bandeau précise qu’il s’agit d’une simulation.
+**Voir une démo** montre ce parcours avec huit personnages, dont quatre designers, sans appeler un modèle. **Agrandir le bureau** donne encore plus de place à la scène et à l’équipe. Le bandeau précise qu’il s’agit d’une simulation.
 
 La machine à café propose un soutien volontaire de **0,20 €** à Renaud via PayPal. Le montant et le destinataire sont visibles avant de quitter l’application. Le paiement se confirme uniquement sur PayPal et ne débloque aucune fonction.
 

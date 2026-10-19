@@ -183,7 +183,7 @@ export function createHandler({ fetchImpl = globalThis.fetch, url = process.env.
         result: {
           protocolVersion: PROTOCOL_VERSIONS.includes(params.protocolVersion) ? params.protocolVersion : PROTOCOL_VERSIONS[0],
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: 'oscar-et-les-agents', version: '0.1.0' },
+          serverInfo: { name: 'oscar-et-les-agents', version: '0.2.0' },
           instructions: 'Oscar dirige une équipe de cinq spécialistes. Démarrez une mission puis consultez son avancement et ses livrables. Le serveur de l’Atelier doit être lancé sur cet ordinateur.',
         },
       };

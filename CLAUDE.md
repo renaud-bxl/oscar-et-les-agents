@@ -1,4 +1,4 @@
-# Oscar et les agents
+# Oscar et les Agents
 
 Lis AGENTS.md pour les instructions partagées, l’installation et le développement.
 

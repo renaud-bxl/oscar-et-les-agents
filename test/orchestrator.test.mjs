@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Atelier, validatePlan } from '../lib/orchestrator.mjs';
+import { Atelier, validatePlan, ROLES, PLAN_SCHEMA } from '../lib/orchestrator.mjs';
 const plan = { title: 'Un message utile', approach: 'Rédaction puis contrôle.', tasks: [{ role: 'redaction', title: 'Rédiger le message', instruction: 'Écrire un message complet.', criteria: 'Un message prêt à envoyer.', deliverables: [] }] };
 function setup(t, runner, options = {}) {
   const dataDir = mkdtempSync(path.join(os.tmpdir(), 'oscar-test-'));
@@ -70,8 +70,121 @@ test('le plan refuse une équipe inventée et une liste vide', () => {
 test('la démo est identifiable et ne consomme aucun appel de moteur', async t => {
   let calls=0; const app=setup(t,()=>{calls++;throw new Error('Ne doit pas être appelé');});
   const m=app.start({prompt:'Découvrir le fonctionnement',provider:'demo'}); const done=await app.wait(m.id);
-  assert.equal(done.status,'completed'); assert.equal(calls,0); assert.equal(done.tasks.length,5);
+  assert.equal(done.status,'completed'); assert.equal(calls,0); assert.equal(done.tasks.length,8);
+  assert.equal(done.tasks.filter(task => task.role === 'design').length,4);
+  assert.deepEqual(done.tasks.filter(task => task.role === 'design').map(task => task.agentName),['Alma','Maya','Jade','Rose']);
   assert(done.result.includes('entièrement simulé')); assert.equal(done.tasks.find(x=>x.role==='design').attempt,2);
+});
+
+test('quatre designers distincts travaillent vraiment en parallèle dans leurs dossiers et remontent à Oscar', async t => {
+  const designPlan = { title: 'Quatre directions visuelles', approach: 'Comparer quatre approches complémentaires.', tasks: Array.from({ length: 4 }, (_, i) => ({ role: 'design', title: `Direction visuelle ${i + 1}`, instruction: `Créer une proposition différente selon l’angle ${i + 1}.`, criteria: 'Un fichier visuel lisible et un argumentaire.', deliverables: ['proposition.svg'] })) };
+  const waiting = [];
+  const assemblyPrompts = [];
+  let active = 0, peak = 0;
+  let notifyFour;
+  const fourStarted = new Promise(resolve => { notifyFour = resolve; });
+  const app = setup(t, ({schema,prompt,cwd,signal,onActivity}) => {
+    if (schema?.properties.tasks) return Promise.resolve({ text: JSON.stringify(designPlan) });
+    if (schema?.properties.approved) return Promise.resolve({ text: JSON.stringify({ approved: true, feedback: 'Le fichier de cette contribution est présent et lisible.' }) });
+    if (prompt.startsWith(ROLES.design.prompt)) {
+      const name = prompt.match(/Ton nom dans l’équipe est ([^.]+)\./)?.[1];
+      active++; peak = Math.max(peak, active);
+      writeFileSync(path.join(cwd,'proposition.svg'), `<svg xmlns="http://www.w3.org/2000/svg"><title>${name}</title></svg>`);
+      onActivity(`Contribution de ${name} en cours`);
+      return new Promise((resolve,reject) => {
+        let settled = false;
+        const onAbort = () => { if (!settled) { settled = true; active--; reject(new Error('Mission annulée')); } };
+        const release = () => {
+          if (settled) return;
+          settled = true; active--; signal.removeEventListener('abort',onAbort);
+          resolve({text:`Rapport complet de ${name}. Le fichier proposition.svg présente cette approche.`});
+        };
+        signal.addEventListener('abort',onAbort,{once:true});
+        waiting.push({name,cwd,prompt,release});
+        if (waiting.length === 4) notifyFour();
+      });
+    }
+    assemblyPrompts.push(prompt);
+    return Promise.resolve({text:'Les quatre contributions sont comparées et réunies dans cette livraison.'});
+  });
+  const mission = app.start({prompt:'Recrute quatre designers pour explorer quatre directions visuelles.'});
+  let timeout;
+  try {
+    await Promise.race([fourStarted,new Promise((_,reject) => { timeout = setTimeout(() => reject(new Error('Les quatre designers ne se sont pas mis au travail ensemble.')),1500); })]);
+  } finally { clearTimeout(timeout); }
+  assert.equal(app.concurrency,4);
+  assert.equal(active,4); assert.equal(peak,4);
+  assert.deepEqual(waiting.map(item=>item.name),ROLES.design.names);
+  assert.equal(new Set(waiting.map(item=>item.cwd)).size,4);
+  const working = app.get(mission.id);
+  assert.equal(working.tasks.filter(task=>task.status==='working').length,4);
+  for (const item of waiting) {
+    assert.match(item.cwd,/t[1-4]-design$/);
+    assert.ok(working.events.some(event=>event.who===item.name && event.text.includes('Contribution')));
+    assert.ok(readFileSync(path.join(item.cwd,'proposition.svg'),'utf8').includes(item.name));
+    item.release();
+  }
+  const done = await app.wait(mission.id);
+  assert.equal(done.status,'completed');
+  assert.equal(done.tasks.length,4); assert.equal(new Set(done.tasks.map(task=>task.agentName)).size,4);
+  for (const task of done.tasks) {
+    assert.equal(task.status,'approved');
+    assert.ok(readFileSync(path.join(app.workDir(mission.id),'Rapports',`${task.id}-design.md`),'utf8').includes(`Spécialiste : ${task.agentName}`));
+    assert.ok(assemblyPrompts[0].includes(task.agentName));
+  }
+});
+
+test('le recrutement accepte vingt tâches réparties mais refuse un cinquième agent du même métier', () => {
+  const tasks = Object.keys(ROLES).flatMap(role=>Array.from({length:4},(_,i)=>({...plan.tasks[0],role,title:`${role} ${i+1}`,deliverables:['contribution.md']})));
+  assert.equal(validatePlan(JSON.stringify({...plan,tasks})).tasks.length,20);
+  assert.throws(()=>validatePlan(JSON.stringify({...plan,tasks:[...tasks,tasks[0]]})),/1 à 20/);
+  const designers = Array.from({length:5},(_,i)=>({...plan.tasks[0],role:'design',title:`Piste ${i+1}`,deliverables:['piste.svg']}));
+  assert.throws(()=>validatePlan(JSON.stringify({...plan,tasks:designers})),/maximum 4 agents/);
+  assert.equal(PLAN_SCHEMA.properties.tasks.maxItems,20);
+  const taskSchema = PLAN_SCHEMA.properties.tasks.items;
+  assert.deepEqual(Object.keys(taskSchema.properties).sort(),[...taskSchema.required].sort());
+  assert.equal(Object.hasOwn(taskSchema.properties,'agentName'),false);
+  assert.equal(new Set(Object.values(ROLES).flatMap(role=>role.names)).size,20);
+});
+
+test('un ancien spécialiste sans agentName conserve son identité dans les appels, événements et rapports', async t => {
+  const prompts = [];
+  const app = setup(t,async({schema,prompt,onActivity})=>{
+    prompts.push(prompt);
+    if (schema?.properties.approved) return {text:JSON.stringify({approved:true,feedback:'Le texte répond aux critères.'})};
+    onActivity('Rédaction en cours');
+    return {text:'Le message complet du spécialiste historique.'};
+  });
+  const task = { ...plan.tasks[0], id:'t1', report:'', status:'queued', review:null, attempt:0 };
+  const mission = {id:'historique',title:'Un ancien dossier',prompt:'Rédiger un message',provider:'codex',createdAt:Date.now(),status:'running',tasks:[task],events:[],files:[]};
+  app.missions.set(mission.id,mission);
+  await app.performTask(mission,task,new AbortController().signal);
+  assert.equal(task.agentName,undefined);
+  assert.equal(task.status,'approved');
+  assert.ok(prompts[0].includes('Ton nom dans l’équipe est Noé.'));
+  assert.ok(prompts[1].includes('rapport de Noé'));
+  assert.ok(mission.events.some(event=>event.who==='Noé'));
+  assert.ok(readFileSync(path.join(app.workDir(mission.id),'Rapports','t1-redaction.md'),'utf8').includes('Spécialiste : Noé'));
+});
+
+test('la démo montre quatre designers simultanés, respecte quatre agents actifs et conserve la correction', async t => {
+  const app = setup(t,()=>{throw new Error('Aucun moteur ne doit être appelé dans la démonstration.');});
+  let peak = 0, fourDesigners = false;
+  app.on('change',state=>{
+    const mission = state.activeMissions.find(item=>item.provider==='demo');
+    if (!mission) return;
+    const active = mission.tasks.filter(task=>['working','revising','reviewing'].includes(task.status));
+    peak = Math.max(peak,active.length);
+    if (active.filter(task=>task.role==='design').length===4) fourDesigners = true;
+  });
+  const mission = app.start({prompt:'Découvrir une équipe élargie',provider:'demo'});
+  const done = await app.wait(mission.id);
+  assert.equal(peak,4); assert.equal(fourDesigners,true);
+  assert.equal(done.tasks.length,8); assert.equal(new Set(done.tasks.map(task=>task.agentName)).size,8);
+  assert.equal(done.tasks.find(task=>task.agentName==='Alma').attempt,2);
+  assert.equal(done.tasks.filter(task=>task.attempt===2).length,1);
+  assert.ok(done.events.some(event=>event.text.includes('Alma, améliore le contraste')));
+  assert.ok(done.tasks.every(task=>task.report.includes(task.agentName)));
 });
 test('un redémarrage conserve les livrables et rétablit les missions terminées',async t=>{
   const app=setup(t,()=>{}); const m=app.start({prompt:'Démo',provider:'demo'});await app.wait(m.id);

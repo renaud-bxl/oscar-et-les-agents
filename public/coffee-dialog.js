@@ -9,7 +9,7 @@ function donationUrl(recipient) {
   url.searchParams.set('business', recipient);
   url.searchParams.set('amount', '0.20');
   url.searchParams.set('currency_code', 'EUR');
-  url.searchParams.set('item_name', 'Un café pour Renaud · Oscar et les agents');
+  url.searchParams.set('item_name', 'Un café pour Renaud · Oscar et les Agents');
   url.searchParams.set('no_shipping', '1');
   return url.href;
 }
@@ -60,7 +60,7 @@ class CoffeeDialogView {
     const eyebrow = this.element('p', 'coffee-eyebrow', 'La petite pause du bureau');
     const heading = this.element('h2', 'coffee-title', 'Un café pour Renaud ?');
     heading.id = titleId;
-    const intro = this.element('p', 'coffee-intro', 'Un petit coup de pouce pour le créateur d’Oscar et les agents.');
+    const intro = this.element('p', 'coffee-intro', 'Un petit coup de pouce pour le créateur d’Oscar et les Agents.');
     const price = this.element('p', 'coffee-price', '0,20 €');
     const recipient = this.element('div', 'coffee-recipient');
     recipient.append(this.element('span', 'coffee-recipient-label', 'Destinataire PayPal'), this.element('strong', 'coffee-recipient-email', this.recipient));

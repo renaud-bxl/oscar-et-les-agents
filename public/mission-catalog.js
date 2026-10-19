@@ -11,6 +11,87 @@ function mission(title, context, deliverables, checks, research = false) {
   return `${title}\n\nMON CONTEXTE\n${context}\n\nCE QUE J’ATTENDS\n${deliverables}\n\nCRITÈRES DE VALIDATION\n${checks}${research ? '\nPour toute recherche, utilise des sources consultables et donne leurs liens, leurs dates et la date de vérification. Distingue les faits vérifiés, les estimations et les informations introuvables. Ne fabrique pas de chiffres ni de sources.' : ''}\n\nPrésente le résultat en français, avec des explications simples. Si une information manque, indique ton hypothèse et évite d’inventer un fait. Fournis les fichiers utiles dans le dossier de livraison. Prépare uniquement les livrables : ne publie rien, n’envoie aucun message, ne contacte personne, ne souscris à aucun service, n’achète rien et ne déploie rien. Les éventuelles étapes de publication, d’envoi, d’achat ou de déploiement doivent rester des propositions à me soumettre.`;
 }
 
+export const MISSION_CATEGORIES = [
+  {id:'all',label:'Toutes les idées'}, {id:'software',label:'Web & logiciels'},
+  {id:'games',label:'Jeux vidéo'}, {id:'communication',label:'Communication'},
+  {id:'design',label:'Design'}, {id:'analysis',label:'Recherche & analyse'},
+  {id:'organisation',label:'Organisation'},
+];
+const DEFAULT_CATEGORIES = {
+  'reseaux-sociaux':'communication','site-internet':'software','concurrents':'analysis',
+  'strategie-contenu':'communication',newsletter:'communication','lancement-produit':'communication',
+  'identite-visuelle':'design','dossier-presentation':'communication','analyser-donnees':'analysis',
+  automatisation:'software','article-seo':'communication','preparation-reunion':'organisation',
+  'plan-commercial':'communication','script-podcast':'communication',
+};
+
+function softwareTemplate({id,title,icon,description,focus,features,files}) {
+  return {id,title,icon,description,category:'software',questions:[
+    text('nom','Comment voulez-vous appeler ce projet ?','Ex. : Mon Atelier, Projet Nova…'),
+    area('besoin','À qui servira ce logiciel et quel problème doit-il résoudre ?','Décrivez les personnes, leur besoin et ce qui doit devenir plus simple.'),
+    area('fonctions','Quelles sont les trois fonctions les plus importantes ?',features),
+    select('plateforme','Où voulez-vous l’utiliser ?',['Dans mon navigateur, sur mon ordinateur','Dans mon navigateur, aussi sur téléphone','Sur mon ordinateur : proposez la solution locale adaptée']),
+    select('style','Quel univers visuel préférez-vous ?',['Clair, élégant et très lisible','Chaleureux, avec des illustrations','Professionnel, pour travailler efficacement','Coloré et ludique','Proposez un style adapté au projet']),
+  ],buildPrompt:a=>mission(title+'.',`Nom : ${answer(a,'nom')}\nUtilisateurs et besoin : ${answer(a,'besoin')}\nFonctions prioritaires : ${answer(a,'fonctions')}\nSupport : ${answer(a,'plateforme')}\nStyle : ${answer(a,'style')}`,`${focus}\nLivre une première version cohérente qui réalise les fonctions prioritaires, avec des fichiers réellement utilisables dans Livraison/. ${files || 'Privilégie une application web locale avec HTML, CSS et JavaScript, sans installation de service externe.'} Fournis un README avec ouverture ou installation, utilisation, sauvegarde/export et limites. Pour une demande trop vaste, choisis un premier périmètre fonctionnel explicite puis propose la suite. Ne livre pas uniquement une maquette en affirmant qu’il s’agit d’un logiciel complet.`, 'Vérifie les parcours principaux et les erreurs prévisibles. Ajoute des tests pertinents pour la logique métier et précise ceux effectivement exécutés. Préserve les fichiers fournis. Une démonstration avec données fictives doit le signaler. Une fonction de connexion, paiement, partage ou envoi non connectée doit être clairement présentée comme telle. Ne collecte aucun identifiant ni clé API. Aucun déploiement ou installation dans un compte externe. Pour un prototype mobile, ne prétends pas avoir produit un binaire natif ou publié dans un magasin d’applications.')};
+}
+function gameTemplate({id,title,icon,description,genre,mechanics}) {
+  return {id,title,icon,description,category:'games',questions:[
+    text('nom','Quel sera le nom du jeu ?','Ex. : Les aventures de Pistache'),
+    area('univers','Dans quel univers se déroule-t-il ?','Personnages, lieux, ambiance… Inventez ou demandez une proposition.'),
+    area('regles','Que doit faire le joueur pour gagner ?',mechanics),
+    select('public','Pour qui et avec quelles commandes ?',['Tout public : clavier et souris','Tout public : téléphone et ordinateur','Enfants : commandes simples et grosses cibles','Joueurs habitués : clavier, rythme plus soutenu']),
+    select('graphismes','Quel style graphique voulez-vous ?',['Dessin animé doux et expressif','Illustration colorée et joyeuse','Minimaliste et élégant','Rétro assumé','Surprenez-moi avec une direction cohérente']),
+  ],buildPrompt:a=>mission(title+'.',`Titre : ${answer(a,'nom')}\nUnivers : ${answer(a,'univers')}\nRègles souhaitées : ${answer(a,'regles')}\nJoueurs et commandes : ${answer(a,'public')}\nDirection graphique : ${answer(a,'graphismes')}`,`Crée un ${genre} jouable localement dans le navigateur. ${mechanics} Livre le code intégré, les dessins originaux réalisés en Canvas/SVG/CSS et un mode d’emploi dans Livraison/. Prévois un écran d’accueil, les commandes expliquées, une boucle de jeu complète, un objectif de victoire ou score, un échec compréhensible, un redémarrage et une pause. Adapte les commandes tactiles si demandées. Si un son est ajouté, il démarre après une action de l’utilisateur et peut être coupé. Privilégie HTML/CSS/JavaScript sans dépendances distantes.`, 'Le jeu doit être jouable avec ses fichiers locaux et ne pas se limiter à une image ou un écran décoratif. Vérifie le démarrage, les commandes, les collisions ou règles, la victoire/défaite et le redémarrage. Documente les tests réellement effectués, les limites et les améliorations possibles. N’utilise aucun personnage, logo, musique ou dessin repris d’une franchise. Ne prétends pas à un mode multijoueur en ligne s’il n’existe pas. Aucun achat intégré ni collecte de données.')};
+}
+const EXPANDED_TEMPLATES = [
+  {
+    id:'campagne-publicitaire',title:'Imaginer une campagne publicitaire',icon:'🎯',category:'communication',description:'Angles, textes et concepts visuels avant toute diffusion.',
+    questions:[text('offre','Quelle offre voulez-vous présenter ?','Ex. : mon nouvel atelier de céramique'),text('public','Qui voulez-vous toucher ?','Ex. : des adultes à Bruxelles'),select('canal','Sur quel support ?',['Réseaux sociaux','Recherche web','Affiches et supports imprimés','Conseillez-moi']),text('moyens','Quels sont vos moyens et votre objectif ?','Ex. : un petit budget, pour obtenir des demandes de renseignements')],
+    buildPrompt:a=>mission('Prépare les brouillons de ma campagne publicitaire.',`Offre : ${answer(a,'offre')}\nPublic : ${answer(a,'public')}\nSupport : ${answer(a,'canal')}\nMoyens : ${answer(a,'moyens')}`,'Propose trois angles distincts, leurs messages, cinq variantes d’annonces, trois concepts visuels et un plan de mesure. Livre les textes et une planche HTML/SVG.','Les promesses doivent rester vérifiables, les textes adaptés au support et les dépenses rester proposées. Ne lance aucune campagne et ne contacte personne.'),
+  },
+  {
+    id:'boutique-en-ligne',title:'Préparer ma boutique en ligne',icon:'🛍️',category:'software',description:'Catalogue, panier local et parcours d’achat en démonstration.',
+    questions:[text('marque','Que vend votre marque ?','Ex. : des accessoires fabriqués à la main'),area('produits','Quels produits faut-il présenter ?','Listez les produits, les descriptions et les prix connus.'),text('public','À qui s’adresse la boutique ?','Ex. : des amateurs de cadeaux originaux'),select('style','Quel style imaginez-vous ?',['Clair et élégant','Artisanal et chaleureux','Coloré et ludique'])],
+    buildPrompt:a=>mission('Crée un prototype local de ma boutique.',`Marque : ${answer(a,'marque')}\nProduits : ${answer(a,'produits')}\nPublic : ${answer(a,'public')}\nStyle : ${answer(a,'style')}`,'Livre un site local avec catalogue, fiche produit, filtres si utiles, panier fonctionnel et calcul des totaux. La commande reste une démonstration explicitement signalée. Fournis les fichiers intégrés et un mode d’emploi.','Teste le panier, les quantités et les totaux. Aucun paiement réel ni faux message de commande confirmée. Ne crée pas de compte marchand. Signale les informations produit manquantes.'),
+  },
+  {
+    id:'audit-site',title:'Améliorer mon site existant',icon:'🧭',category:'analysis',description:'Un diagnostic et des améliorations classées par priorité.',
+    questions:[text('url','Quel site ou quels fichiers faut-il examiner ?','Une adresse publique ou le chemin de fichiers locaux'),text('objectif','Que souhaitez-vous améliorer ?','Ex. : rendre l’offre plus claire et obtenir davantage de contacts'),select('angle','Quel point regarder en priorité ?',['Lisibilité et navigation','Utilisation sur téléphone','Accessibilité','Contenus et référencement','Diagnostic global'])],
+    buildPrompt:a=>mission('Réalise un diagnostic de mon site.',`Site ou fichiers : ${answer(a,'url')}\nObjectif : ${answer(a,'objectif')}\nPriorité : ${answer(a,'angle')}`,'Examine les éléments accessibles. Livre un diagnostic sourcé, une liste de corrections par impact/effort, des exemples de contenus et une proposition locale pour une page améliorée.','Distingue les observations des mesures non effectuées. N’invente pas de statistiques, notes techniques ou accès au site. Ne modifie pas le site en production.',true),
+  },
+  {
+    id:'formation',title:'Créer une formation',icon:'🎓',category:'organisation',description:'Un parcours, des exercices et un guide pour animer.',
+    questions:[text('sujet','Que voulez-vous apprendre aux participants ?','Ex. : découvrir la photographie au smartphone'),text('public','Quel est leur niveau de départ ?','Ex. : des débutants'),text('duree','Quelle durée avez-vous ?','Ex. : deux séances de deux heures'),text('resultat','Que doivent-ils savoir faire à la fin ?','Ex. : cadrer, régler la lumière et retoucher simplement')],
+    buildPrompt:a=>mission('Construis un parcours de formation.',`Sujet : ${answer(a,'sujet')}\nPublic : ${answer(a,'public')}\nDurée : ${answer(a,'duree')}\nCompétences visées : ${answer(a,'resultat')}`,'Livre un programme progressif, les contenus des séquences, des exercices avec corrigés, une évaluation et un guide d’animation en Markdown.','Respecte le temps disponible et le niveau. Chaque objectif doit avoir un exercice adapté et un critère de réussite.'),
+  },
+  {
+    id:'support-client',title:'Organiser mon service client',icon:'💬',category:'organisation',description:'Une FAQ et des réponses types qui gardent votre ton.',
+    questions:[text('activite','Quelle est votre activité ?','Ex. : une boutique de vélos'),area('questions','Quelles demandes reviennent souvent ?','Collez des exemples anonymisés, sans informations personnelles.'),area('regles','Quelles règles et informations faut-il respecter ?','Délais connus, horaires, fonctionnement…'),select('ton','Quel ton voulez-vous ?',['Chaleureux et rassurant','Sobre et professionnel','Court et direct'])],
+    buildPrompt:a=>mission('Prépare les supports de mon service client.',`Activité : ${answer(a,'activite')}\nQuestions : ${answer(a,'questions')}\nRègles : ${answer(a,'regles')}\nTon : ${answer(a,'ton')}`,'Livre une FAQ, des modèles de réponse complets, un arbre de tri des demandes et les situations à traiter personnellement.','N’invente pas de garanties, conditions de vente ou délais. Aucun message envoyé ni branchement à une messagerie. Les exemples restent anonymes.'),
+  },
+  {
+    id:'offre-commerciale',title:'Rédiger une offre commerciale',icon:'🤝',category:'communication',description:'Une proposition claire, adaptée à un client précis.',
+    questions:[text('offre','Que proposez-vous ?','Ex. : une refonte de site vitrine'),area('besoin','Quel est le besoin du client ?','Contexte, résultat attendu et contraintes.'),area('perimetre','Que comprennent l’offre, le prix et les délais connus ?','Indiquez uniquement les éléments confirmés.'),text('prochaine','Quelle est la prochaine étape souhaitée ?','Ex. : une réunion de validation du périmètre')],
+    buildPrompt:a=>mission('Rédige ma proposition commerciale.',`Offre : ${answer(a,'offre')}\nBesoin : ${answer(a,'besoin')}\nPérimètre confirmé : ${answer(a,'perimetre')}\nProchaine étape : ${answer(a,'prochaine')}`,'Livre une proposition structurée avec contexte, solution, livrables, calendrier, prix fournis et prochaine étape. Prépare un document Markdown et une présentation HTML.','N’invente aucun prix, engagement, délai ou résultat. Les éléments à confirmer doivent être visibles. Prépare un brouillon, sans envoi au client.'),
+  },
+  softwareTemplate({id:'logiciel-sur-mesure',title:'Créer un logiciel sur mesure',icon:'🛠️',description:'Une première version fonctionnelle pour votre besoin précis.',focus:'Conçois l’architecture simple du logiciel, sa logique métier et ses écrans.',features:'Ex. : ajouter un projet, suivre son avancement et exporter la liste.'}),
+  softwareTemplate({id:'application-web',title:'Créer une application web',icon:'🖥️',description:'Des écrans reliés et de vraies interactions.',focus:'Crée une application avec des vues cohérentes, une navigation complète et une gestion explicite de ses données locales.',features:'Ex. : gérer une collection, rechercher un élément et sauvegarder mes données.'}),
+  softwareTemplate({id:'tableau-de-bord',title:'Construire un tableau de bord',icon:'📈',description:'Des indicateurs, des graphiques et des filtres utiles.',focus:'Crée un tableau de bord local avec import de données simples, calculs traçables, filtres et export. Identifie explicitement les données d’exemple.',features:'Ex. : importer un CSV, comparer les mois et filtrer les catégories.'}),
+  softwareTemplate({id:'gestion-clients',title:'Créer un outil de gestion clients',icon:'🗂️',description:'Un carnet local pour suivre contacts et projets.',focus:'Crée un outil local avec fiches clients, suivi des étapes et recherche. Prévois une sauvegarde/export explicite et des exemples fictifs.',features:'Ex. : enregistrer un contact, noter les échanges et voir les relances à préparer.'}),
+  softwareTemplate({id:'outil-fichiers',title:'Créer un outil pour mes fichiers',icon:'📁',description:'Classer, convertir ou préparer des fichiers en préservant les originaux.',focus:'Crée un outil de traitement local de fichiers, avec prévisualisation des opérations et copie de sortie. Ne modifie jamais les originaux pendant la préparation.',features:'Ex. : classer des images par date, détecter les doublons et exporter un inventaire.',files:'Choisis une interface web locale si adaptée, ou un script local documenté. Les tests utilisent uniquement des fichiers fictifs.'}),
+  softwareTemplate({id:'extension-navigateur',title:'Créer une extension de navigateur',icon:'🧩',description:'Un petit outil à installer et essayer localement.',focus:'Crée une extension Chromium Manifest V3 minimale et documentée, en limitant les permissions aux besoins exprimés.',features:'Ex. : garder des notes pour un site et les retrouver dans une petite fenêtre.',files:'Livre manifest.json, les fichiers nécessaires et les étapes pour charger l’extension décompressée. N’installe et ne publie rien automatiquement. Justifie les permissions.'}),
+  softwareTemplate({id:'prototype-mobile',title:'Prototyper une application mobile',icon:'📱',description:'Un prototype web tactile pour essayer le parcours.',focus:'Crée un prototype mobile en application web responsive avec des écrans reliés, commandes tactiles et états vides/erreurs lisibles. Signale qu’il s’agit d’une version web locale.',features:'Ex. : créer une routine, cocher les actions du jour et consulter l’historique.'}),
+  softwareTemplate({id:'outil-pedagogique',title:'Créer un outil pédagogique',icon:'📚',description:'Un outil interactif qui explique, exerce et corrige.',focus:'Crée une application locale d’apprentissage avec explications progressives, exercices, corrections et progression locale.',features:'Ex. : apprendre les fractions avec des dessins, des exercices et des explications.'}),
+  gameTemplate({id:'jeu-video',title:'Créer mon propre jeu vidéo',icon:'🎮',description:'Un univers original et une première version jouable.',genre:'jeu vidéo 2D',mechanics:'Définis une mécanique centrale claire, un objectif et une courte progression. Propose trois niveaux ou situations distinctes.'}),
+  gameTemplate({id:'jeu-plateforme',title:'Créer un jeu de plateforme',icon:'🦊',description:'Sauter, explorer et atteindre le bout du niveau.',genre:'jeu de plateforme 2D',mechanics:'Prévois déplacements, saut, collisions, obstacles et un niveau complet avec départ, arrivée et reprise après échec.'}),
+  gameTemplate({id:'jeu-puzzle',title:'Inventer un jeu de puzzle',icon:'💡',description:'Des règles simples et des niveaux qui font réfléchir.',genre:'jeu de puzzle 2D',mechanics:'Crée au moins trois puzzles résolubles avec une difficulté progressive, une règle expliquée et un bouton pour recommencer le niveau.'}),
+  gameTemplate({id:'jeu-gestion',title:'Créer un jeu de gestion',icon:'🏡',description:'Gérer un petit café, une ferme ou un monde à vous.',genre:'jeu de gestion',mechanics:'Prévois une boucle complète de ressources, choix, coûts et objectifs. Les règles et les effets des actions doivent être visibles et cohérents.'}),
+  gameTemplate({id:'jeu-cartes',title:'Imaginer un jeu de cartes',icon:'🃏',description:'Un jeu original avec des règles et un adversaire local.',genre:'jeu de cartes local',mechanics:'Définis des cartes originales, les règles d’un tour, une condition de victoire et un adversaire local simple si le jeu en nécessite un.'}),
+  gameTemplate({id:'quiz-interactif',title:'Créer un quiz interactif',icon:'🏆',description:'Questions, score et explications après chaque réponse.',genre:'quiz interactif',mechanics:'Prévois plusieurs questions, la validation des réponses, les explications, le score final et la possibilité de rejouer. Vérifie les réponses factuelles et donne leurs sources.'}),
+  gameTemplate({id:'aventure-interactive',title:'Créer une aventure à choix',icon:'🗺️',description:'Des personnages, des décisions et plusieurs fins.',genre:'jeu d’aventure à choix',mechanics:'Écris une histoire originale avec des choix qui changent réellement la suite, un inventaire si utile et au moins trois fins accessibles.'}),
+  gameTemplate({id:'jeu-arcade',title:'Créer un jeu d’arcade',icon:'🛸',description:'Une partie courte, un score et l’envie de recommencer.',genre:'jeu d’arcade 2D',mechanics:'Prévois une action simple à maîtriser, un score, une difficulté progressive, une fin de partie claire et un redémarrage immédiat.'}),
+];
+
 export const MISSION_TEMPLATES = [
   {
     id: 'reseaux-sociaux', title: 'Préparer mes réseaux sociaux', icon: '📣',
@@ -179,7 +260,8 @@ export const MISSION_TEMPLATES = [
     ],
     buildPrompt: a => mission('Prépare le script de mon prochain épisode de podcast.', `Sujet : ${answer(a, 'sujet')}\nAuditeurs : ${answer(a, 'auditeurs')}\nFormat : ${answer(a, 'format')}\nDurée : ${answer(a, 'duree')}\nPoints souhaités : ${answer(a, 'points')}`, 'Prépare un déroulé minuté, une introduction accrocheuse, un script oral complet adapté au format et une conclusion. Pour une interview, rédige les questions et relances sans inventer les réponses ni les propos de l’invité. Ajoute un titre, une description et les sources utiles dans un document Markdown.', 'La longueur et le rythme doivent correspondre à la durée souhaitée. Les affirmations factuelles doivent être sourcées. Les transitions doivent être naturelles et les mots faciles à prononcer. N’imite aucune personne réelle et ne génère ni ne publie d’enregistrement.', true),
   },
-];
+  ...EXPANDED_TEMPLATES,
+].map(template=>({...template,category:template.category || DEFAULT_CATEGORIES[template.id] || 'organisation'}));
 
 let wizardNumber = 0;
 
@@ -267,7 +349,7 @@ export class MissionWizard {
     root.setAttribute('aria-label', `Préparer la mission : ${this.template.title}`);
     this.root = root;
     const header = this.element('header');
-    header.append(this.element('p', 'wizard-eyebrow', 'Oscar et les agents · mission guidée'), this.element('h2', '', `${this.template.icon} ${this.template.title}`), this.element('p', '', this.template.description));
+    header.append(this.element('p', 'wizard-eyebrow', 'Oscar et les Agents · mission guidée'), this.element('h2', '', `${this.template.icon} ${this.template.title}`), this.element('p', '', this.template.description));
     root.appendChild(header);
 
     const isSummary = this.step === this.template.questions.length;

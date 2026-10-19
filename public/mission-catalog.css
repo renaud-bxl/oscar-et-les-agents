@@ -369,3 +369,21 @@ textarea.wizard-input {
   .mission-template, .wizard-input { transition: none; }
   .mission-template:hover { transform: none; }
 }
+
+/* The catalogue belongs to the same bright, illustrated workspace. */
+.mission-library {background:#fff;}
+.mission-template {border-color:#e7eaf0;border-radius:15px;background:#fff;min-height:126px;}
+.mission-template:hover {border-color:#bfd0e2;background:#f8fafc;box-shadow:0 7px 20px #2a3e5810;}
+.mission-template:focus-visible {outline-color:#9bb7d5;}
+.mission-template-icon {border-radius:11px;background:#edf3fa;}
+.mission-template[data-category="games"] .mission-template-icon {background:#f1ebfa;}
+.mission-template[data-category="communication"] .mission-template-icon {background:#fff0e9;}
+.mission-template[data-category="design"] .mission-template-icon {background:#f7eafa;}
+.mission-template[data-category="analysis"] .mission-template-icon {background:#eaf5f0;}
+.mission-template[data-category="organisation"] .mission-template-icon {background:#faf3df;}
+.mission-template-copy small,.mission-library-heading p {color:#87909d;}
+.wizard-eyebrow,.wizard-progress {color:#6b86a4;}
+.wizard-progress progress {color:#7296bd;accent-color:#7296bd;background:#edf1f6;}
+.wizard-progress progress::-webkit-progress-bar {background:#edf1f6;}
+.wizard-progress progress::-webkit-progress-value,.wizard-progress progress::-moz-progress-bar {background:#7296bd;}
+#guided-provider {border-color:#e1e6ee;background:#f8fafc;}
