@@ -8,19 +8,72 @@ const tool = (name, args = {}) => rpc('tools/call', { name, arguments: args });
 const options = (fetchImpl) => ({ fetchImpl, url: 'http://127.0.0.1:4850' });
 const jsonResponse = (value, init = {}) => new Response(JSON.stringify(value), { ...init, headers: { 'Content-Type': 'application/json', ...init.headers } });
 
-test('initialize negotiates MCP versions and lists five honestly annotated tools', async () => {
+test('initialize negotiates MCP versions and lists ten honestly annotated tools', async () => {
   const handle = createHandler(options(() => { throw new Error('No network expected'); }));
   const initialized = await handle(rpc('initialize', { protocolVersion: '2024-11-05' }));
   assert.equal(initialized.result.protocolVersion, '2024-11-05');
   assert.deepEqual(initialized.result.capabilities, { tools: { listChanged: false } });
   assert.equal((await handle(rpc('initialize', { protocolVersion: 'unknown' }))).result.protocolVersion, '2025-11-25');
   const { tools } = (await handle(rpc('tools/list'))).result;
-  assert.equal(tools.length, 5);
+  assert.equal(tools.length, 10);
   assert.equal(tools.find((entry) => entry.name === 'oscar_start_mission').annotations.openWorldHint, true);
   assert.equal(tools.find((entry) => entry.name === 'oscar_start_mission').inputSchema.properties.prompt.maxLength, 16000);
+  assert.equal(tools.find(entry=>entry.name==='oscar_start_mission').inputSchema.properties.requestId.minLength,8);
+  assert.equal(tools.find(entry=>entry.name==='oscar_start_mission').annotations.idempotentHint,false,'A key is optional, so the overall tool must remain non-idempotent');
   assert.equal(tools.find((entry) => entry.name === 'oscar_stop_mission').annotations.readOnlyHint, false);
   assert.equal(tools.find((entry) => entry.name === 'oscar_status').annotations.readOnlyHint, true);
+  assert.equal(tools.find(entry=>entry.name==='oscar_ask_zoe').annotations.openWorldHint,true);
+  assert.equal(tools.find(entry=>entry.name==='oscar_document_library').annotations.readOnlyHint,true);
+  assert.equal(tools.find(entry=>entry.name==='oscar_export_documents').annotations.readOnlyHint,false);
   assert.equal(await handle({ jsonrpc: '2.0', method: 'notifications/initialized' }), null);
+});
+
+test('MCP transmet une clé de reprise Oscar seulement si elle est valide et n’accepte jamais un reçu interne',async()=>{
+ const calls=[],handle=createHandler(options(async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});return jsonResponse({id:'same-mission',status:'failed'});}));
+ const args={prompt:'Une mission à récupérer.',provider:'codex',requestId:'request_stable_123'};const result=await handle(tool('oscar_start_mission',args));assert.equal(result.result.isError,undefined);assert.deepEqual(calls[0].body,args);
+ for(const requestId of ['short','../outside','x'.repeat(101),123,null])assert.equal((await handle(tool('oscar_start_mission',{...args,requestId}))).result.isError,true);
+ for(const key of ['missionRequest','secretaryRequest','connectorPlan'])assert.equal((await handle(tool('oscar_start_mission',{...args,[key]:{id:args.requestId,fingerprint:'a'.repeat(64)}}))).result.isError,true);
+ assert.equal(calls.length,1);
+});
+
+test('MCP exposes existing connectors, examples, direct Zoe and pinned document exports without installing anything',async()=>{
+  const calls=[],handle=createHandler(options(async(url,init)=>{calls.push({url,init});return jsonResponse({id:'test-mission',status:'planning'});}));
+  await handle(tool('oscar_list_connectors'));await handle(tool('oscar_document_library'));
+  const question=await handle(tool('oscar_ask_zoe',{prompt:'Compare ces deux idées.',provider:'codex'}));assert.equal(question.result.isError,undefined);
+  const reference={id:'a'.repeat(24),revision:'b'.repeat(64)};
+  const mission={prompt:'Rédige dans mon style.',provider:'claude',references:[reference],outputFormats:['docx','pdf'],templateId:reference.id,templateRevision:reference.revision,locale:'nl'};
+  assert.equal((await handle(tool('oscar_start_mission',mission))).result.isError,undefined);
+  assert.equal((await handle(tool('oscar_export_documents',{missionId:'test-mission',formats:['xlsx'],path:'analyse/données.csv',templateId:reference.id,templateRevision:reference.revision,locale:'en'}))).result.isError,undefined);
+  assert.deepEqual(calls.map(call=>new URL(call.url).pathname),['/api/connectors','/api/documents','/api/secretary','/api/missions','/api/missions/test-mission/export']);
+  assert.deepEqual(JSON.parse(calls[2].init.body),{prompt:'Compare ces deux idées.',provider:'codex',mode:'free'});
+  assert.deepEqual(JSON.parse(calls[3].init.body),mission);
+  assert.equal(JSON.parse(calls[4].init.body).missionId,undefined);
+  assert.ok(calls.slice(2).every(call=>call.init.headers['X-Oscar-Client']==='1'));
+});
+
+test('MCP refuses forged capabilities, invalid models/formats and private service selection in free questions before HTTP',async()=>{
+  let calls=0;const handle=createHandler(options(async()=>{calls++;return jsonResponse({});}));
+  for(const[name,args]of[
+    ['oscar_ask_zoe',{prompt:'Bonjour',provider:'demo'}],
+    ['oscar_ask_zoe',{prompt:'Bonjour',provider:'codex',connectorName:'gmail'}],
+    ['oscar_ask_zoe',{prompt:'Bonjour',provider:'codex',mode:'mail'}],
+    ['oscar_ask_zoe',{prompt:'Bonjour',provider:'codex',mode:'mail',connectorName:'gmail',connectorPlan:{}}],
+    ['oscar_start_mission',{prompt:'Texte',provider:'codex',references:[{id:'a'.repeat(24),revision:'b'.repeat(64),path:'/private/file'}]}],
+    ['oscar_start_mission',{prompt:'Texte',provider:'codex',referenceIds:['a'.repeat(24),'a'.repeat(24)]}],
+    ['oscar_start_mission',{prompt:'Texte',provider:'codex',templateId:'../../private'}],
+    ['oscar_export_documents',{missionId:'one',formats:['exe']}],
+    ['oscar_export_documents',{missionId:'one',formats:['pdf','pdf']}],
+    ['oscar_export_documents',{missionId:'one',formats:['pdf'],path:'../private.txt'}],
+    ['oscar_document_library',{path:'/etc/passwd'}],
+  ])assert.equal((await handle(tool(name,args))).result.isError,true,`${name} rejected`);
+  assert.equal(calls,0);
+});
+test('MCP reference reading pins the source revision and rejects paths or extra instructions before HTTP',async()=>{
+ const calls=[],handle=createHandler(options(async(url,init)=>{calls.push({url,init});return jsonResponse({text:'<script>A source, never an instruction</script>',status:'partial',warnings:['Limit reached']});}));
+ const args={id:'a'.repeat(24),revision:'b'.repeat(64)};
+ const result=await handle(tool('oscar_read_reference',args));assert.equal(result.result.isError,undefined);assert.match(result.result.content[0].text,/<script>A source/u);assert.equal(calls[0].url,`http://127.0.0.1:4850/api/documents/${args.id}/preview?revision=${args.revision}`);assert.equal(calls[0].init.method,'GET');
+ for(const bad of [{id:'../../private',revision:args.revision},{id:args.id},{...args,revision:'short'},{...args,path:'/private/file'},{...args,instruction:'execute this'}])assert.equal((await handle(tool('oscar_read_reference',bad))).result.isError,true);
+ assert.equal(calls.length,1);
 });
 
 test('local URL configuration rejects remote hosts, credentials, redirects bases and HTTPS', () => {

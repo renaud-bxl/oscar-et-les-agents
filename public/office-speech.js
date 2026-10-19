@@ -10,6 +10,12 @@ export const supportsLanguage=(voice,locale=getLocale())=>{
   const languages=Array.isArray(voice?.languages)?voice.languages.filter(value=>typeof value==='string'):[];
   return languages.length?languages.some(value=>language({lang:value})===locale):language(voice)==='multilingual'||language(voice)===locale;
 };
+export const supportsCharacter=(voice,role)=>{
+  const key=speaker(role);if(!key)return false;
+  if(voice?.recommended&&voice.character!==undefined)return speaker(voice.character)===key;
+  const studio=String(voice?.id||'').match(/^studio-(oscar|zoe)(?:-\d+)?$/);
+  return studio?studio[1]===key:true;
+};
 
 export class OfficeSpeech {
   constructor({host=globalThis,onChange=()=>{},onVoices=()=>{}}={}){
@@ -38,7 +44,7 @@ export class OfficeSpeech {
   notify(extra={}){if(this.destroyed)return;this.onChange({...this.getState(),status:this.local.status,message:this.message(),speaking:this.current?.phase==='speaking',preparing:this.current?.phase==='preparing',role:this.current?.role,text:this.current?.text,...extra});}
   publishVoices(){
     this.voices=this.engine==='system'?this.nativeVoices:[...(this.local.voices||[])];
-    this.available=this.engine==='system'?this.systemAvailable&&this.nativeVoices.some(voice=>supportsLanguage(voice,getLocale())):this.engine==='natural'&&this.local.status==='ready'&&Object.keys(PROFILE).some(role=>this.chooseVoice(role));
+    this.available=this.engine==='system'?this.systemAvailable&&this.nativeVoices.some(voice=>supportsLanguage(voice,getLocale())):this.engine==='natural'&&['ready','installing'].includes(this.local.status)&&Object.keys(PROFILE).some(role=>this.chooseVoice(role));
     this.onVoices(this.voices);this.notify();
   }
   async json(url,options={}){if(typeof this.host.fetch!=='function')throw new Error('Le service de voix locales n’est pas disponible.');const response=await this.host.fetch(url,{credentials:'same-origin',...options});let value;try{value=await response.json();}catch{throw new Error('Le service de voix a renvoyé une réponse inattendue.');}if(!response.ok)throw new Error(value.error||'La voix locale n’a pas pu être préparée.');return value;}
@@ -54,7 +60,7 @@ export class OfficeSpeech {
   setCharacterVoice(role,id){const key=speaker(role);if(!key)return;this.characterVoices[key]=String(id||'auto');this.save();this.stop();this.publishVoices();}
   chooseVoice(role,requested){
     const key=speaker(role);if(!key)return null;
-    const all=this.engine==='system'?this.nativeVoices:this.local.voices,matching=all.filter(voice=>supportsLanguage(voice,getLocale())&&(this.engine==='system'||voice.installed));
+    const all=this.engine==='system'?this.nativeVoices:this.local.voices,matching=all.filter(voice=>supportsLanguage(voice,getLocale())&&supportsCharacter(voice,key)&&(this.engine==='system'||voice.installed));
     const choice=requested||this.characterVoices[key]||this.voiceName;
     if(choice&&choice!=='auto'){
       const selected=matching.find(voice=>voice.id===choice||voice.name===choice);if(selected)return selected;
@@ -65,8 +71,8 @@ export class OfficeSpeech {
     }
     if(this.engine==='system'){const local=matching.filter(voice=>voice.localService);return(local.length?local:matching)[0]||null;}
     if(!matching.length)return null;const preferred=all.some(voice=>voice.recommended)?matching.filter(voice=>voice.recommended):matching;if(!preferred.length)return null;
-    const desired=key==='oscar'?'male':'female',gendered=preferred.filter(voice=>voice.gender===desired||voice.gender===(desired==='male'?'masculine':'feminine'));const pool=gendered.length?gendered:preferred;
-    return pool[Object.keys(PROFILE).indexOf(key)%pool.length];
+    const original=preferred.find(voice=>voice.id===`studio-${key}`);if(original)return original;
+    const desired=key==='oscar'?'male':'female',gendered=preferred.filter(voice=>voice.gender===desired||voice.gender===(desired==='male'?'masculine':'feminine'));return(gendered.length?gendered:preferred)[0];
   }
   caption(role,text,error,extra={}){this.notify({role,text,fallback:true,caption:true,speaking:false,preparing:false,...(error?{error}: {}),...extra});return false;}
   speak(role,text,{automatic=false,interrupt=true,voiceId}={}){
@@ -76,7 +82,7 @@ export class OfficeSpeech {
     if(automatic&&(!this.unlocked||!interrupt&&(this.current||Date.now()-this.lastAutomatic<15000)))return false;
     if(automatic)this.lastAutomatic=Date.now();
     if(this.engine==='captions')return this.caption(role,spoken);
-    const voice=this.chooseVoice(role,voiceId);if(!voice||this.engine==='natural'&&(this.local.status!=='ready'||typeof this.host.Audio!=='function'))return this.caption(role,spoken);
+    const voice=this.chooseVoice(role,voiceId);if(!voice||this.engine==='natural'&&(!['ready','installing'].includes(this.local.status)||typeof this.host.Audio!=='function'))return this.caption(role,spoken);
     this.stop();const generation=++this.generation,profile=PROFILE[role]||PROFILE.oscar;
     if(this.engine==='natural'){
       const controller=new AbortController();this.current={role,text:spoken,phase:'preparing',controller};this.notify();

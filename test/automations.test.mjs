@@ -4,7 +4,8 @@ import {EventEmitter} from 'node:events';
 import {mkdtempSync,readFileSync,writeFileSync,rmSync,statSync} from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import {Automations,validateAutomationSchedule,nextAutomationRun} from '../lib/automations.mjs';
+import {execFileSync} from 'node:child_process';
+import {Automations,validateAutomationSchedule,nextAutomationRun,previewAutomationRuns} from '../lib/automations.mjs';
 import {Atelier} from '../lib/orchestrator.mjs';
 const local=(y,m,d,h=0,min=0)=>new Date(y,m-1,d,h,min).getTime();
 const basic={label:'Ma veille',prompt:'Prépare une veille sourcée et un rapport local.',provider:'codex',schedule:{frequency:'daily',time:'02:00'},enabled:true};
@@ -25,6 +26,12 @@ test('calendrier local : quotidien, jours ouvrés, hebdomadaire et intervalle to
  assert.equal(nextAutomationRun({frequency:'interval',intervalMinutes:15},1000),901000);
  for(const schedule of [{frequency:'hourly'},{frequency:'daily',time:'24:00'},{frequency:'daily',time:'2:00'},{frequency:'weekly',dayOfWeek:7},{frequency:'interval',intervalMinutes:0},{frequency:'interval',intervalMinutes:10081}])assert.throws(()=>validateAutomationSchedule(schedule));
 });
+test('Europe/Brussels : changement d’heure sans doublon et intervalles conservés en temps écoulé',()=>{
+ const moduleURL=new URL('../lib/automations.mjs',import.meta.url).href;
+ const program=`import {nextAutomationRun} from ${JSON.stringify(moduleURL)};const next=(schedule,after)=>new Date(nextAutomationRun(schedule,Date.parse(after))).toISOString();console.log(JSON.stringify({spring:next({frequency:'daily',time:'02:30'},'2026-03-29T00:10:00Z'),autumn:next({frequency:'daily',time:'02:30'},'2026-10-25T00:10:00Z'),afterFirst:next({frequency:'daily',time:'02:30'},'2026-10-25T00:45:00Z'),weekend:next({frequency:'weekdays',time:'08:30'},'2026-03-27T10:00:00Z'),interval:next({frequency:'interval',intervalMinutes:15},'2026-10-25T00:55:00Z')}));`;
+ const result=JSON.parse(execFileSync(process.execPath,['--input-type=module','-e',program],{env:{...process.env,TZ:'Europe/Brussels'},encoding:'utf8'}));
+ assert.deepEqual(result,{spring:'2026-03-29T01:30:00.000Z',autumn:'2026-10-25T00:30:00.000Z',afterFirst:'2026-10-26T01:30:00.000Z',weekend:'2026-03-30T06:30:00.000Z',interval:'2026-10-25T01:10:00.000Z'});
+});
 test('persistance privée, modification, pause ; la création ne lance aucune mission',async t=>{
  const{scheduler,engine,dataDir,now}=fixture(t);const created=scheduler.create(basic);assert.equal(engine.calls.length,0);assert.equal(created.nextRunAt,local(2026,10,19,2));assert.equal(statSync(path.join(dataDir,'automations.json')).mode&0o777,0o600);
  assert.equal(scheduler.update(created.id,{enabled:false}).nextRunAt,null);assert.equal(scheduler.update(created.id,{enabled:true,schedule:{frequency:'interval',intervalMinutes:30}}).nextRunAt,now()+1800000);
@@ -41,7 +48,35 @@ test('capacité quatre, abonnement déconnecté et panne moteur restent explicit
  const{scheduler,engine}=fixture(t);const a=scheduler.create(basic);engine.externalActive=4;let r=await scheduler.run(a.id);assert.equal(r.status,'busy');assert.equal(r.lastMissionId,null);assert.equal(engine.calls.length,0);engine.externalActive=0;engine.providers[0].auth.loggedIn=false;r=await scheduler.run(a.id);assert.equal(r.status,'needs_connection');assert.equal(engine.calls.length,0);engine.providers[0].auth.loggedIn=true;engine.start=()=>{throw new Error('RAW-OAUTH-SECRET');};r=await scheduler.run(a.id);assert.equal(r.status,'failed');assert(!JSON.stringify(r).includes('RAW-OAUTH'));assert.equal(r.lastRunAt,null);
 });
 test('mail sans connecteur actif : configuration requise et aucune lecture prétendue',async t=>{
- const{scheduler,engine}=fixture(t);const a=scheduler.create({...basic,requiresConnector:true});const r=await scheduler.run(a.id);assert.equal(r.status,'needs_configuration');assert.match(r.message,/aucun message ni boîte mail ne sera lu/);assert.equal(engine.calls.length,0);
+ const{scheduler,engine}=fixture(t);const a=scheduler.create({...basic,requiresConnector:true});const r=await scheduler.run(a.id);assert.equal(r.status,'needs_configuration');assert.match(r.message,/Choisissez un service de lecture compatible/);assert.equal(engine.calls.length,0);
+});
+
+test('une routine avec service sélectionné est programmée, sans prétendre avoir vérifié ou lu le compte',async t=>{
+ let resolutions=0;const{scheduler,engine,dataDir,now}=fixture(t,{resolveConnectorPlan:async()=>{resolutions++;throw new Error('Aucune lecture à la création');}});
+ const entry=scheduler.create({...basic,requiresConnector:true,connectorName:'chatgpt-gmail'});assert.equal(entry.status,'scheduled');assert.match(entry.message,/seront vérifiés au prochain horaire/);assert.equal(resolutions,0);assert.equal(engine.calls.length,0);
+ assert.equal(scheduler.update(entry.id,{label:'Mon point Gmail'}).status,'scheduled');assert.equal(resolutions,0);
+ const copy=new Automations({engine,dataDir,now,resolveConnectorPlan:()=>{throw new Error();}});assert.equal(copy.get(entry.id).status,'scheduled');await copy.close();
+ const paused=scheduler.update(entry.id,{enabled:false});assert.equal(paused.status,'paused');assert.equal(paused.nextRunAt,null);assert.match(paused.message,/en pause/);
+ const missing=scheduler.create({...basic,requiresConnector:true,enabled:false});assert.equal(missing.status,'paused');assert.equal(scheduler.update(missing.id,{enabled:true}).status,'needs_configuration');
+ const withoutResolver=new Automations({engine,dataDir,now});assert.equal(withoutResolver.get(entry.id).status,'paused');assert.equal(withoutResolver.get(missing.id).status,'needs_configuration');await withoutResolver.close();
+});
+
+test('une autorisation refusée reste à configurer au redémarrage, et la pause reste prioritaire',async t=>{
+ const{scheduler,engine,dataDir,now}=fixture(t,{resolveConnectorPlan:async()=>{throw new Error('PRIVATE-SCOPE');}});const entry=scheduler.create({...basic,requiresConnector:true,connectorName:'gmail'});const failed=await scheduler.run(entry.id);assert.equal(failed.status,'needs_configuration');assert.match(failed.message,/n’est pas disponible/);assert.doesNotMatch(failed.message,/PRIVATE-SCOPE/);assert.equal(engine.calls.length,0);
+ const restored=new Automations({engine,dataDir,now,resolveConnectorPlan:async()=>{throw new Error();}});assert.equal(restored.get(entry.id).status,'needs_configuration');assert.match(restored.get(entry.id).message,/n’est pas disponible/);assert.equal(restored.update(entry.id,{enabled:false}).status,'paused');await restored.close();
+});
+
+test('trois horaires se préparent côté serveur sans enregistrer, vérifier un compte ni lancer une mission',async t=>{
+ let resolutions=0;const{scheduler,engine,now}=fixture(t,{resolveConnectorPlan:async()=>{resolutions++;throw new Error();}});
+ const result=scheduler.preview({schedule:{frequency:'interval',intervalMinutes:60}});assert.deepEqual(result.nextRuns,[now()+3600000,now()+7200000,now()+10800000]);assert.equal(result.generatedAt,now());assert.equal(result.timezone,scheduler.timezone);assert.equal(scheduler.entries.size,0);assert.equal(engine.calls.length,0);assert.equal(resolutions,0);
+ for(const input of [{},{schedule:{}},{schedule:{frequency:'daily',time:'25:00'}},{schedule:{frequency:'daily',time:'02:00',url:'https://external.invalid'}},{schedule:{frequency:'daily'},provider:'claude'},{schedule:{frequency:'daily'},confirmed:true},[]])assert.throws(()=>scheduler.preview(input));
+});
+
+test('l’aperçu des routines existantes conserve leur prochain passage futur et ignore les dates manquées',async t=>{
+ const{scheduler,setNow,now}=fixture(t);const entry=scheduler.create({...basic,schedule:{frequency:'interval',intervalMinutes:60}}),anchor=entry.nextRunAt;setNow(now()+1800000);assert.deepEqual(scheduler.state().automations[0].nextRuns,[anchor,anchor+3600000,anchor+7200000]);
+ setNow(anchor+5*3600000);assert.deepEqual(scheduler.state().automations[0].nextRuns,[now()+3600000,now()+7200000,now()+10800000]);assert.equal(scheduler.get(entry.id).nextRunAt,anchor,'Un aperçu ne modifie pas la programmation');scheduler.update(entry.id,{enabled:false});assert.deepEqual(scheduler.state().automations[0].nextRuns,[]);
+ assert.deepEqual(previewAutomationRuns({frequency:'daily',time:'02:00'},local(2026,10,19,3)),[local(2026,10,20,2),local(2026,10,21,2),local(2026,10,22,2)]);
+ assert.deepEqual(previewAutomationRuns({frequency:'interval',intervalMinutes:60},now(),1e300),[now()+3600000,now()+7200000,now()+10800000]);
 });
 test('seul le plan Gmail résolu est transmis en mémoire ; aucun outil HTTP ou plan persisté',async t=>{
  const plan={client:'codex',name:'gmail',url:'https://gmailmcp.googleapis.com/mcp/v1',enabledTools:['get_message','get_thread','list_drafts','list_labels','search_threads']},requests=[];
@@ -65,4 +100,10 @@ test('plan interne : le runner garde son objet de confiance, le corps HTTP et la
 
 test('une erreur de sauvegarde avant le départ ne lance rien et ne reste pas annoncée en cours',async t=>{
  const{scheduler,engine}=fixture(t);const a=scheduler.create(basic);scheduler.save=()=>{throw new Error('Disque indisponible');};await assert.rejects(scheduler.run(a.id),/Disque/);assert.equal(engine.calls.length,0);assert.equal(scheduler.get(a.id).status,'failed');assert.match(scheduler.get(a.id).message,/Aucune nouvelle mission/);
+});
+test('une routine Claude réutilise uniquement le plan de son propre client et garde les résultats locaux',async t=>{
+ const requests=[],plan={client:'claude',type:'calendar',source:'claude.ai',name:'claudeai-calendar',runtimeName:'claude.ai Google Calendar',enabledTools:['get_event','list_events']};
+ const {scheduler,engine}=fixture(t,{resolveConnectorPlan:async value=>{requests.push(value);return plan;}});const entry=scheduler.create({...basic,provider:'claude',requiresConnector:true,connectorName:plan.name});const running=await scheduler.run(entry.id);
+ assert.equal(running.status,'running');assert.deepEqual(requests,[{client:'claude',name:plan.name}]);assert.equal(engine.calls[0].options.connectorPlan,plan);assert.equal(engine.calls[0].body.provider,'claude');assert.match(engine.calls[0].body.prompt,/compte Claude/);assert.match(engine.calls[0].body.prompt,/ne modifie aucun événement/);
+ engine.finish(running.lastMissionId);scheduler.resolveConnectorPlan=async()=>({...plan,client:'codex'});const denied=await scheduler.run(entry.id);assert.equal(denied.status,'needs_configuration');assert.equal(engine.calls.length,1);
 });

@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import {EventEmitter} from 'node:events';
+import {PassThrough,Writable} from 'node:stream';
 import { Connectors, CONNECTOR_CATALOG, connectorName, connectorUrl, connectorEnvironment, parseCodexConnectors, parseClaudeConnectors, GMAIL_MCP_URL, GMAIL_READ_TOOLS, CALENDAR_MCP_URL, CALENDAR_READ_TOOLS, isTrustedReadPlan } from '../lib/connectors.mjs';
-import { disabledMcpArguments, readConnectorArguments } from '../lib/providers.mjs';
+import { disabledMcpArguments, readConnectorArguments,claudeReadConnectorArguments } from '../lib/providers.mjs';
+import {INHERITED_APPS,parseInheritedApps,inheritedClaudeIdentity,inspectCodexApps} from '../lib/connector-clients.mjs';
 import { createAtelierServer } from '../server.mjs';
 
 async function fixture(t, options = {}) {
@@ -16,9 +19,10 @@ async function fixture(t, options = {}) {
   const find = async client => options.missing === client ? null : `/fake/${client}`;
   const run = async (binary, args, settings) => {
     const client = path.basename(binary); calls.push({ client, args: [...args], settings });
-    if (args[1] === 'list') return { code: controls.listCode, stdout: client === 'codex' ? JSON.stringify(rows.codex) : rows.claude.map(row => `${row.name}: https://example.test/secret?token=NEVER_DISPLAY - ${row.status === 'connected' ? '✓ Connected' : '⚠ Needs authentication'}`).join('\n') };
+    const withoutPlugins=args[0]==='--disable'&&args[1]==='plugins';if(withoutPlugins)args=args.slice(2);
+    if (args[1] === 'list') return { code: controls.listCode, stdout: client === 'codex' ? JSON.stringify(rows.codex.filter(row=>!withoutPlugins||!row.plugin)) : rows.claude.map(row => `${row.name}: https://example.test/secret?token=NEVER_DISPLAY - ${row.status === 'connected' ? '✓ Connected' : '⚠ Needs authentication'}`).join('\n') };
     if (args.includes('--help')) return { code: controls.loginHelp ? 0 : 1, stdout: controls.loginHelp ? 'Usage: mcp login <name>' : '' };
-    if (args[1] === 'get') return { code: 0, stdout: JSON.stringify(configs.get(args[2]) || {}) };
+    if (args[1] === 'get') return { code: 0, stdout: typeof configs.get(args[2])==='string'?configs.get(args[2]):JSON.stringify(configs.get(args[2]) || {}) };
     if (args[1] === 'add') {
       const name = client === 'codex' ? args[2] : args[6];
       rows[client].push({ name, auth_status: 'not_logged_in', status: 'needs_auth' });
@@ -33,7 +37,7 @@ async function fixture(t, options = {}) {
     }
     throw new Error('Unexpected fake client call');
   };
-  const manager = new Connectors({ dataDir, find, run });
+  const manager = new Connectors({ dataDir, find, run,appInspector:options.appInspector||(async()=>[]) });
   await manager.ready;
   t.after(async () => { await manager.close(); await rm(dataDir, { recursive: true, force: true }); });
   const settle = async () => { await Promise.all([...manager.active.values()].map(item => item.completion)); };
@@ -78,6 +82,55 @@ test('reading status never installs, adds or logs in to a connector', async t =>
   const state = await f.manager.state(); assert.equal(state.clients.claude.available, false);
   assert.equal(state.missionAccess, 'handoff_only'); assert.equal(state.scope, 'user');
   assert.ok(f.calls.every(call => call.args[1] === 'list'));
+});
+
+test('Claude discovery has time to check remote connectors without changing the client or account',async t=>{
+  const f=await fixture(t);
+  f.rows.claude.push({name:'claude.ai Google Drive',status:'connected'});
+  const original=f.manager.run;
+  f.manager.run=async(binary,args,settings)=>{
+    if(binary==='/fake/claude'&&args[1]==='list'&&settings.timeoutMs<30000)throw new Error('remote health checks exceeded ten seconds');
+    return original(binary,args,settings);
+  };
+  const state=await f.manager.state();
+  assert.equal(state.clients.claude.status,'available');
+  assert.equal(state.connections.find(row=>row.client==='claude').displayName,'Google Drive');
+  const claude=f.calls.find(call=>call.client==='claude'&&call.args[1]==='list');
+  assert.equal(claude.settings.cwd,f.dataDir);assert.equal(claude.settings.env.HOME,process.env.HOME);
+  assert.equal(claude.settings.timeoutMs,30000);
+  assert.equal(f.calls.find(call=>call.client==='codex').settings.timeoutMs,10000);
+  assert.ok(f.calls.every(call=>!['add','login'].includes(call.args[1])));
+});
+
+test('progressive metadata snapshots show an available account while another client is still checking',async t=>{
+  const f=await fixture(t);f.rows.codex.push({name:'notes',auth_status:'o_auth'});f.rows.claude.push({name:'claude.ai Google Drive',status:'connected'});
+  let release,claudeCalls=0;const gate=new Promise(resolve=>{release=resolve;});
+  const original=f.manager.run;
+  f.manager.run=async(binary,args,settings)=>{if(binary==='/fake/claude'&&args[1]==='list'){claudeCalls++;await gate;}return original(binary,args,settings);};
+  try{
+    const first=await f.manager.state({wait:false});assert.equal(first.clients.claude.status,'checking');
+    await new Promise(resolve=>setImmediate(resolve));
+    const during=await f.manager.state({wait:false});assert.equal(during.connections.some(row=>row.name==='notes'),true);assert.equal(during.clients.claude.status,'checking');assert.equal(claudeCalls,1);
+    release();const complete=await f.manager.state();assert.equal(complete.clients.claude.status,'available');assert.equal(complete.connections.some(row=>row.displayName==='Google Drive'),true);assert.equal(claudeCalls,1);
+  }finally{release();await f.manager.checking;}
+});
+
+test('a failing executable lookup completes a progressive check without leaking diagnostics or rejecting in the background',async t=>{
+  const f=await fixture(t);f.manager.find=async()=>{throw new Error('SECRET-PATH-DIAGNOSTIC');};
+  await f.manager.state({wait:false});
+  const state=await f.manager.state();
+  assert.equal(state.clients.codex.status,'failed');assert.equal(state.clients.claude.status,'failed');
+  assert.equal(JSON.stringify(state).includes('SECRET'),false);assert.equal(f.manager.inspections.size,0);
+});
+
+test('a failed refresh retains service names as unverified and never retains their read permission',async t=>{
+  const f=await fixture(t,{appInspector:async()=>parseInheritedApps(appMetadata())});
+  const first=await f.manager.state();assert.equal(first.connections.find(row=>row.name==='chatgpt-gmail').readOnlyAutomation.available,true);
+  f.controls.listCode=1;
+  const failed=await f.manager.state({refresh:true}),gmail=failed.connections.find(row=>row.name==='chatgpt-gmail');
+  assert.equal(failed.clients.codex.status,'failed');assert.equal(gmail.status,'unverified');assert.equal(gmail.stale,true);assert.equal(gmail.readOnlyAutomation.available,false);assert.equal(Object.hasOwn(gmail,'enabledTools'),false);
+  await assert.rejects(f.manager.readPlan({name:'chatgpt-gmail'}),cause=>cause.code==='CONNECTOR_AUTH');
+  f.controls.listCode=0;const restored=await f.manager.state({refresh:true}),live=restored.connections.find(row=>row.name==='chatgpt-gmail');assert.equal(live.status,'authorized');assert.equal(live.stale,undefined);assert.equal(live.readOnlyAutomation.available,true);
 });
 
 test('setup reserves a name and uses official Codex add without replacing account settings', async t => {
@@ -159,7 +212,7 @@ test('Gmail read plans verify the official URL and OAuth, and only allow five re
   f.configs.set('gmail', { name: 'gmail', transport: { type: 'streamable_http', url: GMAIL_MCP_URL } });
   const plan = await f.manager.readPlan({ client: 'codex', name: 'gmail' });
   assert.equal(isTrustedReadPlan(plan), true); assert.equal(plan.type, 'gmail'); assert.deepEqual(plan.enabledTools, GMAIL_READ_TOOLS); assert.deepEqual(plan.disabledServers, ['other-service']);
-  const args = readConnectorArguments(plan); assert.ok(args.includes('mcp_servers."other-service".enabled=false')); assert.ok(args.includes('mcp_servers."gmail".enabled_tools=' + JSON.stringify(GMAIL_READ_TOOLS)));
+  const args = readConnectorArguments(plan); assert.ok(args.includes('mcp_servers.other-service.enabled=false')); assert.ok(args.includes('mcp_servers.gmail.enabled_tools=' + JSON.stringify(GMAIL_READ_TOOLS)));
   assert.ok(args.includes('web_search="disabled"'));
   assert.ok(!JSON.stringify(args).includes('create_draft')); assert.ok(!JSON.stringify(args).includes('send')); assert.ok(Object.isFrozen(plan));
   assert.throws(() => readConnectorArguments({ ...plan }), /pas été vérifié/);
@@ -168,7 +221,64 @@ test('Gmail read plans verify the official URL and OAuth, and only allow five re
   f.configs.set('gmail', { name: 'gmail', transport: { type: 'streamable_http', url: GMAIL_MCP_URL, http_headers: { Authorization: 'NEVER_DISPLAY' } } });
   await assert.rejects(f.manager.readPlan({ client: 'codex', name: 'gmail' }), /sans en-tête/);
   f.rows.codex[0].auth_status = 'not_logged_in'; await assert.rejects(f.manager.readPlan({ client: 'codex', name: 'gmail' }), /autorisation Gmail/);
-  await assert.rejects(f.manager.readPlan({ client: 'claude', name: 'gmail' }), /Codex/);
+  await assert.rejects(f.manager.readPlan({ client: 'claude', name: 'gmail' }), /autorisation/);
+});
+
+function appMetadata(){
+  return {installed:{apps:[...Object.values(INHERITED_APPS).map(app=>({id:app.id,runtimeName:app.displayName,enabled:true,callable:true})),{id:'other-plugin',runtimeName:'Autre plugin',enabled:true,callable:true}]},list:{data:Object.values(INHERITED_APPS).map(app=>({id:app.id,isAccessible:true,isEnabled:true,name:app.displayName}))},details:{apps:Object.values(INHERITED_APPS).map(app=>({id:app.id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:[...app.tools.map(name=>({name,isReadOnly:true,isEnabled:true})),{name:'send_email',isReadOnly:false,isEnabled:true},{name:'new_unknown_reader',isReadOnly:true,isEnabled:true}]}))}};
+}
+test('inherited ChatGPT access joins canonical identity, callable authorization and exact enabled read tools',()=>{
+ const snapshot=appMetadata(),rows=parseInheritedApps(snapshot),gmail=rows.find(row=>row.name==='chatgpt-gmail');
+ assert.equal(gmail.source,'chatgpt');assert.equal(gmail.status,'authorized');assert.deepEqual(gmail.enabledTools,INHERITED_APPS.gmail.tools);assert.equal(gmail.readOnlyAutomation.available,true);
+ assert.ok(gmail.disabledTools.includes('send_email'));assert.ok(gmail.disabledTools.includes('new_unknown_reader'));
+ const other=rows.find(row=>row.appId==='other-plugin');assert.equal(other.displayName,'Autre plugin');assert.equal(other.inherited,true);assert.equal(other.readOnlyAutomation.available,false);
+ snapshot.installed.apps[0].callable=false;assert.equal(parseInheritedApps(snapshot).find(row=>row.name==='chatgpt-gmail').readOnlyAutomation.available,false);
+ snapshot.installed.apps[0].callable=true;snapshot.details.apps[0].distributionChannel='CUSTOM';assert.equal(parseInheritedApps(snapshot).find(row=>row.name==='chatgpt-gmail').readOnlyAutomation.available,false);
+ snapshot.details.apps[0].distributionChannel='DEFAULT_OAI_CATALOG';snapshot.details.apps[0].toolSummaries[0].isReadOnly=false;assert.equal(parseInheritedApps(snapshot).find(row=>row.name==='chatgpt-gmail').enabledTools.includes('search_emails'),false);
+ snapshot.details.apps[0].id='a-fake-gmail-id';assert.equal(parseInheritedApps(snapshot).find(row=>row.name==='chatgpt-gmail').readOnlyAutomation.available,false);
+});
+test('ChatGPT plans are revalidated, isolate every other app and never add a server or copy credentials',async t=>{
+ const snapshot=appMetadata();let probes=0;const f=await fixture(t,{appInspector:async()=>{probes++;return parseInheritedApps(snapshot);}});f.rows.codex.push({name:'another-mcp',auth_status:'o_auth'},{name:'node_repl',auth_status:'o_auth'},{name:'code-review',plugin:true,auth_status:'o_auth'});
+ const state=await f.manager.state();assert.equal(state.connections.find(row=>row.name==='chatgpt-gmail').readOnlyAutomation.available,true);assert.equal(state.connections.some(row=>Object.hasOwn(row,'enabledTools')),false);
+ const plan=await f.manager.readPlan({client:'codex',name:'chatgpt-gmail'});assert.equal(plan.source,'chatgpt');assert.equal(isTrustedReadPlan(plan),true);assert.ok(probes>=2);
+ const args=readConnectorArguments(plan),key=`apps.${INHERITED_APPS.gmail.id}`;
+ for(const setting of ['apps._default.enabled=false',`${key}.default_tools_enabled=false`,'apps.other-plugin.enabled=false','mcp_servers={"another-mcp"={enabled=false}}'])assert.ok(args.includes(setting),setting);
+ const toolTable=args.find(arg=>arg.startsWith(`${key}.tools=`));assert.ok(toolTable.includes('"send_email"={enabled=false}'));assert.ok(toolTable.includes('"read_email"={enabled=true,approval_mode="auto"}'));assert.deepEqual(plan.disabledServers,['another-mcp']);assert.ok(!args.some(arg=>arg.includes('mcp_servers."')),'CLI dotted keys must not contain literal JSON quotes');
+ assert.throws(()=>readConnectorArguments({...plan}),/pas été vérifié/);assert.ok(!f.calls.some(call=>['add','login'].includes(call.args[1])));
+ const handoff=await f.manager.handoff({client:'codex',name:'chatgpt-other-plugin',prompt:'Mon brief conservé'});assert.ok(handoff.prompt.startsWith('Mon brief conservé'));assert.match(handoff.prompt,/app:\/\/other-plugin/);assert.equal(handoff.missionAccess,'handoff_only');
+ snapshot.installed.apps[0].callable=false;await assert.rejects(f.manager.readPlan({client:'codex',name:'chatgpt-gmail'}),/autorisation/);
+});
+test('routine reads never treat a directory-only app or failed metadata probe as connected',async t=>{
+ const snapshot=appMetadata();snapshot.installed.apps=[];const f=await fixture(t,{appInspector:async()=>parseInheritedApps(snapshot)});const state=await f.manager.state();assert.equal(state.connections.find(row=>row.name==='chatgpt-gmail').status,'needs_auth');await assert.rejects(f.manager.readPlan({name:'chatgpt-gmail'}),/autorisation/);
+ f.manager.appInspector=async()=>{throw new Error('SECRET-OAUTH-DIAGNOSTIC');};const failed=await f.manager.state({refresh:true});assert.equal(failed.connections.some(row=>row.source==='chatgpt'),false);assert.equal(JSON.stringify(failed).includes('SECRET'),false);
+});
+test('existing Claude account connectors require connected state, inherited source and exact official identity',async t=>{
+ const f=await fixture(t);f.rows.claude.push({name:'claude.ai Gmail',status:'connected'},{name:'claude.ai Google Calendar',status:'connected'});
+ f.configs.set('claude.ai Gmail',`claude.ai Gmail:\n  Source: claude.ai\n  URL: ${GMAIL_MCP_URL}\n  Status: ✓ Connected`);
+ f.configs.set('claude.ai Google Calendar',`claude.ai Google Calendar:\n  Source: claude.ai\n  URL: ${CALENDAR_MCP_URL}\n  Status: ✓ Connected`);
+ const state=await f.manager.state(),gmail=state.connections.find(row=>row.name==='claudeai-gmail');assert.equal(gmail.source,'claude.ai');assert.equal(gmail.readOnlyAutomation.available,true);
+ const plan=await f.manager.readPlan({client:'claude',name:'claudeai-gmail'});assert.equal(plan.client,'claude');assert.equal(isTrustedReadPlan(plan),true);const options=claudeReadConnectorArguments(plan);assert.deepEqual(options.allowed,GMAIL_READ_TOOLS.map(tool=>`mcp__claude_ai_Gmail__${tool}`));assert.ok(!options.allowed.some(tool=>/send|create|modify/.test(tool)));assert.throws(()=>claudeReadConnectorArguments({...plan}),/pas été vérifié/);
+ const parsed=JSON.parse(options.args[1]);assert.deepEqual(parsed.allowedMcpServers,[{serverName:'claude.ai Gmail'}]);assert.equal(parsed.permissions.defaultMode,'dontAsk');
+ f.configs.set('claude.ai Gmail',`Source: claude.ai\nURL: https://opaque.claude.example/secret`);const unverified=await f.manager.state({refresh:true});assert.equal(unverified.connections.find(row=>row.name==='claudeai-gmail').status,'unverified');await assert.rejects(f.manager.readPlan({client:'claude',name:'claudeai-gmail'}),/autorisation/);
+ assert.equal(inheritedClaudeIdentity('claude.ai Gmail',`Source: user\nURL: ${GMAIL_MCP_URL}`),null);assert.equal(inheritedClaudeIdentity('custom Gmail',`Source: claude.ai\nURL: ${GMAIL_MCP_URL}`),null);
+ assert.ok(!f.calls.some(call=>['add','login'].includes(call.args[1])));
+});
+test('inherited discovery uses metadata-only RPC, refuses incoming actions and stops its dedicated process',async()=>{
+ const snapshot=appMetadata(),requests=[],kills=[];let child;
+ const spawnImpl=()=>{
+  child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=kind=>{kills.push(kind);queueMicrotask(()=>child.emit('close',0));};
+  child.stdin=new Writable({write(chunk,encoding,callback){const value=JSON.parse(chunk.toString());requests.push(value);if(value.method&&value.id!==undefined){const result=value.method==='initialize'?{}:value.method==='app/installed'?snapshot.installed:value.method==='app/list'?snapshot.list:snapshot.details;queueMicrotask(()=>child.stdout.write(JSON.stringify({id:value.id,result})+'\n'));if(value.method==='initialize')queueMicrotask(()=>child.stdout.write(JSON.stringify({id:'incoming-action',method:'item/tool/call',params:{secret:'NEVER_DISPLAY'}})+'\n'));}callback();}});return child;
+ };
+ const rows=await inspectCodexApps({binary:'/fake/codex',spawnImpl,timeoutMs:1000});assert.equal(rows.find(row=>row.name==='chatgpt-gmail').readOnlyAutomation.available,true);
+ assert.deepEqual(requests.filter(row=>row.method).map(row=>row.method),['initialize','initialized','app/installed','app/read']);assert.equal(requests.find(row=>row.id==='incoming-action').error.code,-32601);assert.ok(kills.includes('SIGTERM'));
+});
+test('a timed-out metadata client is stopped and never exposes its diagnostics',async()=>{
+ const kills=[];const spawnImpl=()=>{const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.stdin=new PassThrough();child.kill=kind=>kills.push(kind);return child;};
+ const keepAlive=setTimeout(()=>{},1000);try{await assert.rejects(inspectCodexApps({binary:'/fake/codex',spawnImpl,timeoutMs:15}),cause=>cause.code==='CONNECTOR_PROBE'&&!cause.message.includes('SECRET'));assert.ok(kills.includes('SIGTERM'));}finally{clearTimeout(keepAlive);}
+});
+test('connector polling caches metadata for sixty seconds while explicit refresh and read plans revalidate',async t=>{
+ let clock=0,probes=0;const f=await fixture(t,{appInspector:async()=>{probes++;return parseInheritedApps(appMetadata());}});f.manager.now=()=>clock;await f.manager.state();clock=10000;await f.manager.state();assert.equal(probes,1);clock=60001;await f.manager.state();assert.equal(probes,2);await f.manager.state({refresh:true});assert.equal(probes,3);await f.manager.readPlan({name:'chatgpt-gmail'});assert.equal(probes,4);
+ const claude=parseClaudeConnectors('claude.ai Google Drive: https://example.test/secret?token=PRIVATE - ✓ Connected');assert.equal(claude[0].source,'claude.ai');assert.equal(claude[0].displayName,'Google Drive');assert.equal(JSON.stringify(claude).includes('PRIVATE'),false);
 });
 
 test('Calendar selection verifies the official service, never authorizes writes and is refreshed before each run', async t => {
@@ -190,8 +300,8 @@ test('Calendar selection verifies the official service, never authorizes writes 
   assert.equal(plan.type, 'calendar'); assert.equal(plan.url, CALENDAR_MCP_URL); assert.deepEqual(plan.enabledTools, ['get_event', 'list_calendars', 'list_events', 'search_events']);
   assert.deepEqual(plan.enabledTools, CALENDAR_READ_TOOLS); assert.ok(isTrustedReadPlan(plan));
   const args = readConnectorArguments(plan);
-  assert.ok(args.includes('web_search="disabled"')); assert.ok(args.includes('mcp_servers."agenda".enabled_tools=' + JSON.stringify(CALENDAR_READ_TOOLS)));
-  for (const name of ['mail', 'video', 'not-authorized']) assert.ok(args.includes(`mcp_servers.${JSON.stringify(name)}.enabled=false`));
+  assert.ok(args.includes('web_search="disabled"')); assert.ok(args.includes('mcp_servers.agenda.enabled_tools=' + JSON.stringify(CALENDAR_READ_TOOLS)));
+  for (const name of ['mail', 'video', 'not-authorized']) assert.ok(args.includes(`mcp_servers.${name}.enabled=false`));
   for (const tool of ['create_event', 'update_event', 'delete_event', 'respond_to_event', 'suggest_time']) assert.ok(!JSON.stringify(args).includes(tool));
   assert.throws(() => readConnectorArguments({ ...plan, type: 'gmail' }), /pas été vérifié/);
   for (const transport of [

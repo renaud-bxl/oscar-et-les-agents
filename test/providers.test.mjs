@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { detectProviders, runAgent, MAX_AGENT_TIMEOUT_MS } from '../lib/providers.mjs';
+import {Connectors,GMAIL_MCP_URL} from '../lib/connectors.mjs';
+import {INHERITED_APPS,parseInheritedApps} from '../lib/connector-clients.mjs';
 
 const fakeSource = String.raw`
 const fs = require('node:fs');
@@ -43,6 +45,26 @@ if (args.includes('--version')) {
     }
     if (mode === 'exit-error') { console.error('rate limit 429 secret-sk-NEVER-LEAK'); process.exitCode = 1; return; }
     if (mode === 'permission') { emit({ type: 'result', subtype: 'success', result: 'Terminé', permission_denials: [{ tool_name: 'Write' }] }); return; }
+    if (mode === 'connector-scope' || mode === 'connector-network') {
+      const detail=mode==='connector-scope'?'Current action failed because this app connection is missing permissions or scopes required for this action. sk-NEVER-LEAK private@example.test':'upstream temporarily unavailable sk-NEVER-LEAK private@example.test';
+      if(provider==='codex'){
+        emit({ type: 'item.completed', item: {type:'mcp_tool_call',server:'codex_apps',tool:'gmail.list_labels',status:'failed',error:{message:detail}} });
+        emit({ type: 'item.completed', item: {type:'agent_message',text:'Rapport terminé'} });
+        emit({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } });
+      }else{
+        emit({type:'assistant',message:{content:[{type:'tool_use',id:'read-1',name:'mcp__claude_ai_Gmail__list_labels',input:{}}]}});
+        emit({type:'user',message:{content:[{type:'tool_result',tool_use_id:'read-1',is_error:true,content:detail}]}});
+        emit({type:'result',subtype:'success',result:'Rapport terminé'});
+      }
+      return;
+    }
+    if(mode==='connector-success'||mode==='connector-unrelated'){
+      if(provider==='codex')emit({type:'item.completed',item:{type:'mcp_tool_call',server:'codex_apps',tool:mode==='connector-success'?'gmail.list_labels':'gmail.create_draft',status:'completed',result:{content:[{type:'text',text:'[]'}],isError:false}}});
+      else{
+        emit({type:'assistant',message:{content:[{type:'tool_use',id:'read-1',name:mode==='connector-success'?'mcp__claude_ai_Gmail__list_labels':'mcp__claude_ai_Gmail__create_draft',input:{}}]}});
+        emit({type:'user',message:{content:[{type:'tool_result',tool_use_id:'read-1',is_error:false,content:'[]'}]}});
+      }
+    }
     if (mode === 'unicode') {
       const content = Buffer.from(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'Été 🌿'}}) + '\n' + JSON.stringify({type:'turn.completed',usage:{input_tokens:1}}));
       const offset = content.indexOf(Buffer.from('🌿')) + 2;
@@ -127,7 +149,7 @@ test('Codex : prompt stdin, configuration par défaut, sandbox, nettoyage du sch
     assert.equal(invocation.input, 'Une mission avec $() et `texte` littéraux.');
     assert.equal(invocation.cwd, await realpath(cwd));
     assert.equal(invocation.apiKeysPresent, false);
-    assert.deepEqual(invocation.args.slice(0, 4), ['-a','never','--search','exec']);
+    assert.deepEqual(invocation.args.slice(0, 6), ['-a','never','--search','--disable','apps','exec']);
     assert.equal(invocation.args.at(-1), '-');
     assert.equal(invocation.args[invocation.args.indexOf('--sandbox') + 1], 'workspace-write');
     assert.deepEqual(invocation.schema, schema);
@@ -143,9 +165,55 @@ test('Codex : utilise la configuration officielle live si le drapeau search est 
     process.env.FAKE_NO_SEARCH = '1';
     await runAgent({provider:'codex',cwd,prompt:'Rechercher une source actuelle'});
     const invocation = await capture();
-    assert.deepEqual(invocation.args.slice(0, 5), ['-a','never','-c','web_search="live"','exec']);
+    assert.deepEqual(invocation.args.slice(0, 7), ['-a','never','-c','web_search="live"','--disable','apps','exec']);
   });
 });
+test('Codex inherited execution exposes only the selected read tools and keeps sandbox and approvals',async()=>{
+ await fixture(async({cwd,capture})=>{
+  process.env.FAKE_MODE='connector-success';
+  const app=INHERITED_APPS.gmail,manager=new Connectors({dataDir:cwd,find:async()=>'/fake/codex',run:async()=>({code:0,stdout:'[]'}),appInspector:async()=>parseInheritedApps({installed:{apps:[{id:app.id,enabled:true,callable:true},{id:'other-plugin',enabled:true,callable:true}]},list:{data:[{id:app.id,isEnabled:true,isAccessible:true}]},details:{apps:[{id:app.id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:[...app.tools.map(name=>({name,isEnabled:true,isReadOnly:true})),{name:'send_email',isEnabled:true,isReadOnly:false}]}]}})});
+  try{const connectorPlan=await manager.readPlan({name:app.name});await runAgent({provider:'codex',cwd,prompt:'Préparer un bilan local',connectorPlan,readOnly:true});const {args}=await capture();assert.equal(args[args.indexOf('-a')+1],'never');assert.equal(args[args.indexOf('--sandbox')+1],'read-only');assert.ok(args.includes('apps._default.enabled=false'));assert.ok(args.includes('apps.other-plugin.enabled=false'));assert.ok(args.find(arg=>arg.startsWith(`apps.${app.id}.tools=`)).includes('"send_email"={enabled=false}'));assert.deepEqual(args.slice(2,6),['--disable','plugins','--enable','apps']);assert.ok(!args.includes('--search'));}
+  finally{await manager.close();}
+ });
+});
+test('une permission de connecteur refusée reste un échec malgré la fin normale du tour, sans exposer le compte', async () => {
+ await fixture(async ({cwd}) => {
+  const app=INHERITED_APPS.gmail;
+  const manager=new Connectors({dataDir:cwd,find:async()=>'/fake/codex',run:async()=>({code:0,stdout:'[]'}),appInspector:async()=>parseInheritedApps({installed:{apps:[{id:app.id,enabled:true,callable:true}]},details:{apps:[{id:app.id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:app.tools.map(name=>({name,isEnabled:true,isReadOnly:true}))}]}})});
+  try {
+   process.env.FAKE_MODE='connector-scope';
+   const connectorPlan=await manager.readPlan({name:app.name});
+   await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Lire les libellés',connectorPlan}), error=>error.code==='CONNECTOR_PERMISSIONS' && /autorisations nécessaires/.test(error.message) && !/NEVER-LEAK|private@/.test(error.message));
+  } finally { await manager.close(); }
+ });
+});
+
+test('Claude inherits one verified account connector under restricted dontAsk with five exact read permissions',async()=>{
+ await fixture(async({cwd,capture})=>{
+  process.env.FAKE_MODE='connector-success';
+  const manager=new Connectors({dataDir:cwd,find:async()=>'/fake/claude',appInspector:async()=>[],run:async(binary,args)=>({code:0,stdout:args[1]==='list'?`claude.ai Gmail: ${GMAIL_MCP_URL} - ✓ Connected\nother: https://example.test - ✓ Connected`:`Source: claude.ai\nURL: ${GMAIL_MCP_URL}`})});
+  try{const connectorPlan=await manager.readPlan({client:'claude',name:'claudeai-gmail'});await runAgent({provider:'claude',cwd,prompt:'Préparer un bilan local',connectorPlan});const {args}=await capture();assert.ok(args.includes('--restricted'));assert.equal(args.includes('--strict-mcp-config'),false);assert.equal(args[args.indexOf('--permission-mode')+1],'dontAsk');const allowed=args[args.indexOf('--allowedTools')+1].split(',');assert.equal(allowed.filter(tool=>tool.startsWith('mcp__')).length,5);assert.ok(!allowed.some(tool=>/Bash|Agent|WebFetch|WebSearch|send|create_draft/.test(tool)));const settings=JSON.parse(args[args.indexOf('--settings')+1]);assert.deepEqual(settings.deniedMcpServers,[{serverName:'other'}]);}
+  finally{await manager.close();}
+ });
+});
+
+for(const provider of ['codex','claude']){
+  for(const [mode,code]of [['ok','CONNECTOR_NO_READ'],['connector-unrelated','CONNECTOR_NO_READ'],['connector-network','CONNECTOR_UNAVAILABLE'],['connector-scope','CONNECTOR_PERMISSIONS']]){
+    test(`${provider}: a connector report requires a confirmed allowed read (${mode})`,async()=>{
+      await fixture(async({cwd})=>{
+        const app=INHERITED_APPS.gmail;
+        const manager=new Connectors({dataDir:cwd,find:async()=>`/fake/${provider}`,
+          run:async(binary,args)=>({code:0,stdout:provider==='codex'?'[]':args[1]==='list'?`claude.ai Gmail: ${GMAIL_MCP_URL} - ✓ Connected`:`Source: claude.ai\nURL: ${GMAIL_MCP_URL}`}),
+          appInspector:async()=>provider==='codex'?parseInheritedApps({installed:{apps:[{id:app.id,enabled:true,callable:true}]},details:{apps:[{id:app.id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:app.tools.map(name=>({name,isEnabled:true,isReadOnly:true}))}]}}):[]});
+        try{
+          process.env.FAKE_MODE=mode;
+          const connectorPlan=await manager.readPlan({client:provider,name:provider==='codex'?app.name:'claudeai-gmail'});
+          await assert.rejects(runAgent({provider,cwd,prompt:'Préparer un relevé de messages',connectorPlan,readOnly:true}),cause=>cause.code===code&&!/NEVER-LEAK|private@/.test(cause.message));
+        }finally{await manager.close();}
+      });
+    });
+  }
+}
 
 test('Codex : décode les caractères multioctets et accepte une dernière ligne sans saut', async () => {
   await fixture(async ({ cwd }) => {

@@ -13,5 +13,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Préparer les documents de test
+        run: |
+          python -m venv .qa-documents
+          .qa-documents/bin/python -m pip install --isolated --only-binary=:all: --disable-pip-version-check --index-url https://pypi.org/simple python-docx==1.2.0 openpyxl==3.1.5 reportlab==4.4.9 pypdf==6.19.0
       - run: npm test
+        env:
+          OSCAR_TEST_DOCUMENT_PYTHON: ${{ github.workspace }}/.qa-documents/bin/python
       - run: sh -n install.sh

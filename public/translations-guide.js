@@ -113,4 +113,103 @@ entries.push(
   ['Voir les automatisations','View automations','Automatiseringen bekijken'],
 );
 entries.push(['Oscar et Zoé sont les deux voix du bureau. Les réglages proposent un pack local pour le français, l’anglais et le néerlandais, à télécharger volontairement puis à préécouter. Les spécialistes travaillent en silence et les sous-titres restent disponibles.','Oscar and Zoé are the two voices of the office. Settings offer a local pack for French, English and Dutch, which you can choose to download and preview. The specialists work quietly and captions remain available.','Oscar en Zoé zijn de twee stemmen van het kantoor. In de instellingen vind je een lokaal pakket voor Frans, Engels en Nederlands, dat je zelf kunt downloaden en vooraf beluisteren. De specialisten werken in stilte en ondertitels blijven beschikbaar.']);
+entries.push(['Oscar et Zoé sont les deux personnages qui parlent. Les réglages proposent deux voix pour chacun, en français, anglais et néerlandais. Écoutez les extraits avant de choisir ; l’installation locale reste volontaire. Les spécialistes travaillent en silence et les sous-titres restent disponibles.','Oscar and Zoé are the only characters who speak. Settings offer two voices for each, in French, English and Dutch. Listen to the samples before choosing; local installation remains optional. The specialists work quietly and captions remain available.','Oscar en Zoé zijn de enige personages die spreken. In de instellingen zijn er voor elk twee stemmen, in het Frans, Engels en Nederlands. Beluister de fragmenten voor je kiest; de lokale installatie blijft vrijwillig. De specialisten werken in stilte en ondertitels blijven beschikbaar.']);
+entries.push(...[
+  [
+    "Le Studio commence par votre idée : décrivez le sujet, les textes et le style. Lancez une création avec votre abonnement ou choisissez une composition locale, puis ajustez le résultat et exportez-le en SVG ou en PNG.",
+    "The Studio starts with your idea: describe the subject, text and style. Create with your subscription or choose a local composition, then adjust the result and export it as SVG or PNG.",
+    "De Studio begint met je idee: beschrijf het onderwerp, de tekst en de stijl. Maak iets met je abonnement of kies een lokale compositie. Pas het resultaat aan en exporteer het als SVG of PNG."
+  ],
+  [
+    "Avec « Dicter ma demande », racontez votre idée au microphone. Vous relisez et corrigez le texte reconnu avant de lancer le travail. Le navigateur demande votre accord ; la saisie au clavier reste disponible.",
+    "With “Dictate my request”, describe your idea into the microphone. Review and correct the recognised text before starting the work. Your browser asks for permission; typing remains available.",
+    "Met ‘Mijn verzoek dicteren’ vertel je je idee via de microfoon. Lees de herkende tekst na en corrigeer hem voordat je het werk start. Je browser vraagt toestemming; typen blijft mogelijk."
+  ],
+  [
+    "L’assistant des connecteurs vous accompagne en trois étapes : retrouver votre compte, vérifier le service, puis confier votre demande. Les accès déjà autorisés dans ChatGPT ou Claude peuvent être réutilisés quand leur client les rend disponibles.",
+    "The connector assistant guides you through three steps: find your account, check the service and submit your request. Access already authorised in ChatGPT or Claude can be reused when their client makes it available.",
+    "De connectorassistent helpt je in drie stappen: je account terugvinden, de dienst controleren en je verzoek indienen. Toegang die je al in ChatGPT of Claude hebt toegestaan, kan worden hergebruikt wanneer hun client die beschikbaar maakt."
+  ],
+  [
+    "« Retrouver mes connexions » vérifie vos accès sans demander leurs mots de passe. Gmail et Agenda vérifiés peuvent être utilisés par Zoé ; pour les autres plugins, préparez un brief à reprendre dans votre client. Higgsfield demande une confirmation du coût avant toute génération.",
+    "“Find my connections” checks your access without asking for passwords. Zoé can use verified Gmail and Calendar connections; for other plugins, prepare a brief to continue in your client. Higgsfield requires cost confirmation before generating.",
+    "‘Mijn verbindingen terugvinden’ controleert je toegang zonder wachtwoorden te vragen. Zoé kan geverifieerde Gmail- en Agendaverbindingen gebruiken; voor andere plug-ins bereid je een briefing voor om in je client verder te gaan. Bij Higgsfield moet je de kosten vóór elke generatie bevestigen."
+  ],
+  [
+    "Zoé vous simplifie la journée.",
+    "Zoé makes your day easier.",
+    "Zoé maakt je dag eenvoudiger."
+  ],
+  [
+    "Votre assistante",
+    "Your assistant",
+    "Je assistente"
+  ],
+  [
+    "Mails, agenda ou questions libres : choisissez ce dont vous avez besoin.",
+    "Email, calendar or open questions: choose what you need.",
+    "E-mail, agenda of vrije vragen: kies wat je nodig hebt."
+  ],
+  [
+    "Les onglets Mails et Agenda proposent les services autorisés disponibles. Zoé lit le service choisi, prépare une synthèse et des réponses à relire, puis Oscar vérifie le résultat. Aucun message ni rendez-vous n’est modifié.",
+    "The Email and Calendar tabs list available authorised services. Zoé reads the selected service and prepares a summary and suggested replies, then Oscar reviews the result. No messages or appointments are changed.",
+    "Op de tabbladen E-mail en Agenda vind je de beschikbare diensten waarvoor je toestemming hebt gegeven. Zoé leest de gekozen dienst en maakt een samenvatting en antwoordvoorstellen. Daarna controleert Oscar het resultaat. Berichten en afspraken blijven ongewijzigd."
+  ],
+  [
+    "« Demande libre » fonctionne sans connecteur : recherches Web, restaurants, comparatifs, textes ou idées. Pour une recherche près de chez vous, indiquez une ville ou autorisez la position approximative. Vous pouvez refuser la géolocalisation et saisir le lieu.",
+    "“Open request” works without a connector: web research, restaurants, comparisons, text or ideas. For a search nearby, enter a city or allow approximate location. You can decline geolocation and type the place instead.",
+    "‘Vrij verzoek’ werkt zonder connector: webonderzoek, restaurants, vergelijkingen, teksten of ideeën. Vul voor een zoekopdracht in de buurt een stad in of sta je geschatte locatie toe. Je kunt locatiebepaling weigeren en de plaats zelf invullen."
+  ],
+  [
+    "« Faire le point maintenant » répond à votre demande ponctuelle. « Programmer » crée une routine distincte, à retrouver dans Automatiser.",
+    "“Get an update now” answers your one-off request. “Schedule” creates a separate routine, which you can find in Automate.",
+    "‘Nu een overzicht maken’ beantwoordt je eenmalige verzoek. ‘Inplannen’ maakt een aparte routine aan die je terugvindt bij Automatiseren."
+  ],
+  [
+    "Vos documents donnent le ton.",
+    "Your documents set the tone.",
+    "Je documenten zetten de toon."
+  ],
+  [
+    "Vos documents",
+    "Your documents",
+    "Je documenten"
+  ],
+  [
+    "Des exemples pour guider l’équipe et des fichiers prêts à utiliser.",
+    "Examples to guide the team and files ready to use.",
+    "Voorbeelden om het team te begeleiden en bestanden die klaar zijn voor gebruik."
+  ],
+  [
+    "Ajoutez un document ou un dossier dans « Modèles et exemples » : Word, Excel, PDF, texte, Markdown, CSV ou JSON. Sélectionnez jusqu’à huit références pour une mission. Les originaux sont conservés ; chaque équipe travaille à partir de ses propres copies.",
+    "Add a document or folder to “Templates and examples”: Word, Excel, PDF, text, Markdown, CSV or JSON. Select up to eight references for a mission. Originals are kept; each team works from its own copies.",
+    "Voeg een document of map toe aan ‘Sjablonen en voorbeelden’: Word, Excel, PDF, tekst, Markdown, CSV of JSON. Selecteer maximaal acht referenties voor een opdracht. De originelen blijven bewaard; elk team werkt met eigen kopieën."
+  ],
+  [
+    "Choisissez Word, PDF ou Excel pour la livraison. Les outils d’export s’installent sur cet ordinateur après votre confirmation. Un modèle Word avec {{CONTENU}} conserve les éléments autour de cette zone ; un exemple PDF ne garantit pas une mise en page identique.",
+    "Choose Word, PDF or Excel for your results. Export tools are installed on this computer after your confirmation. A Word template with {{CONTENU}} preserves the elements around that area; a PDF example does not guarantee an identical layout.",
+    "Kies Word, PDF of Excel voor je resultaten. De exporttools worden na je bevestiging op deze computer geïnstalleerd. Een Word-sjabloon met {{CONTENU}} behoudt de elementen rond die zone; een PDF-voorbeeld garandeert geen identieke opmaak."
+  ],
+  [
+    "La bibliothèque permet aussi d’exporter le texte d’une mission terminée. Les fichiers apparaissent dans sa livraison et restent accessibles depuis son dossier.",
+    "The library also lets you export text from a finished mission. The files appear in its results and remain accessible in its folder.",
+    "Via de bibliotheek kun je ook de tekst van een afgeronde opdracht exporteren. De bestanden verschijnen bij de resultaten en blijven toegankelijk in de map van die opdracht."
+  ],
+  [
+    "Ouvrir les modèles et exemples",
+    "Open templates and examples",
+    "Sjablonen en voorbeelden openen"
+  ],
+  [
+    "Ouvrir les modèles et exemples ↗",
+    "Open templates and examples ↗",
+    "Sjablonen en voorbeelden openen ↗"
+  ],
+  [
+    "et les Agents",
+    "and the Agents",
+    "en de Agents"
+  ]
+]);
+entries.push(['Découvrir les connecteurs ↗','Explore connectors ↗','Connectoren ontdekken ↗'],['Ouvrir Zoé ↗','Open Zoé ↗','Zoé openen ↗'],['Voir les automatisations ↗','View automations ↗','Automatiseringen bekijken ↗']);
 export default Object.fromEntries(entries.map(([source, en, nl]) => [source, { en, nl }]));

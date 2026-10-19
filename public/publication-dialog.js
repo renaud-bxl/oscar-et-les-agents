@@ -5,7 +5,7 @@ export class PublicationDialog {
   constructor({request,getMission,onClose=()=>{}}){
     Object.assign(this,{request,getMission,onClose});this.kind='github';this.busy=false;this.preview=null;this.timer=null;this.epoch=0;
     this.dialog=node('dialog','publication-dialog');this.dialog.id='publication-dialog';this.dialog.setAttribute('aria-labelledby','publication-title');
-    this.dialog.addEventListener('close',()=>{this.epoch++;clearTimeout(this.timer);this.password.value='';this.preview=null;this.onClose();});
+    this.dialog.addEventListener('close',()=>{if(this.dialog.open)return;this.epoch++;clearTimeout(this.timer);this.password.value='';this.preview=null;this.onClose();});
     document.body.append(this.dialog);this.build();
   }
   field(label,type='text',placeholder=''){

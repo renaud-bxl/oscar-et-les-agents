@@ -32,7 +32,7 @@ const DESKS=ISLANDS.flatMap((island,islandIndex)=>Array.from({length:4},(_,i)=>(
   direction:i<2?'down':'up'
 })));
 const DOOR={x:110,y:190},RECEPTION={x:130,y:270},REVIEW={x:730,y:330};
-const OSCAR_HOME={x:720,y:237},OSCAR_WELCOME={x:250,y:275},OSCAR_GATE={x:570,y:310};
+const OSCAR_HOME={x:720,y:237},OSCAR_WELCOME={x:155,y:285},OSCAR_GATE={x:570,y:310};
 const OSCAR_VISITS={recherche:{x:430,y:370},redaction:{x:1010,y:370},code:{x:890,y:470},design:{x:530,y:640},analyse:{x:1210,y:640}};
 const REVIEW_WAIT=Array.from({length:20},(_,i)=>({x:510+(i%10)*40,y:350+Math.floor(i/10)*40}));
 const COFFEE=Array.from({length:20},(_,i)=>({x:190+(i%4)*20,y:650+Math.floor(i/4)*40}));
@@ -41,7 +41,7 @@ const BUSY_TASKS=new Set(['working','revising']),EXIT_TASKS=new Set(['failed','c
 const TRAVEL_STATES=new Set(['entering','to_desk','to_oscar','to_review_queue','to_review_wait','to_coffee','to_chat','returning','leaving']);
 const LAMPS=[{x:490,y:108},{x:720,y:64},{x:950,y:108},{x:550,y:520,floor:true},{x:1240,y:520,floor:true}];
 const HOTSPOTS=[
-  {kind:'coffee',label:'Machine à café',x:65,y:612,w:107,h:126},
+  {kind:'coffee',label:'Machine à café',x:57,y:565,w:123,h:173},
   {kind:'window',label:'Fenêtre de gauche',x:180,y:60,w:220,h:134},
   {kind:'window',label:'Fenêtre de droite',x:1080,y:60,w:220,h:134},
   {kind:'clock',label:'Horloge',x:973,y:76,w:60,h:60},
@@ -101,8 +101,21 @@ function blend(a,b,amount) {
   return `rgb(${rgb.join(',')})`;
 }
 
+export const CAT_TOUR_SECONDS=16.7;
+export function catPose(elapsed,{reducedMotion=false}={}){
+  const home={x:1324,y:608,groundY:611,direction:1,walking:false,jumping:false,resting:true};
+  if(reducedMotion||!Number.isFinite(elapsed)||elapsed<0||elapsed>=CAT_TOUR_SECONDS)return home;
+  const route=[[0,1324,608,'jump'],[1,1400,710,'walk'],[3.8,1400,810,'walk'],[6.4,1220,810,'walk'],[7.8,1205,740,'sniff'],[9,1205,740,'walk'],[11,1220,810,'walk'],[13.5,1400,810,'walk'],[15.6,1400,710,'jump'],[CAT_TOUR_SECONDS,1324,608,'rest']];
+  const index=route.findIndex((point,i)=>i<route.length-1&&elapsed>=point[0]&&elapsed<route[i+1][0]);
+  const a=route[index],b=route[index+1],p=(elapsed-a[0])/(b[0]-a[0]),jumping=a[3]==='jump',walking=a[3]==='walk';
+  const x=a[1]+(b[1]-a[1])*p,groundY=a[2]+(b[2]-a[2])*p+3,y=groundY-3-(jumping?Math.sin(p*Math.PI)*66:walking?Math.abs(Math.sin(elapsed*11))*1.8:0);
+  return {x,y,groundY,direction:b[1]<a[1]?-1:1,walking,jumping,resting:false,sniffing:a[3]==='sniff'};
+}
+// Both windows belong to one room: each celestial body appears once.
+export function windowCelestials(scene,index){return {sun:index===1&&scene.sun.visible,moon:index===0&&scene.moon.visible};}
+
 export class PixelWorld {
-  constructor(canvas,{onSelect=()=>{},onStatus=()=>{},onEvent=()=>{},onInteract=()=>{},onAmbience=()=>{}}={}) {
+  constructor(canvas,{onSelect=()=>{},onStatus=()=>{},onEvent=()=>{},onInteract=()=>{},onAmbience=()=>{},getCharacterLine=()=>null}={}) {
     if(!canvas?.getContext) throw new Error('Un canvas est nécessaire pour ouvrir l’atelier.');
     this.canvas=canvas;this.ctx=canvas.getContext('2d');
     if(!this.ctx) throw new Error('Le dessin de l’atelier est indisponible dans ce navigateur.');
@@ -111,6 +124,7 @@ export class PixelWorld {
     this.viewport={width:W,height:H,scale:1,offsetX:0,offsetY:0,dpr:this.pixelRatio};
     this.ctx.imageSmoothingEnabled=true;
     this.onSelect=onSelect;this.onStatus=onStatus;this.onEvent=onEvent;this.onInteract=onInteract;this.onAmbience=onAmbience;
+    this.getCharacterLine=getCharacterLine;
     this.mission=null;this.missionId=null;this.agents=new Map();
     this.frame=0;this.time=0;this.oscarState='idle';this._oscarBubble='Explique-moi ce que tu veux faire';this._oscarBubbleUntil=4;
     this.oscar={...OSCAR_WELCOME,id:'oscar',key:'oscar',role:'oscar',name:'Oscar',direction:'down',path:[],place:'welcome',destination:'welcome',nextVisitAt:18,visitUntil:0,visits:0};
@@ -271,11 +285,11 @@ export class PixelWorld {
       x=this._hoveredProp?.x?this._hoveredProp.x+32:93;y=320;bubble='Je fais pousser les idées.';
       text='La plante demande un peu d’eau et zéro réunion. Elle fait déjà pousser les idées.';
     } else if(kind==='cat') {
-      this.props.catStart=this.time;this.props.catUntil=this.time+4.5;x=1324;y=500;bubble='Miaou ! Contrôle du rebond terminé.';
-      text='Moka teste la gravité, puis reprend son poste de responsable qualité des siestes.';
+      const underway=this.time<this.props.catUntil;if(!underway){this.props.catStart=this.time;this.props.catUntil=this.time+CAT_TOUR_SECONDS;}
+      const pose=catPose(this.time-this.props.catStart,{reducedMotion:this.reducedMotion});x=pose.x;y=pose.y-80;bubble=underway?'Inspection des chaussettes en cours.':'Miaou ! Je fais ma petite tournée.';
+      text='Moka descend de son armoire, inspecte le bureau et revient prendre sa place. La sieste peut attendre un petit tour.';
     } else if(kind==='secretary') {
-      x=1160;y=190;bubble='On fait le point sur votre journée ?';
-      text='Zoé prépare vos e-mails, votre agenda et vos priorités avec les services que vous avez connectés.';
+      x=1160;y=190;bubble=this.getCharacterLine?.('zoe')||'On fait le point sur votre journée ?';text=bubble;
     } else if(kind==='missions') {
       x=494;y=103;bubble='Une nouvelle idée à construire ?';
       text='Le tableau des missions : choisissez une idée dans le catalogue ou confiez votre propre projet à Oscar.';
@@ -297,7 +311,7 @@ export class PixelWorld {
       missionId:this.missionId,bounds:{width:W,height:H},viewport:{...this.viewport},ambience:this._ambienceSnapshot(),frame:this.frame,time:Math.round(this.time*100)/100,
       paused:this._manualPaused||document.hidden,reducedMotion:this.reducedMotion,oscarState:this.oscarState,oscar:{x:this.oscar.x,y:this.oscar.y,place:this.oscar.place,destination:this.oscar.destination,moving:!!this.oscar.path.length,visits:this.oscar.visits},
       doorOpen:this._doorOpen,reviewOwner:this._reviewOwner,secretary:{name:'Zoé',busy:!!this.secretaryBusy},
-      bubbles:this._visibleBubbles.map(b=>({...b})),
+      bubbles:this._visibleBubbles.map(b=>({...b})),spaces:(this._spaceLabels||[]).map(p=>({...p})),
       props:{windowMode:this.props.windowMode,lights:[...this.props.lights],coffeeSteam:this.time<this.props.coffeeUntil,
         clockGag:this.time<this.props.clockUntil,clockTime:new Date().toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'}),
         hotspots:HOTSPOTS.map(p=>({...p})),lastInteraction:this._lastInteraction?{...this._lastInteraction}:null},
@@ -625,17 +639,18 @@ export class PixelWorld {
     if(Math.abs(p.x-1160)<30&&p.y>=174&&p.y<=267||p.x>=1078&&p.x<=1253&&p.y>=255&&p.y<=313)return {role:'secretaire',name:'Zoé',id:null,type:'secretary'};
     if(Math.abs(p.x-this.oscar.x)<34&&p.y>this.oscar.y-90&&p.y<this.oscar.y+25)return {role:'oscar',id:null};
     if(p.x>610&&p.x<830&&p.y>218&&p.y<290)return {role:'oscar',id:null,type:'desk'};
+    for(const label of this._spaceLabels||[])if(p.x>=label.x&&p.x<=label.x+label.w&&p.y>=label.y&&p.y<=label.y+label.h)return {role:label.role,id:null,type:'desk'};
     for(const island of ISLANDS)if(p.x>=island.x-12&&p.x<=island.x+island.w+12&&p.y>=island.y-78&&p.y<=island.y+island.h+65)return {role:island.role,id:null,type:'desk'};
     return null;
   }
-  _hitProp(p) {return HOTSPOTS.find(h=>p.x>=h.x&&p.x<h.x+h.w&&p.y>=h.y&&p.y<h.y+h.h)||null;}
+  _hitProp(p) {if(this.time<this.props.catUntil){const pose=catPose(this.time-this.props.catStart,{reducedMotion:this.reducedMotion});if(Math.abs(p.x-pose.x)<31&&p.y>pose.y-49&&p.y<pose.y+12)return {kind:'cat',label:'Moka · en promenade',x:pose.x-31,y:pose.y-49,w:62,h:61};}return HOTSPOTS.find(h=>(h.kind!=='cat'||this.time>=this.props.catUntil||this.reducedMotion)&&p.x>=h.x&&p.x<h.x+h.w&&p.y>=h.y&&p.y<h.y+h.h)||null;}
   _selectActor(a) {
     if(a.type==='secretary'){this.interact('secretary');return;}
     if(a.type==='desk'){this.onSelect(a.role,null);return;}
     const info={...ROLES[a.role],name:a.name||ROLES[a.role].name},key=a.key||'oscar';
     const n=this._clickCounts.get(key)||0;this._clickCounts.set(key,n+1);
     let text;
-    if(a.role==='oscar') text=this.oscarState==='reviewing'?'Je lis. La tasse attend.':this.oscarState==='planning'?'Une idée, puis un plan.':this.oscarState==='coordinating'?'Je coordonne. Le café inclus.':['Chef d’équipe. Et de cafetière.','Mon superpouvoir ? Déléguer.','Les bonnes idées ont une place.'][n%3];
+    if(a.role==='oscar') text=this.getCharacterLine?.('oscar')||['Les bonnes idées ont une place.','Mon superpouvoir ? Déléguer.','Une idée, puis un plan.'][n%3];
     else if(a.state==='leaving') text='Je rends les clés et la tasse.';
     else if(a.task?.status==='queued') text='Prêt ! J’attends le brief.';
     else if(a.task?.status==='reviewing') text='Oscar lit. Je retiens ma tasse.';
@@ -653,11 +668,11 @@ export class PixelWorld {
     if(this._selectionTimer!==null) clearTimeout(this._selectionTimer);
     this._selectionTimer=setTimeout(()=>{
       this._selectionTimer=null;
-      if(!this._destroyed&&(a.role==='oscar'||this.agents.has(key))) this.onSelect(a.role,a.id);
+      if(!this._destroyed&&(a.role==='oscar'||this.agents.has(key))) this.onSelect(a.role,a.id,a.role==='oscar'?text:null);
     },this.reducedMotion?80:180);
   }
   _select(event) {
-    const p=this._coordinates(event),a=this._hit(p);
+    const p=this._coordinates(event),cat=this._hitProp(p);if(cat?.kind==='cat'){this._hoveredProp=cat;this.interact('cat');return;}const a=this._hit(p);
     if(a) {this._selectActor(a);return;}
     const prop=this._hitProp(p);
     if(prop) {this._hoveredProp=prop;this.interact(prop.kind,prop.index??null);}
@@ -665,7 +680,7 @@ export class PixelWorld {
   _pointer(event) {
     const p=this._coordinates(event),actor=this._hit(p),prop=actor?null:this._hitProp(p);
     this.canvas.style.cursor=actor||prop?'pointer':'';
-    this.canvas.title=actor?`${actor.name||ROLES[actor.role].name} · voir sa personnalité et sa mission`:prop?.label||this._initialTitle;
+    this.canvas.title=actor?translate(actor.type==='desk'?ROLES[actor.role]?.label||'Oscar':`${actor.name||ROLES[actor.role].name} · voir sa personnalité et sa mission`):prop?translate(prop.label):this._initialTitle;
     if(prop!==this._hoveredProp) {this._hoveredProp=prop;if(this._manualPaused) this._draw();}
   }
 
@@ -728,10 +743,10 @@ export class PixelWorld {
     this._round(c,866,146,98,49,8,'#fafaf0');this._text(c,'LE COLLECTIF',915,160,'#91a58c',10,'center',650);
     for(let i=0;i<5;i++)this._ellipse(c,887+i*14,174,4,4,[P.coral,P.blue,P.gold,P.mint,'#b4a9c6'][i]);
     this._text(c,'Talents & métiers',915,188,'#a6ad9b',8,'center');
-    this._text(c,'Oscar et les Agents',720,43,'#6e897a',16,'center',550);
+    this._round(c,601,91,238,34,12,'#fffdf4dd','#c9d6c8');this._text(c,'Oscar et les Agents',720,114,'#385647',16,'center',700);
     this._plant(c,94,421,1.05);this._plant(c,1347,424,1.16);this._plant(c,1335,761,1.2);
     this._coffeeCorner(c);this._lounge(c);this._deliveryCabinet(c);
-    for(const island of ISLANDS) this._island(c,island);
+    this._spaceLabels=[];for(const island of ISLANDS) this._island(c,island);
     this._oscarDesk(c,false);
     // Books, an original porcelain companion, and the studio's small everyday objects.
     this._shadow(c,()=>this._round(c,1280,611,80,11,5,'#c5a282'),9,5);
@@ -741,7 +756,13 @@ export class PixelWorld {
   _island(c,island) {
     const {x,y,w,h,accent,role}=island;
     this._round(c,x-36,y-58,w+72,h+126,44,`${accent}17`);
-    this._text(c,ROLES[role].label.toUpperCase(),x+w/2,y-63,'#81917f',12,'center',650);
+    const integrated=role==='design'||role==='analyse',compact=role==='redaction',title=translate(ROLES[role].label).toUpperCase();
+    c.font=`750 ${compact?12:14}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    const labelWidth=integrated?94:compact?122:Math.min(290,Math.max(124,c.measureText(title).width+30)),labelY=integrated?y+29:compact?y-35:y-137;
+    const label={role,x:x+w/2-labelWidth/2,y:labelY,w:labelWidth,h:32};this._spaceLabels?.push(label);
+    // Lower islands have colleagues immediately behind them: their nameplates
+    // belong on the clear centre of the table instead of over another face.
+    if(!integrated)this._islandSign(c,label,title,accent,compact);
     for(const seat of DESKS.filter(d=>d.role===role)) this._chair(c,seat.stand.x,seat.stand.y,accent,seat.position<2);
     this._shadow(c,()=>this._round(c,x+2,y+13,w-4,h-8,22,'#a48d7160'),22,13);
     this._round(c,x,y+7,w,h-7,21,'#bc9a78');
@@ -749,10 +770,19 @@ export class PixelWorld {
     this._round(c,x,y,w,h-12,20,top,'#d6b794');
     this._line(c,x+20,y+10,x+w-20,y+10,'#ffffff60',2);
     for(const seat of DESKS.filter(d=>d.role===role)) this._screen(c,seat,false);
-    this._round(c,x+w/2-42,y+32,84,23,11,'#fff7e8d9');
-    this._text(c,ROLES[role].label,x+w/2,y+48,'#8e957e',10,'center',600);
+    if(integrated)this._islandSign(c,label,title,accent,false);
+    else {this._round(c,x+w/2-42,y+32,84,23,11,'#fff7e8d9');this._text(c,role==='code'?'Code':ROLES[role].label,x+w/2,y+48,'#395549',10.5,'center',700);}
     this._ellipse(c,x+w/2+17,y+64,8,3,'#b4937260');this._round(c,x+w/2+10,y+55,13,10,3,accent);this._ellipse(c,x+w/2+16,y+55,6,2,'#f8eddd');
     this._round(c,x+w/2-30,y+60,19,10,2,'#fff9ec');this._line(c,x+w/2-26,y+63,x+w/2-15,y+63,'#a7b49e');
+  }
+  _islandSign(c,label,title,accent,compact=false) {
+    this._shadow(c,()=>this._round(c,label.x,label.y,label.w,label.h,11,'#fffdf6','#c0cfbf'),8,3);
+    if(!compact)this._round(c,label.x+9,label.y+9,5,14,2,accent);
+    this._text(c,title,label.x+label.w/2+(compact?0:4),label.y+21,'#304f43',compact?12:14,'center',750);
+  }
+  _utilitySign(c,text,x,y,width) {
+    this._round(c,x-width/2,y,width,26,9,'#fffaf0f2','#c7cbb5');
+    this._text(c,text,x,y+18,'#3f5946',12,'center',650);
   }
   _chair(c,x,y,color,upper=false) {
     this._ellipse(c,x,y+3,23,9,'#66785e13');
@@ -802,7 +832,7 @@ export class PixelWorld {
     this._round(c,104,625,7,10,2,'#d9dfcc');this._round(c,100,639,16,11,4,'#faf5e8');
     this._ellipse(c,108,640,7,2,'#8c7059');this._ellipse(c,128,618,2,2,P.mint);
     this._round(c,145,635,11,15,4,P.coral);this._ellipse(c,150,636,5,2,'#fff3dc');
-    this._text(c,'Le petit café',118,594,'#9c9c84',12,'center',550);
+    this._utilitySign(c,'Le petit café',118,570,123);
     this._round(c,95,745,46,9,4,'#90765d');
   }
   _deliveryCabinet(c) {
@@ -811,7 +841,7 @@ export class PixelWorld {
     this._round(c,1278,665,43,37,4,'#d3b797');this._round(c,1328,665,43,37,4,'#d3b797');
     this._line(c,1317,677,1317,689,'#9e876d',2);this._line(c,1332,677,1332,689,'#9e876d',2);
     for(let i=0;i<3;i++){this._round(c,1282+i*22,628-i%2*4,20,18,4,[P.mint,'#e8d5b2',P.coral][i]);this._round(c,1285+i*22,624-i%2*4,9,5,2,[P.mint,'#e8d5b2',P.coral][i]);}
-    this._text(c,'Livraisons',1325,736,'#8b9a85',11,'center');
+    this._utilitySign(c,'Livraisons',1325,670,106);
   }
   _lounge(c) {
     this._round(c,525,650,395,163,66,'#a8beb71c');
@@ -825,7 +855,7 @@ export class PixelWorld {
     this._ellipse(c,730,733,64,35,'#b99876');this._ellipse(c,730,725,64,35,'#efdbbf');
     this._round(c,701,707,30,22,4,'#fff9ee');this._line(c,708,713,725,713,'#a6b99e',2);this._line(c,708,719,722,719,'#bdcbb6',2);
     this._ellipse(c,749,734,13,5,'#b19c7c25');this._round(c,740,715,17,18,6,'#c99178');this._ellipse(c,748,716,8,3,'#f8ead8');
-    this._text(c,'Lounge · les idées continuent',730,835,'#8b9a85',12,'center');
+    this._utilitySign(c,'Lounge · les idées continuent',730,634,244);
   }
   _plant(c,x,y,scale=1) {
     c.save();c.translate(x,y);c.scale(scale,scale);
@@ -841,6 +871,7 @@ export class PixelWorld {
   _drawWindows(c) {
     const scene=this.ambience,daylight=scene.daylight;
     for(const [i,x] of [180,1080].entries()) {
+      const celestial=windowCelestials(scene,i);
       this._shadow(c,()=>this._round(c,x-6,59,232,134,16,'#d0d8ca'),13,5);
       this._round(c,x,62,220,123,11,'#fefdf7');
       c.save();c.beginPath();c.roundRect(x+8,70,204,106,7);c.clip();
@@ -850,18 +881,18 @@ export class PixelWorld {
       if(scene.warmth>0){c.save();c.globalAlpha=scene.warmth*.52;const warmth=c.createLinearGradient(0,70,0,176);warmth.addColorStop(0,'#e4aba8');warmth.addColorStop(1,'#f4d7ad');c.fillStyle=warmth;c.fillRect(x+8,70,204,106);c.restore();}
       if(scene.stars>.03) {
         for(let n=0;n<14;n++) {
-          const sx=x+17+(n*27)%186,sy=79+(n*13)%58,twinkle=this.reducedMotion ? .8 :.72+Math.sin(this.time*.8+n*2.7)*.28;
+          const sx=x+17+((n*27+i*73)%186),sy=79+((n*13+i*29)%58),twinkle=this.reducedMotion ? .8 :.72+Math.sin(this.time*.8+n*2.7+i)*.28;
           c.save();c.globalAlpha=scene.stars*twinkle;this._ellipse(c,sx,sy,n%4===0?1.7:1.2,1.2,'#fff4db');c.restore();
         }
       }
-      if(scene.moon.visible){c.save();c.globalAlpha=scene.moon.opacity;const mx=x+8+scene.moon.x*204,my=70+scene.moon.y*106;const halo=c.createRadialGradient(mx,my,7,mx,my,25);halo.addColorStop(0,'#fff2cc25');halo.addColorStop(1,'#fff2cc00');this._ellipse(c,mx,my,25,25,halo);this._ellipse(c,mx,my,12,12,'#f8ecd2');this._ellipse(c,mx-5,my-4,11,11,skyTop);c.restore();}
-      if(scene.sun.visible){c.save();c.globalAlpha=scene.sun.opacity;const sx=x+8+scene.sun.x*204,sy=70+scene.sun.y*106;const halo=c.createRadialGradient(sx,sy,4,sx,sy,31);halo.addColorStop(0,'#f5dda742');halo.addColorStop(1,'#f5dda700');this._ellipse(c,sx,sy,31,31,halo);this._ellipse(c,sx,sy,15+scene.warmth*3,15+scene.warmth*3,'#edd39b');c.restore();}
+      if(celestial.moon){c.save();c.globalAlpha=scene.moon.opacity;const mx=x+8+scene.moon.x*204,my=70+scene.moon.y*106;const halo=c.createRadialGradient(mx,my,7,mx,my,25);halo.addColorStop(0,'#fff2cc25');halo.addColorStop(1,'#fff2cc00');this._ellipse(c,mx,my,25,25,halo);this._ellipse(c,mx,my,12,12,'#f8ecd2');this._ellipse(c,mx-5,my-4,11,11,skyTop);c.restore();}
+      if(celestial.sun){c.save();c.globalAlpha=scene.sun.opacity;const sx=x+8+scene.sun.x*204,sy=70+scene.sun.y*106;const halo=c.createRadialGradient(sx,sy,4,sx,sy,31);halo.addColorStop(0,'#f5dda742');halo.addColorStop(1,'#f5dda700');this._ellipse(c,sx,sy,31,31,halo);this._ellipse(c,sx,sy,15+scene.warmth*3,15+scene.warmth*3,'#edd39b');c.restore();}
       const shift=this.reducedMotion?0:Math.sin(this.time*.025+i)*14;
       c.save();c.globalAlpha=.18+daylight*.55;
       for(const [cx,cy,size] of [[x+44+shift,98,1],[x+106-shift,118,.8]]){this._ellipse(c,cx,cy,22*size,7*size,'#fff8e9');this._ellipse(c,cx-7*size,cy-5*size,11*size,7*size,'#fff8e9');}
       c.restore();
-      c.beginPath();c.moveTo(x,174);c.bezierCurveTo(x+40,119,x+75,175,x+118,144);c.bezierCurveTo(x+160,116,x+185,163,x+230,137);c.lineTo(x+230,185);c.lineTo(x,185);c.fillStyle=blend('#607b7d','#adc8ad',daylight);c.fill();
-      c.beginPath();c.moveTo(x,181);c.bezierCurveTo(x+70,143,x+137,174,x+220,153);c.lineTo(x+220,190);c.lineTo(x,190);c.fillStyle=blend('#466c70','#94b69a',daylight);c.fill();
+      c.beginPath();c.moveTo(x,174);if(i===0){c.bezierCurveTo(x+40,119,x+75,175,x+118,144);c.bezierCurveTo(x+160,116,x+185,163,x+230,137);}else{c.bezierCurveTo(x+50,157,x+95,116,x+140,139);c.bezierCurveTo(x+180,163,x+201,129,x+230,143);}c.lineTo(x+230,185);c.lineTo(x,185);c.fillStyle=blend('#607b7d','#adc8ad',daylight);c.fill();
+      c.beginPath();c.moveTo(x,181);c.bezierCurveTo(x+70,i?164:143,x+137,i?149:174,x+220,i?170:153);c.lineTo(x+220,190);c.lineTo(x,190);c.fillStyle=blend('#466c70','#94b69a',daylight);c.fill();
       c.restore();
       this._round(c,x+104,67,7,111,2,'#fdfcf5');this._round(c,x+5,121,211,6,2,'#fdfcf5');this._round(c,x-9,182,238,12,5,'#ebe6d6');
       if(scene.sun.visible&&daylight>.08){c.save();c.globalAlpha=.025+daylight*.055;const lean=(.5-scene.sun.progress)*170,g=c.createLinearGradient(x,212,x+lean,380);g.addColorStop(0,'#f2d49c');g.addColorStop(1,'#f2d49c00');c.fillStyle=g;c.beginPath();c.moveTo(x+10,218);c.lineTo(x+210,218);c.lineTo(x+210+lean,380);c.lineTo(x+10+lean,380);c.fill();c.restore();}
@@ -937,9 +968,11 @@ export class PixelWorld {
     this._round(c,x-33,y+26,72,18,8,'#fff9ed');this._text(c,'Zoé · Secrétariat',x+3,y+38,'#83626a',8.5,'center',650);
   }
   _companion(c,reacting) {
-    const elapsed=this.time-(this.props.catStart||0),hop=reacting&&!this.reducedMotion?Math.abs(Math.sin(elapsed*Math.PI*1.25))*38*Math.max(0,1-elapsed/5):0;
-    const x=1324+(reacting&&!this.reducedMotion?Math.sin(elapsed*4)*7:0),y=608-hop;
-    this._ellipse(c,1324,611,Math.max(9,18-hop*.15),4,'#6a765e25');this._ellipse(c,x,y-9,13,17,'#ede5d2');
+    const pose=catPose(reacting?this.time-(this.props.catStart||0):-1,{reducedMotion:this.reducedMotion}),{x,y}=pose;
+    this._ellipse(c,x,pose.groundY,pose.jumping?11:19,4,'#52624b35');
+    c.save();c.translate(x,y);c.scale(pose.direction,1);c.translate(-x,-y);
+    if(pose.walking||pose.sniffing){this._ellipse(c,x+4,y-11,21,12,'#ede5d2');const stride=pose.walking?Math.sin(this.time*11)*5:0;for(const[px,sign]of[[-10,1],[0,-1],[13,1],[21,-1]]){this._line(c,x+px,y-10,x+px+stride*sign,y+1,'#e1d7c4',4);this._ellipse(c,x+px+stride*sign,y+2,4,2.5,'#f5edda');}}
+    else this._ellipse(c,x,y-9,13,17,'#ede5d2');
     this._ellipse(c,x-2,y-25,13,11,'#f5edda');
     c.beginPath();c.moveTo(x-13,y-29);c.quadraticCurveTo(x-18,y-48,x-4,y-35);c.moveTo(x+5,y-34);c.quadraticCurveTo(x+18,y-47,x+10,y-26);c.fillStyle='#f5edda';c.fill();
     const blink=!this.reducedMotion&&Math.floor(this.time*5)%23===0;
@@ -947,8 +980,9 @@ export class PixelWorld {
     this._ellipse(c,x-1,y-21,2,1.5,'#d5aa95');
     const swish=this.reducedMotion?0:Math.sin(this.time*(reacting?7:1.8))*(reacting?10:3);
     c.beginPath();c.moveTo(x+8,y);c.bezierCurveTo(x+30,y+4,x+35+swish,y-16,x+24+swish,y-17);c.strokeStyle='#e7decb';c.lineWidth=7;c.lineCap='round';c.stroke();
-    this._ellipse(c,x-8,y+3,5,3,'#f5edda');this._ellipse(c,x+4,y+3,5,3,'#f5edda');
+    if(!pose.walking&&!pose.sniffing){this._ellipse(c,x-8,y+3,5,3,'#f5edda');this._ellipse(c,x+4,y+3,5,3,'#f5edda');}
     if(reacting&&!this.reducedMotion)this._heart(c,x+27,y-43+Math.sin(this.time*2)*3,P.coral);
+    c.restore();
   }
   _sprite(c,actor,oscar=false) {
     const info=ROLES[actor.role]||ROLES.recherche,reaction=this._reactions.get(actor.key||'oscar'),reacting=!!reaction&&reaction.until>this.time;
@@ -1032,7 +1066,7 @@ export class PixelWorld {
     if(this._propBubble&&this.time<this._propBubble.until)candidates.push({id:'prop',kind:'prop',priority:.5,text:this._propBubble.text,x:this._propBubble.x,y:this._propBubble.y,accent:P.coral,distance:0});
     candidates.sort((a,b)=>a.priority-b.priority||a.distance-b.distance);
     // Speech should never hide a face, a name, another speech bubble, or the studio title.
-    const bodies=[{x:this.oscar.x-34,y:this.oscar.y-90,w:69,h:122},...live.map(a=>({x:a.x-28,y:a.y-85,w:56,h:118})),{x:600,y:24,w:240,h:28}];
+    const bodies=[{x:this.oscar.x-34,y:this.oscar.y-90,w:69,h:122},...live.map(a=>({x:a.x-28,y:a.y-85,w:56,h:118})),{x:601,y:91,w:238,h:34},...(this._spaceLabels||[])];
     const placed=[];
     const overlaps=(a,b,pad=7)=>a.x<b.x+b.w+pad&&a.x+a.w+pad>b.x&&a.y<b.y+b.h+pad&&a.y+a.h+pad>b.y;
     c.font='500 13px -apple-system, BlinkMacSystemFont, sans-serif';

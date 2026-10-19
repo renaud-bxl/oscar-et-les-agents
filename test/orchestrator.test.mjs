@@ -221,6 +221,7 @@ test('quatre missions indépendantes travaillent ensemble ; annuler l’une pré
     return Promise.resolve({ text: schema?.properties.approved ? JSON.stringify({ approved: true, feedback: 'Les critères sont respectés.' }) : 'Le rapport de cette mission est prêt.' });
   }, { providers: [{ id: 'codex', available: true }, { id: 'claude', available: true }] });
   const missions = Array.from({ length: 4 }, (_, index) => app.start({ prompt: `Projet indépendant ${index + 1}`, provider: index % 2 === 0 ? 'codex' : 'claude' }));
+  await new Promise(resolve => setImmediate(resolve)); // Reference preparation finishes before the runners start.
   assert.equal(planning.length, 4);
   assert.equal(new Set(planning.map(entry => entry.signal)).size, 4);
   assert.equal(new Set(planning.map(entry => entry.cwd)).size, 4);

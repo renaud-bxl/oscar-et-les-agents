@@ -9,6 +9,7 @@ node_modules/
 coverage/
 test-results/
 playwright-report/
+.qa-documents/
 
 __pycache__/
 *.pyc

@@ -6,39 +6,45 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { PocketVoice, POCKET_FILES, POCKET_DOWNLOAD_BYTES, POCKET_VOICES, supportedPython, downloadPocketFile } from '../lib/pocket-voice.mjs';
+import { PocketVoice, POCKET_FILES, POCKET_DOWNLOAD_BYTES, POCKET_EXTRA_FILES, POCKET_EXTRA_DOWNLOAD_BYTES, POCKET_VOICES, supportedPython, downloadPocketFile } from '../lib/pocket-voice.mjs';
 
 async function until(condition) { for(let attempt=0;attempt<200;attempt++){if(condition())return;await new Promise(resolve=>setTimeout(resolve,5));}assert.fail('Expected asynchronous condition did not settle'); }
 const voiceError = () => Object.assign(new Error('Cancelled'), {code:'VOICE_CANCELLED'});
 function wave() { const data=Buffer.alloc(200);data.write('RIFF');data.write('WAVEfmt ',8);return data; }
 async function fixture(t, options={}) {
   const dataDir=await mkdtemp(path.join(tmpdir(),'oscar-pocket-test-'));
-  const calls={prepare:0,download:0,workers:0,generated:[],closed:0};
+  const calls={prepare:0,download:0,downloaded:[],workers:0,generated:[],closed:0};
   const data=Buffer.from('verified fixture');
   const files=[{path:'english/model.safetensors',bytes:data.length,sha256:createHash('sha256').update(data).digest('hex'),url:'https://huggingface.co/kyutai/pocket-tts-without-voice-cloning/resolve/test/model.safetensors'}];
-  const control={hold:false,waiting:null,fail:false};
+  const extraFiles=['french_24l','english','dutch'].flatMap(language=>['charles','alba'].map(preset=>({...files[0],path:`${language}/${preset}.safetensors`})));
+  const control={hold:false,waiting:null,fail:false,failExtra:false};
   const workerFactory=()=>{
     calls.workers++;
     return {alive:true,async generate(task,{signal}={}){
       calls.generated.push({text:task.text,language:task.language,voiceId:task.voiceId});
-      if(control.fail)throw new Error('NEVER_DISPLAY');
+      if(control.fail || control.failExtra&&task.voiceId.endsWith('-2'))throw new Error('NEVER_DISPLAY');
       if(control.hold)await new Promise((resolve,reject)=>{control.waiting=resolve;signal?.addEventListener('abort',()=>reject(voiceError()),{once:true});if(signal?.aborted)reject(voiceError());});
       if(signal?.aborted)throw voiceError();
       await writeFile(task.output,wave(),{flag:'wx'});return{ok:true};
     },async close(){this.alive=false;calls.closed++;}};
   };
-  const instance=new PocketVoice({dataDir,platform:'darwin',findPythonImpl:async()=>options.noPython?null:'/fake/python3',files,
+  const instance=new PocketVoice({dataDir,platform:'darwin',findPythonImpl:async()=>options.noPython?null:'/fake/python3',files,extraFiles,
     prepareRuntimeImpl:async({runtimeDir})=>{calls.prepare++;await mkdir(path.join(runtimeDir,'bin'),{recursive:true});const python=path.join(runtimeDir,'bin/python');await writeFile(python,'fake',{mode:0o700});return python;},
-    downloadImpl:async({target,onProgress})=>{calls.download++;await mkdir(path.dirname(target),{recursive:true});await writeFile(target,data);onProgress(data.length);},workerFactory,...options});
+    downloadImpl:async({target,onProgress})=>{calls.download++;calls.downloaded.push(target);await mkdir(path.dirname(target),{recursive:true});await writeFile(target,data);onProgress(data.length);},workerFactory,...options});
   await instance.ready;
   t.after(async()=>{await instance.close();await rm(dataDir,{recursive:true,force:true});});
   const install=async()=>{await instance.install({voiceId:'studio-oscar',confirmed:true});await instance.operation;};
-  return{voice:instance,dataDir,calls,files,control,workerFactory,install};
+  return{voice:instance,dataDir,calls,files,extraFiles,control,workerFactory,install};
 }
 
-test('studio catalogue has two shared multilingual presets and only twelve fixed public files',()=>{
-  assert.deepEqual(POCKET_VOICES.map(row=>row.id),['studio-oscar','studio-zoe']);
+test('studio catalogue provides two distinct licensed presets per character with a six-file optional delta',()=>{
+  assert.deepEqual(POCKET_VOICES.map(row=>row.id),['studio-oscar','studio-oscar-2','studio-zoe','studio-zoe-2']);
+  assert.deepEqual(POCKET_VOICES.filter(row=>row.character==='oscar').map(row=>row.preset),['Marius','Charles']);
+  assert.deepEqual(POCKET_VOICES.filter(row=>row.character==='zoe').map(row=>row.preset),['Estelle','Alba']);
+  assert.ok(POCKET_VOICES.every(row=>row.previewKey===row.id&&/^studio-(oscar|zoe)(-2)?$/.test(row.previewKey)));
   assert.equal(POCKET_FILES.length,12);assert.equal(POCKET_DOWNLOAD_BYTES,1197700249);
+  assert.equal(POCKET_EXTRA_FILES.length,6);assert.equal(POCKET_EXTRA_DOWNLOAD_BYTES,74340240);
+  assert.ok(POCKET_EXTRA_FILES.every(row=>/^[a-f0-9]{64}$/.test(row.sha256)&&/\/(charles|alba)\.safetensors$/.test(row.path)&&row.url.startsWith('https://huggingface.co/kyutai/pocket-tts-without-voice-cloning/resolve/4e1e0a3e611c51c0b4ed8174fc10f32a54644303/')));
   assert.ok(POCKET_FILES.every(row=>/^[a-f0-9]{64}$/.test(row.sha256)&&row.url.startsWith('https://huggingface.co/kyutai/pocket-tts-without-voice-cloning/resolve/')));
   for(const version of ['Python 3.10.1','3.14.8'])assert.equal(supportedPython(version),true);
   for(const version of ['3.9.4','3.15.0','4.0.1','unknown'])assert.equal(supportedPython(version),false);
@@ -59,13 +65,68 @@ test('one explicit pack install proves both presets in all three languages befor
   await assert.rejects(f.voice.install({voiceId:'studio-oscar'}),/Confirmez/);
   await assert.rejects(f.voice.install({voiceId:'studio-oscar',confirmed:true,ref_audio:'/personal.wav'}),/Confirmez/);
   await f.install();const state=await f.voice.state();
-  assert.equal(state.status,'ready');assert.ok(state.voices.every(row=>row.installed));
+  assert.equal(state.status,'ready');assert.ok(state.voices.filter(row=>!row.additional).every(row=>row.installed));assert.ok(state.voices.filter(row=>row.additional).every(row=>!row.installed));
   assert.equal(f.calls.prepare,1);assert.equal(f.calls.download,1);assert.equal(f.calls.workers,1);
   assert.deepEqual(f.calls.generated.map(row=>[row.language,row.voiceId]),[['fr','studio-oscar'],['fr','studio-zoe'],['en','studio-oscar'],['en','studio-zoe'],['nl','studio-oscar'],['nl','studio-zoe']]);
   await f.voice.install({voiceId:'studio-zoe',confirmed:true});assert.equal(f.calls.download,1);
   assert.match(await readFile(path.join(f.voice.models,'SOURCES-ET-LICENCES.txt'),'utf8'),/CC0/);
-  const restored=new PocketVoice({dataDir:f.dataDir,files:f.files,findPythonImpl:async()=>null});await restored.ready;
+  const restored=new PocketVoice({dataDir:f.dataDir,files:f.files,extraFiles:f.extraFiles,findPythonImpl:async()=>null});await restored.ready;
   assert.equal((await restored.state()).available,true);await restored.close();
+});
+
+test('the optional delta preserves the original voices and runtime while verifying six additional clips',async t=>{
+  const f=await fixture(t);await f.install();
+  const before=await f.voice.state();const extra=before.voices.find(row=>row.id==='studio-oscar-2');
+  assert.equal(extra.downloadMB,75);assert.equal(extra.runtimeDownloadMB,0);assert.equal(extra.installationMB,75);assert.equal(extra.fileCount,6);assert.equal(extra.installationGroup,'studio-extra');
+  const markerBefore=JSON.parse(await readFile(f.voice.marker,'utf8'));assert.equal(markerBefore.extraVerified,undefined);
+  const download=f.voice.download;let release,entered;
+  const waiting=new Promise(resolve=>{entered=resolve;});
+  f.voice.download=async options=>{entered();await new Promise(resolve=>{release=resolve;});f.voice.download=download;return download(options);};
+  const initial=await f.voice.install({voiceId:'studio-oscar-2',confirmed:true});await waiting;
+  assert.equal(initial.status,'installing');assert.equal(initial.available,true);assert.equal(initial.progress.fileCount,6);
+  assert.ok(initial.voices.filter(row=>!row.additional).every(row=>row.installed));assert.ok(initial.voices.filter(row=>row.additional).every(row=>!row.installed));
+  await assert.rejects(f.voice.speak({voiceId:'studio-oscar',text:'Pendant installation'}),{code:'VOICE_BUSY'});
+  release();await f.voice.operation;const after=await f.voice.state();
+  assert.ok(after.voices.every(row=>row.installed));assert.equal(f.calls.prepare,1);assert.equal(f.calls.download,7);
+  assert.ok(f.calls.downloaded.slice(1).every(file=>/\/(charles|alba)\.safetensors$/.test(file)));
+  assert.deepEqual(f.calls.generated.slice(6).map(row=>[row.language,row.voiceId]),[['fr','studio-oscar-2'],['fr','studio-zoe-2'],['en','studio-oscar-2'],['en','studio-zoe-2'],['nl','studio-oscar-2'],['nl','studio-zoe-2']]);
+  assert.equal(JSON.parse(await readFile(f.voice.marker,'utf8')).extraVerified,true);
+  assert.match(await readFile(path.join(f.voice.models,'SOURCES-ET-LICENCES.txt'),'utf8'),/Charles : VCTK p254, CC BY 4.0/);
+  assert.match(await readFile(path.join(f.voice.models,'SOURCES-ET-LICENCES.txt'),'utf8'),/Alba MacKenna : casual, CC BY 4.0/);
+  await f.voice.install({voiceId:'studio-zoe-2',confirmed:true});assert.equal(f.calls.download,7);
+  const a=await f.voice.speak({voiceId:'studio-oscar',text:'Choix indépendant'}),b=await f.voice.speak({voiceId:'studio-oscar-2',text:'Choix indépendant'});
+  assert.notEqual(a.url,b.url);assert.equal(f.calls.generated.at(-1).voiceId,'studio-oscar-2');
+});
+
+test('v1 installations load without reinstalling and recognise the independently verified optional pair',async t=>{
+  const f=await fixture(t);await f.install();
+  const restored=new PocketVoice({dataDir:f.dataDir,files:f.files,extraFiles:f.extraFiles,findPythonImpl:async()=>null,prepareRuntimeImpl:async()=>{assert.fail('Existing runtime must not be replaced');},downloadImpl:f.voice.download,workerFactory:f.workerFactory});
+  t.after(()=>restored.close());await restored.ready;
+  const before=await restored.state();assert.equal(before.available,true);assert.equal(before.voices.filter(row=>row.installed).length,2);
+  await restored.install({voiceId:'studio-zoe-2',confirmed:true});await restored.operation;
+  assert.equal((await restored.state()).voices.filter(row=>row.installed).length,4);assert.equal(f.calls.prepare,1);
+  const reload=new PocketVoice({dataDir:f.dataDir,files:f.files,extraFiles:f.extraFiles,findPythonImpl:async()=>null});t.after(()=>reload.close());await reload.ready;
+  assert.equal((await reload.state()).voices.filter(row=>row.installed).length,4);
+  await rm(path.join(f.voice.models,'english/charles.safetensors'));
+  const partial=new PocketVoice({dataDir:f.dataDir,files:f.files,extraFiles:f.extraFiles,findPythonImpl:async()=>null});t.after(()=>partial.close());await partial.ready;
+  assert.equal((await partial.state()).available,true);assert.equal((await partial.state()).voices.filter(row=>row.installed).length,2);
+});
+
+test('a failed optional verification keeps the v1 marker and both original voices usable',async t=>{
+  const f=await fixture(t);await f.install();const markerBefore=await readFile(f.voice.marker,'utf8');
+  f.control.failExtra=true;await f.voice.install({voiceId:'studio-oscar-2',confirmed:true});await f.voice.operation;
+  const state=await f.voice.state();assert.equal(state.status,'ready');assert.equal(state.available,true);assert.match(state.installationError,/complément/);
+  assert.equal(await readFile(f.voice.marker,'utf8'),markerBefore);assert.equal(state.voices.filter(row=>row.installed).length,2);assert.equal(f.calls.prepare,1);
+  assert.equal((await f.voice.speak({voiceId:'studio-zoe',text:'Toujours disponible'})).voiceId,'studio-zoe');
+  await assert.rejects(f.voice.speak({voiceId:'studio-zoe-2',text:'Pas encore validée'}),{code:'VOICE_NOT_INSTALLED'});
+});
+
+test('a fresh optional install commits the base before attempting its smaller extension',async t=>{
+  const f=await fixture(t);const before=await f.voice.state();
+  assert.equal(before.voices.find(row=>row.id==='studio-oscar-2').downloadMB,1273);
+  f.control.failExtra=true;await f.voice.install({voiceId:'studio-oscar-2',confirmed:true});await f.voice.operation;
+  assert.equal((await f.voice.state()).voices.filter(row=>row.installed).length,2);assert.equal(f.calls.prepare,1);
+  assert.equal(JSON.parse(await readFile(f.voice.marker,'utf8')).verified,true);assert.equal(JSON.parse(await readFile(f.voice.marker,'utf8')).extraVerified,undefined);
 });
 
 test('a failed verification never becomes ready or leaks model diagnostics',async t=>{

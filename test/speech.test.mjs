@@ -1,16 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {OfficeSpeech,supportsLanguage} from '../public/office-speech.js';
+import {OfficeSpeech,supportsLanguage,supportsCharacter} from '../public/office-speech.js';
 import {setLocale} from '../public/i18n.js';
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const VOICES=[{id:'fr-pierre',name:'Pierre',lang:'fr-FR',gender:'male',installed:true},{id:'fr-jessica',name:'Jessica',lang:'fr-FR',gender:'female',installed:true},{id:'en-alba',name:'Alba',lang:'en-GB',installed:false}];
 const STUDIO=[{id:'studio-oscar',name:'Oscar Studio',lang:'multilingual',languages:['fr','en','nl'],gender:'male',recommended:true,installed:true},{id:'studio-zoe',name:'Zoé Studio',lang:'multilingual',languages:['fr','en','nl'],gender:'female',recommended:true,installed:true}];
+const ALTERNATIVES=STUDIO.map(voice=>({...voice,id:voice.id+'-2',character:voice.id.slice(7),name:voice.name+' 2'}));
 function fixture({installed=true,response,stored,voices=VOICES}={}){
   const utterances=[],audio=[],changes=[],calls=[],saved=new Map(stored?[['oscar-voice-v1',JSON.stringify(stored)]]:[]),document=new EventTarget();document.hidden=false;
   const synth=new EventTarget();Object.assign(synth,{cancel(){},resume(){},getVoices:()=>[{name:'System voice',lang:'fr-FR',localService:true}],speak:utterance=>utterances.push(utterance)});
   const host={document,speechSynthesis:synth,SpeechSynthesisUtterance:class{constructor(text){this.text=text;}},Audio:class{constructor(url){this.url=url;audio.push(this);}play(){this.played=true;return Promise.resolve();}pause(){this.paused=true;}removeAttribute(){}load(){}},localStorage:{getItem:key=>saved.get(key),setItem:(key,value)=>saved.set(key,value)},fetch:async(url,options={})=>{calls.push({url,options});if(response)return response(url,options);return{ok:true,json:async()=>url==='/api/voice'?{status:installed?'ready':'not_installed',available:installed,voices:voices.map(voice=>({...voice,installed:installed&&voice.installed})),progress:null}:url==='/api/voice/install'?{status:'installing',available:false,voices,progress:{phase:'download',percent:0}}:{url:'/api/voice/audio/abc123.wav'}};}};
   const speech=new OfficeSpeech({host,onChange:change=>changes.push(change)});return{speech,host,utterances,audio,changes,calls,saved};
 }
+test('Oscar scene clicks and automatic mission narration use the same saved preset in every language',async()=>{
+ try{
+  for(const locale of ['fr','en','nl'])for(const choice of ['studio-oscar','studio-oscar-2']){
+   setLocale(locale);
+   const f=fixture({voices:[...STUDIO,...ALTERNATIVES],stored:{version:2,enabled:true,engine:'natural',characters:{oscar:choice,zoe:'studio-zoe-2'}}});await f.speech.ready;f.host.document.dispatchEvent(new Event('pointerdown'));
+   assert.equal(f.speech.speak('oscar','Bonjour, votre bureau est prêt.'),true);await tick();f.speech.stop();
+   assert.equal(f.speech.speak('oscar','Je prépare le travail de l’équipe.',{automatic:true}),true);await tick();
+   const bodies=f.calls.filter(call=>call.url==='/api/voice/synthesize').map(call=>JSON.parse(call.options.body));
+   assert.equal(bodies.length,2);assert.deepEqual(bodies.map(body=>({voiceId:body.voiceId,language:body.language,speed:body.speed})),[{voiceId:choice,language:locale,speed:1},{voiceId:choice,language:locale,speed:1}]);
+   assert.equal(f.utterances.length,0);assert.equal(f.speech.chooseVoice('zoe').id,'studio-zoe-2');f.speech.destroy();
+  }
+ }finally{setLocale('fr');}
+});
 test('natural speech is the default and no voice is downloaded without confirmation',async()=>{
  const{speech,utterances,audio,calls,changes}=fixture({installed:false});await speech.ready;
  assert.equal(speech.engine,'natural');assert.equal(speech.speak('oscar','Bonjour'),false);assert.equal(changes.at(-1).caption,true);assert.equal(utterances.length,0);assert.equal(audio.length,0);assert.deepEqual(calls.map(call=>call.url),['/api/voice']);
@@ -124,4 +138,37 @@ test('explicit language lists and installation status limit multilingual availab
  const {speech,host,calls,changes}=fixture({voices:[{id:'fr-only',lang:'multilingual',languages:['fr'],installed:true},{id:'missing',lang:'multilingual',languages:['fr','en','nl'],installed:false}]});await speech.ready;
  try{setLocale('nl');host.document.dispatchEvent(new Event('oscar:language'));assert.equal(speech.available,false);assert.equal(speech.speak('oscar','Test'),false);assert.equal(changes.at(-1).caption,true);assert.equal(calls.length,1);}
  finally{speech.destroy();setLocale('fr');}
+});
+test('the four-voice catalogue keeps the original automatic defaults regardless of ordering',async()=>{
+ const {speech}=fixture({voices:[...ALTERNATIVES,...STUDIO].reverse()});await speech.ready;
+ assert.equal(speech.chooseVoice('oscar').id,'studio-oscar');assert.equal(speech.chooseVoice('zoe').id,'studio-zoe');
+ assert.equal(speech.chooseVoice('secretaire').id,'studio-zoe');speech.destroy();
+});
+test('each character can choose its second voice across all three languages without changing the other preference',async()=>{
+ const voices=[...STUDIO,...ALTERNATIVES],f=fixture({voices,stored:{version:2,characters:{oscar:'studio-oscar',zoe:'studio-zoe'}}});await f.speech.ready;
+ try{
+  f.speech.setCharacterVoice('oscar','studio-oscar-2');assert.equal(f.speech.chooseVoice('zoe').id,'studio-zoe');
+  f.speech.setCharacterVoice('secretaire','studio-zoe-2');
+  for(const locale of ['fr','en','nl']){
+   setLocale(locale);f.host.document.dispatchEvent(new Event('oscar:language'));
+   for(const role of ['oscar','zoe']){assert.equal(f.speech.speak(role,'Test'),true);await tick();const body=JSON.parse(f.calls.at(-1).options.body);assert.equal(body.voiceId,`studio-${role}-2`);assert.equal(body.language,locale);}
+  }
+  const saved=JSON.parse(f.saved.get('oscar-voice-v1'));assert.equal(saved.version,2);assert.deepEqual(saved.characters,{oscar:'studio-oscar-2',zoe:'studio-zoe-2'});
+  const reopened=fixture({voices,stored:saved});await reopened.speech.ready;assert.equal(reopened.speech.chooseVoice('oscar').id,'studio-oscar-2');assert.equal(reopened.speech.chooseVoice('zoe').id,'studio-zoe-2');reopened.speech.destroy();
+ }finally{f.speech.destroy();setLocale('fr');}
+});
+test('Studio character matching enforces persona metadata or IDs while preserving explicit legacy choices',async()=>{
+ assert.equal(supportsCharacter({id:'studio-oscar-2'},'oscar'),true);assert.equal(supportsCharacter({id:'studio-oscar-2'},'zoe'),false);
+ assert.equal(supportsCharacter({id:'studio-zoe-2'},'secretaire'),true);assert.equal(supportsCharacter({id:'future',recommended:true,character:'zoe'},'oscar'),false);
+ assert.equal(supportsCharacter({id:'fr-pierre',character:'oscar'},'zoe'),true);assert.equal(supportsCharacter(STUDIO[0],'design'),false);
+ const {speech,calls}=fixture({voices:[...VOICES,...STUDIO,...ALTERNATIVES]});await speech.ready;
+ assert.equal(speech.speak('zoe','Test',{voiceId:'studio-oscar-2'}),false);assert.equal(calls.length,1);
+ speech.setCharacterVoice('zoe','fr-pierre');assert.equal(speech.chooseVoice('zoe').id,'fr-pierre');speech.destroy();
+});
+test('installing optional variants keeps ready voices playable without installing or using an unready alternative',async()=>{
+ const {speech,calls,audio,changes}=fixture({voices:[...STUDIO,...ALTERNATIVES.map(voice=>({...voice,installed:false}))]});await speech.ready;
+ speech.acceptLocal({...speech.local,status:'installing',progress:{phase:'download',voiceId:'studio-zoe-2',percent:20}});
+ assert.equal(speech.available,true);assert.equal(speech.speak('oscar','Test'),true);await tick();assert.equal(audio.length,1);assert.equal(JSON.parse(calls.at(-1).options.body).voiceId,'studio-oscar');
+ assert.equal(speech.speak('zoe','Test',{voiceId:'studio-zoe-2'}),false);assert.equal(changes.at(-1).caption,true);assert.equal(calls.filter(call=>call.url==='/api/voice/install').length,0);assert.equal(calls.filter(call=>call.url==='/api/voice/synthesize').length,1);
+ speech.acceptLocal({...speech.local,voices:speech.local.voices.map(voice=>({...voice,installed:false}))});assert.equal(speech.available,false);assert.equal(speech.speak('zoe','Test'),false);speech.destroy();
 });

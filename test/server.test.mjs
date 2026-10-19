@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, symlinkSync, mkdirSync, realpathSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, symlinkSync, mkdirSync, realpathSync, renameSync, appendFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { createAtelierServer, resolveServerDataDirectory } from '../server.mjs';
+import { request as httpRequest } from 'node:http';
+import { createAtelierServer, resolveServerDataDirectory, openMissionDownload } from '../server.mjs';
 import { createHandler } from '../mcp.mjs';
 import { Publishing } from '../lib/publishing.mjs';
 const until = async predicate => { for (let i=0;i<150;i++) { if(predicate())return; await new Promise(resolve=>setTimeout(resolve,10)); } throw new Error('État HTTP attendu non atteint.'); };
@@ -56,6 +57,63 @@ test('HTTP et MCP : mission simulée, livraison et protection des fichiers', asy
   const symlink=await fetch(base+`/api/missions/${mission.id}/files/sortie.txt`);assert.equal(symlink.status,403);
   const traversal=await fetch(base+`/api/missions/${mission.id}/files/..%2F..%2Fprivate.txt`);assert.equal(traversal.status,403);
   const nullBody=await fetch(base+'/api/missions',{method:'POST',headers:{'Content-Type':'application/json','X-Oscar-Client':'1'},body:'null'});assert.equal(nullBody.status,400);
+});
+
+test('les téléchargements refusent les liens internes, parents liés, chemins cachés et requêtes externes', async t => {
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'oscar-download-files-'));
+  const app = await createAtelierServer({ port: 0, dataDir, providers: [], demoDelay: 0 });
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await app.close(); rmSync(dataDir, { recursive: true, force: true }); });
+  const mission = app.engine.start({ prompt: 'Tester les téléchargements sans moteur', provider: 'demo' }); await app.engine.wait(mission.id);
+  const workDir = app.engine.workDir(mission.id), nested = path.join(workDir, 'Livraison'); mkdirSync(nested, { recursive: true });
+  writeFileSync(path.join(workDir, '.confidentiel.txt'), 'NE PAS LIRE');
+  writeFileSync(path.join(nested, 'notes.txt'), 'Un vrai livrable');
+  symlinkSync(path.join(workDir, '.confidentiel.txt'), path.join(workDir, 'secret-visible.txt'));
+  symlinkSync(path.join(nested, 'notes.txt'), path.join(workDir, 'notes-liees.txt'));
+  symlinkSync(nested, path.join(workDir, 'livraison-liee'));
+  const base = `http://127.0.0.1:${app.server.address().port}`, route = `/api/missions/${mission.id}/files/`;
+  for (const file of ['secret-visible.txt', 'notes-liees.txt', 'livraison-liee/notes.txt', '.confidentiel.txt', 'Livraison/../.confidentiel.txt', 'Livraison\\notes.txt', 'Livraison/notes.txt\0', 'Livraison//notes.txt', 'Livraison/ notes.txt', 'C:/confidentiel.txt', 'x'.repeat(1001)]) {
+    const response = await fetch(base + route + encodeURIComponent(file));
+    assert.equal(response.status, 403, file);
+    assert.ok(!(await response.text()).includes('NE PAS LIRE'), file);
+  }
+  assert.equal((await fetch(base + route + 'Livraison')).status, 403);
+  assert.equal((await fetch(base + route + 'Livraison/absent.txt')).status, 404);
+  assert.equal((await fetch(base + '/api/missions/inconnue/files/Livraison/notes.txt')).status, 404);
+  assert.equal((await fetch(base + route + 'Livraison/notes.txt', { headers: { Origin: 'https://autre.invalid' } })).status, 403);
+  const foreignHost = await new Promise((resolve, reject) => {
+    const req = httpRequest(base + route + 'Livraison/notes.txt', { headers: { Host: 'autre.invalid' } }, response => { response.resume(); response.on('end', () => resolve(response.statusCode)); });
+    req.on('error', reject); req.end();
+  });
+  assert.equal(foreignHost, 403);
+  const valid = await fetch(base + route + 'Livraison/notes.txt', { headers: { Origin: base } }); assert.equal(valid.status, 200); assert.equal(await valid.text(), 'Un vrai livrable');
+});
+
+test('les téléchargements préservent les octets et restent inertes, bornés à la taille ouverte et attachés au fichier vérifié', async t => {
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'oscar-download-bytes-'));
+  const app = await createAtelierServer({ port: 0, dataDir, providers: [], demoDelay: 0 });
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await app.close(); rmSync(dataDir, { recursive: true, force: true }); });
+  const mission = app.engine.start({ prompt: 'Télécharger un fichier binaire intact', provider: 'demo' }); await app.engine.wait(mission.id);
+  const workDir = app.engine.workDir(mission.id), base = `http://127.0.0.1:${app.server.address().port}`, route = `/api/missions/${mission.id}/files/`;
+  const binary = Buffer.alloc(2 * 1024 * 1024 + 257); for (let i = 0; i < binary.length; i++) binary[i] = i % 256;
+  const files = [['archive.bin', binary, 'application/octet-stream'], ['page.HTML', Buffer.from('<script>alert(1)</script>'), 'text/html; charset=utf-8'], ['dessin.svg', Buffer.from('<svg onload="alert(1)"/>'), 'image/svg+xml'], ['vide.txt', Buffer.alloc(0), 'text/plain; charset=utf-8']];
+  for (const [name, bytes, mime] of files) {
+    writeFileSync(path.join(workDir, name), bytes);
+    const response = await fetch(base + route + encodeURIComponent(name));
+    assert.equal(response.status, 200, name);
+    assert.equal(response.headers.get('content-type'), mime, name); assert.equal(response.headers.get('content-length'), String(bytes.length), name);
+    assert.match(response.headers.get('content-disposition'), /^attachment;/); assert.equal(response.headers.get('content-security-policy'), "sandbox; default-src 'none'"); assert.equal(response.headers.get('x-content-type-options'), 'nosniff'); assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes, name);
+  }
+  const opened = await openMissionDownload(workDir, 'archive.bin');
+  t.after(() => opened.handle.close());
+  renameSync(path.join(workDir, 'archive.bin'), path.join(workDir, 'original.bin'));
+  writeFileSync(path.join(workDir, 'archive.bin'), 'Un fichier remplacé après le contrôle');
+  appendFileSync(path.join(workDir, 'original.bin'), 'Un ajout après le contrôle');
+  assert.equal(opened.size, binary.length);
+  const chunks = []; for await (const chunk of opened.handle.createReadStream({ start: 0, end: opened.size - 1 })) chunks.push(chunk);
+  assert.deepEqual(Buffer.concat(chunks), binary);
 });
 
 test('le dossier par défaut est dans Documents et les anciens chemins explicites restent compatibles', () => {

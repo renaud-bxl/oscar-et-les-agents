@@ -13,6 +13,11 @@ import { ArtifactViewer } from '/artifact-viewer.js';
 import { CompletionDialog } from '/completion-dialog.js';
 import { SecretaryDialog } from '/secretary-dialog.js';
 import { VoiceDialog } from '/voice-dialog.js';
+import { DocumentLibraryDialog } from '/document-library.js';
+import { PersonalizationDialog } from '/personalization-dialog.js';
+import { CharacterLines } from '/character-lines.js';
+import { DictationDialog } from '/dictation-dialog.js';
+import { DraftStorage, draftScope } from '/draft-storage.js';
 'use strict';
 
 const $ = (id) => document.getElementById(id);
@@ -37,9 +42,12 @@ const ROLE_DETAILS={
 };
 const runningStatuses = new Set(['planning','running','reviewing']);
 let state = {providers:[], missions:[], active:null};
+let initialBuildId = null;
 const routeParams = new URLSearchParams(location.search);
 let selectedId = /^[a-zA-Z0-9-]+$/.test(routeParams.get('mission') || '') ? routeParams.get('mission') : null;
 let pendingTemplate = routeParams.get('template');
+let pendingReuse = /^[a-zA-Z0-9-]{1,100}$/u.test(routeParams.get('reuse')||'')?routeParams.get('reuse'):null;
+let reuseLoading = false;
 let mission = null;
 let creating = false;
 let browsingNew = routeParams.has('new');
@@ -49,6 +57,7 @@ let lastAnnouncement = '';
 let openedRole = null;
 let openedTaskId = null;
 let catalogCategory = 'all';
+let historyFilter = 'all';
 let lastMissionSignature = '';
 let fetchErrorCount = 0;
 let providerInitialized = false;
@@ -67,6 +76,29 @@ let artifactViewer = null;
 let completionDialog = null;
 let secretaryDialog = null;
 let voiceDialog = null;
+let documentLibrary = null;
+let personalizationDialog = null;
+let dictationDialog = null;
+let dictationReturnPanel = null;
+let personalContext = {profile:{},weather:{status:'disabled'}};
+let weatherTimer = null;
+let archiveDownload = null;
+const utilityReturns = new Map();
+function openUtility(dialog){utilityReturns.set(dialog,{panel:activePanel,focus:document.activeElement});closeOfficePanel({restoreFocus:false});return dialog.open();}
+function returnFromUtility(dialog){const previous=utilityReturns.get(dialog);utilityReturns.delete(dialog);if(previous?.panel){openPanel(previous.panel,{focus:false});if(previous.focus?.isConnected)previous.focus.focus({preventScroll:true});}}
+const briefDrafts = new DraftStorage();
+let pendingBriefRequest = null;
+let pendingStudioRequest = null;
+function saveBriefDraft(){const saved=briefDrafts.write('oscar',{text:$('mission-input').value,provider:$('provider-select').value,teamSize:$('team-size').value,...(pendingBriefRequest?.hash?{requestId:pendingBriefRequest.id,requestHash:pendingBriefRequest.hash}:{})});$('brief-draft-note').textContent=translate(saved?'Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.':'Votre navigateur ne peut pas conserver ce brouillon. Gardez cette fenêtre ouverte.');}
+function restoreBriefDraft(){const draft=briefDrafts.read('oscar');$('mission-input').value=draft?.text||'';if(draft?.provider&&['codex','claude'].includes(draft.provider)){$('provider-select').value=draft.provider;providerInitialized=true;}if(draft?.teamSize)$('team-size').value=draft.teamSize;pendingBriefRequest=draft?.requestId&&draft?.requestHash?{id:draft.requestId,hash:draft.requestHash}:null;$('brief-draft-note').textContent=translate(draft?.text?'Brouillon retrouvé sur cet ordinateur. Il n’a pas été envoyé.':'Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.');}
+function switchBriefDraft(){saveBriefDraft();briefDrafts.scope=draftScope();restoreBriefDraft();}
+async function launchRequestIdentity(intent,{studio=false}={}){const signature=JSON.stringify(intent);let hash=null;try{hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(signature))),byte=>byte.toString(16).padStart(2,'0')).join('');}catch{}let record=studio?pendingStudioRequest:pendingBriefRequest;if(record&&(hash?record.hash===hash:record.signature===signature))return record.id;record={id:globalThis.crypto?.randomUUID?.()||`request_${Date.now()}_${Math.random().toString(36).slice(2)}`,hash,signature};if(studio)pendingStudioRequest=record;else{pendingBriefRequest=record;saveBriefDraft();}return record.id;}
+const characterLines = new CharacterLines();
+function characterLine(role){return characterLines.next(role,{locale:getLocale(),firstName:personalContext.profile?.name,now:new Date(),weather:personalContext.weather});}
+function acceptPersonalContext(value){personalContext=value;clearTimeout(weatherTimer);if(value.profile?.weatherEnabled){const next=Number(value.weather?.expiresAt)||Date.now()+30*60000;weatherTimer=setTimeout(refreshPersonalWeather,Math.max(30*60000,next-Date.now()+1000));}}
+async function refreshPersonalWeather(){if(!personalContext.profile?.weatherEnabled)return;if(document.hidden){weatherTimer=setTimeout(refreshPersonalWeather,30*60000);return;}try{acceptPersonalContext(await request('/api/profile/weather'));}catch{weatherTimer=setTimeout(refreshPersonalWeather,30*60000);}}
+function openSecretary(mode,spokenLine){closeOfficePanel({restoreFocus:false});secretaryDialog?.open();if(mode&&['mail','calendar','free'].includes(mode))secretaryDialog?.choose(mode);officeSpeech?.speak('secretaire',spokenLine||characterLine('zoe'));}
+function dictateInto(target){dictationReturnPanel=activePanel;closeOfficePanel({restoreFocus:false});dictationDialog?.open({initialText:target?.value||'',onText:text=>{if(!target)throw new Error(translate('Choisissez une demande avant de dicter.'));if(text.length>target.maxLength&&target.maxLength>0)throw new Error(translate('Le texte dicté est trop long pour cette demande.'));target.value=text;target.dispatchEvent(new Event('input',{bubbles:true}));}});}
 const completionStatuses = new Map(),pendingCompletions = new Map();
 let completionTimer = null;
 let lastNarrated = null;
@@ -163,6 +195,20 @@ function providerName(id) { return id === 'demo' ? 'Démonstration sans IA' : st
 function isRunning(value) { return !!value && runningStatuses.has(value.status); }
 function activeMissions(){return (Array.isArray(state.activeMissions)?state.activeMissions:state.active?[state.active]:[]).filter(isRunning);}
 function openAnotherOffice(templateId){if(activeMissions().length>=4){showError('Quatre missions sont déjà en cours. Attendez une livraison avant d’ouvrir une autre équipe.');return;}closeOfficePanel({restoreFocus:false});showError('');const url=new URL(location.href);url.search='';url.searchParams.set('new','1');if(templateId)url.searchParams.set('template',templateId);window.open(url.href,'_blank','noopener');}
+async function loadReusableBrief(id){
+  reuseLoading=true;
+  try{
+    const source=await request(`/api/missions/${encodeURIComponent(id)}`);if(source.assistant)throw new Error(translate('Cette demande appartient à Zoé. Retrouvez-la dans son historique.'));
+    let prompt=String(source.prompt||'').replace(/\n\nLangue demandée pour cette mission : (?:français|anglais \(English\)|néerlandais \(Nederlands\))\. Rédige le titre, le plan, les tâches, les comptes rendus, les retours d’Oscar, la livraison finale et les textes visibles des fichiers créés dans cette langue\. Conserve les noms propres et les chemins techniques nécessaires\.$/u,'');
+    let size='auto';for(const value of ['4','8','12','15','20']){const suffix=withTeamPreference('',value);if(prompt.endsWith(suffix)){prompt=prompt.slice(0,-suffix.length);size=value;break;}}
+    $('mission-input').value=prompt;$('team-size').value=size;
+    if(['codex','claude'].includes(source.provider))$('provider-select').value=source.provider;
+    saveBriefDraft();updateForm();const selection=await documentLibrary?.applyMissionSelection(source);
+    const url=new URL(location.href);url.searchParams.delete('reuse');history.replaceState(null,'',url.href);
+    openPanel('brief');showError('');$('brief-draft-note').textContent=[translate('Brief repris dans un nouveau bureau. Relisez-le avant de lancer une nouvelle mission.'),...(selection?.warnings||[])].join(' ');
+  }catch(error){showError(error.message);openPanel('brief');}
+  finally{reuseLoading=false;}
+}
 function openGuidedTemplate(template){wizardReturnPanel='catalog';closeOfficePanel({restoreFocus:false});$('guided-provider').value=$('provider-select').value;$('mission-wizard-dialog').showModal();missionWizard.open(template.id);}
 function dateLabel(value) {
   const d = new Date(value);
@@ -177,10 +223,10 @@ function showError(message) { $('global-error').textContent = message; $('global
 function hideWorldStatus(){clearTimeout(statusTimer);$('office-toast').hidden=true;}
 function showWorldStatus(message){clearTimeout(statusTimer);$('pixel-world-status').textContent=String(message).slice(0,200);$('office-toast').hidden=false;statusTimer=setTimeout(hideWorldStatus,7000);}
 async function request(url, options) {
-  const response = await fetch(url, {credentials:'same-origin',...options});
+  let response;try{response=await fetch(url,{credentials:'same-origin',...options});}catch(error){if(error.name==='AbortError')throw error;throw new Error(translate('Le bureau ne répond pas pour le moment. Vos saisies restent dans cette fenêtre.'));}
   let data;
   try { data = await response.json(); } catch { throw new Error('L’atelier a renvoyé une réponse inattendue. Réessayez dans un instant.'); }
-  if (!response.ok) throw new Error(data.error || 'Cette action n’a pas pu être réalisée.');
+  if (!response.ok) throw Object.assign(new Error(data.error || 'Cette action n’a pas pu être réalisée.'),typeof data.code==='string'?{code:data.code}:{});
   return data;
 }
 function renderProviders() {
@@ -234,20 +280,23 @@ function updateForm() {
   const available = provider?.available;
   const active = isRunning(mission);
   const atCapacity = activeMissions().length >= (state.maxConcurrentMissions || 4);
+  const canRecover = Boolean(pendingBriefRequest);
   const authMessage = provider?.auth?.loggedIn === false ? 'Connexion à renouveler dans votre application.' : provider?.auth?.loggedIn === true ? 'Connexion détectée · votre abonnement local' : 'Connexion vérifiée au lancement de la mission.';
   const message = provider?.message || (available ? `${provider.name || providerName(provider.id)}${provider.version ? ` ${provider.version}` : ''} · ${authMessage}` : state.providers.length ? 'Ce moteur n’est pas disponible. Connectez-vous à son application, puis relancez l’atelier.' : 'Vérification de vos outils locaux…');
   $('provider-message').textContent = message;
   $('brief-provider-name').textContent = provider?.name || 'Choisir mon moteur';
   $('office-onboarding').hidden = true;
   $('provider-message').classList.toggle('unavailable', !available || provider?.auth?.loggedIn === false);
-  $('launch-button').disabled = creating || !available || active || atCapacity;
-  $('launch-button').firstElementChild.textContent = creating ? 'Oscar prépare le bureau…' : active ? 'Cette mission est en cours' : atCapacity ? 'Quatre équipes déjà au travail' : 'Confier la mission à Oscar';
+  $('launch-button').disabled = creating || !canRecover && (!available || active || atCapacity);
+  $('launch-button').firstElementChild.textContent = creating ? 'Oscar prépare le bureau…' : canRecover ? 'Vérifier la demande avec Oscar' : active ? 'Cette mission est en cours' : atCapacity ? 'Quatre équipes déjà au travail' : 'Confier la mission à Oscar';
   $('demo-button').disabled = creating || active || atCapacity;
   $('new-mission').lastChild.textContent = activeMissions().length ? ' Créer une autre mission' : ' Nouvelle mission';
   $('new-mission').disabled = creating || atCapacity;
   $('office-capacity').textContent = `${activeMissions().length} / 4 missions en cours`;
   $('provider-select').disabled = creating || active;
   $('mission-input').disabled = creating;
+  for(const id of ['team-size','brief-dictation','settings-dictation','clear-brief-draft','brief-documents','guided-documents','guided-provider','guided-team-size'])$(id).disabled=creating;
+  for(const button of document.querySelectorAll('#brief-examples button,.brief-engine-switch'))button.disabled=creating;
   const {login,pending,active:engineActive}=connectionState(provider?.id);
   $('connect-provider').hidden = false;
   $('connect-provider').disabled = !provider || pending || engineActive;
@@ -257,14 +306,17 @@ function updateForm() {
   updateGuidedConnection();welcomeGuide?.updateState();
 }
 function renderHistory() {
-  $('mission-count').textContent = state.missions.length;
+  const query=searchable($('history-search').value.trim());
+  const items=state.missions.filter(item=>query.split(/\s+/u).every(word=>searchable(`${item.title||''} ${item.folderName||''} ${providerName(item.provider)} ${dateLabel(item.createdAt)}`).includes(word))&&(historyFilter==='all'||historyFilter==='active'&&runningStatuses.has(item.status)||historyFilter==='completed'&&item.status==='completed'||historyFilter==='attention'&&['needs_review','failed'].includes(item.status)||historyFilter==='cancelled'&&item.status==='cancelled'));
+  $('mission-count').textContent = items.length===state.missions.length?String(items.length):`${items.length} / ${state.missions.length}`;
   const history = $('mission-history');
-  const signature=JSON.stringify([selectedId,state.missions.map(m=>[m.id,m.title,m.status,m.provider,m.createdAt])]);
+  const signature=JSON.stringify([selectedId,query,historyFilter,state.missions.map(m=>[m.id,m.title,m.status,m.provider,m.createdAt])]);
   if(history.dataset.signature===signature)return;history.dataset.signature=signature;
   const restoreFocus=rememberFocus(history),scrollTop=history.scrollTop;
   history.replaceChildren();
   if (!state.missions.length) { history.append(node('p','history-empty','L’atelier attend votre première idée.')); return; }
-  for(const item of state.missions) {
+  if(!items.length)history.append(node('p','history-empty','Aucune mission ne correspond. Essayez un autre mot ou un autre statut.'));
+  for(const item of items) {
     const button = node('button','history-item');
     button.type = 'button';
     button.dataset.mission=item.id;
@@ -274,7 +326,7 @@ function renderHistory() {
     button.append(node('i'));
     const copy = node('span');
     const title=node('strong','',item.title || item.prompt || 'Nouvelle mission');title.setAttribute('data-no-translate','');
-    copy.append(title,node('small','',`${dateLabel(item.createdAt)}${item.provider ? ` · ${providerName(item.provider)}` : ''}`));
+    copy.append(title,node('small','',`${dateLabel(item.createdAt)}${item.provider ? ` · ${providerName(item.provider)}` : ''}`),node('small','history-status',`${item.assistant?'Zoé · ':''}${translate(missionStatus[item.status]||item.phase||'')}`));
     button.append(copy);
     button.addEventListener('click',()=>selectMission(item.id,{fromHistory:true}));
     history.append(button);
@@ -285,11 +337,12 @@ function renderScene() {
   const busy = isRunning(mission);
   if (!pixelWorld) {
     pixelWorld = new PixelWorld($('pixel-canvas'), {
-      onSelect: (role, taskId) => openMember(role, taskId),
+      onSelect: (role, taskId, line) => openMember(role, taskId, line),
+      getCharacterLine: role => characterLine(role),
       onStatus: showWorldStatus,
       onEvent: (kind,data)=>{if(kind==='oscar_arrived'&&data.missionId===mission?.id&&isRunning(mission))officeSpeech?.speak('oscar','Je suis à mon bureau ! J’engage les spécialistes adaptés à votre idée. Chacun aura une tâche, et je vérifierai le résultat.',{automatic:true});},
       onAmbience: ambience => {const phases={dawn:'Aube',day:'Journée',sunset:'Coucher de soleil',night:'Nuit'};$('ambience-mode').value=ambience.mode;$('ambience-status').textContent=`${ambience.mode==='auto'?'Heure locale':'Ambiance manuelle'} · ${phases[ambience.phase]||ambience.phase}`;document.body.dataset.ambience=ambience.phase;},
-      onInteract: (kind) => { if(kind==='coffee'){closeOfficePanel({restoreFocus:false});coffeeDialog?.open();}else if(kind==='clock'){closeOfficePanel({restoreFocus:false});hideWorldStatus();clockDialog?.open();}else if(kind==='secretary'){closeOfficePanel({restoreFocus:false});secretaryDialog?.open();officeSpeech?.speak('secretaire','On fait le point sur votre journée ?');}else if(kind==='missions')openPanel('catalog');else if(kind==='delivery')openPanel('delivery');else if(kind==='team')openPanel('team'); }
+      onInteract: (kind, text) => { if(kind==='coffee'){closeOfficePanel({restoreFocus:false});coffeeDialog?.open();}else if(kind==='clock'){closeOfficePanel({restoreFocus:false});hideWorldStatus();clockDialog?.open();}else if(kind==='secretary'){openSecretary(null,text);}else if(kind==='missions')openPanel('catalog');else if(kind==='delivery')openPanel('delivery');else if(kind==='team')openPanel('team'); }
     });
     window.__oscarWorld = pixelWorld;
   }
@@ -388,6 +441,9 @@ function renderDeliveries() {
   const result=mission?.result;
   $('open-work-folder').hidden=!mission;
   $('review-completion').hidden=!mission||!['completed','needs_review'].includes(mission.status);
+  $('reuse-mission').hidden=!mission||mission.assistant===true;
+  $('download-archive').hidden=!mission||isRunning(mission);
+  $('download-archive').disabled=Boolean(archiveDownload);
   const signature=JSON.stringify([mission?.id,mission?.status,mission?.provider,mission?.error,files,result,reports.map(t=>[t.id,t.title,t.agentName,t.report,t.review])]);
   if($('file-list').dataset.signature===signature)return;$('file-list').dataset.signature=signature;
   $('delivery-empty').hidden=!!(result || files.length || reports.length || mission?.error);
@@ -407,6 +463,7 @@ function renderDeliveries() {
     const text=node('span');
     const fileName=node('strong','',file.path);fileName.setAttribute('data-no-translate','');text.append(fileName,node('small','',Number.isFinite(file.size) ? file.size < 1024 ? `${file.size} octets` : `${Math.round(file.size/1024)} Ko` : 'Fichier de la mission'));
     link.append(text,node('b','','↗'));$('file-list').append(link);
+    if(/\.svg$/iu.test(file.path)){const edit=node('button','text-button delivery-edit','Modifier dans le studio ↗');edit.type='button';edit.addEventListener('click',async()=>{utilityReturns.set(creativeStudio,{panel:activePanel,focus:edit});closeOfficePanel({restoreFocus:false});await creativeStudio?.openFile(deliveredMission.id,file.path);});$('file-list').append(edit);}
   }
   const oldOpen=new Set([...$('report-list').querySelectorAll('details[open]')].map(el=>el.dataset.task));
   $('report-list').replaceChildren();
@@ -471,6 +528,7 @@ async function selectMission(id,{fromHistory=false}={}) {
   if(id!==selectedId)closeMemberForNavigation();
   if(fromHistory)closeOfficePanel();
   browsingNew=false;selectedId=id;history.replaceState(null,'',`/?mission=${encodeURIComponent(id)}`);
+  switchBriefDraft();
   const seq=++refreshSequence;
   const active=activeMissions().find(m=>m.id===id);
   if(active) { mission=active;renderAll(); }
@@ -483,6 +541,8 @@ async function selectMission(id,{fromHistory=false}={}) {
 }
 async function acceptState(next) {
   if(!next || !Array.isArray(next.providers) || !Array.isArray(next.missions)) return;
+  if(next.buildId){if(!initialBuildId)initialBuildId=next.buildId;else if(initialBuildId!==next.buildId)$('update-notice').hidden=false;}
+  if(next.version)$('app-version').textContent=`${translate('Version')} ${next.version}`;
   state=next;fetchErrorCount=0;
   const active=activeMissions();
   if(!selectedId && !browsingNew && active.length) selectedId=active[0].id;
@@ -499,35 +559,46 @@ async function acceptState(next) {
     }
   }
   renderAll();
-  if(pendingTemplate && browsingNew && state.providers.length){const template=MISSION_TEMPLATES.find(t=>t.id===pendingTemplate);pendingTemplate=null;if(template)openGuidedTemplate(template);}
-  else if(state.providers.length&&!selectedId&&!mission&&!creating&&!$('mission-wizard-dialog').open&&!$('office-panel').open)welcomeGuide?.maybeOpen();
+  if(pendingReuse&&state.providers.length){const id=pendingReuse;pendingReuse=null;await loadReusableBrief(id);}
+  else if(pendingTemplate && browsingNew && state.providers.length){const template=MISSION_TEMPLATES.find(t=>t.id===pendingTemplate);pendingTemplate=null;if(template)openGuidedTemplate(template);}
+  else if(state.providers.length&&!selectedId&&!mission&&!creating&&!reuseLoading&&!$('mission-wizard-dialog').open&&!$('office-panel').open)welcomeGuide?.maybeOpen();
 }
 function newMission({forceLocal=false,reveal=true}={}) {
   if(!forceLocal && isRunning(mission)){openAnotherOffice();return;}
   closeMemberForNavigation();
+  pendingBriefRequest=null;saveBriefDraft();
   history.replaceState(null,'','/?new=1');
+  switchBriefDraft();
   ++refreshSequence;selectedId=null;mission=null;browsingNew=true;lastMissionSignature='';
   $('form-error').hidden=true;
   $('mission-placeholder').lastElementChild.firstElementChild.textContent='Une équipe prête à se mettre au travail';
   renderAll();if(reveal)openPanel('brief');
 }
-async function launch(provider,{strict=false,teamSize=$('team-size').value}={}) {
-  if(creating || isRunning(mission) || activeMissions().length>=4) {if(strict)throw new Error(activeMissions().length>=4?'Quatre missions sont déjà en cours. Attendez une livraison puis réessayez : votre brief est conservé.':'Cette mission est déjà en cours. Ouvrez un autre bureau pour un nouveau projet.');return;}
-  let prompt=$('mission-input').value.trim();
+async function launch(provider,{strict=false,teamSize=$('team-size').value,allowParallel=false,promptOverride}={}) {
+  const canRecover=provider!=='demo'&&Boolean(promptOverride!==undefined?pendingStudioRequest:pendingBriefRequest);
+  if(creating || !canRecover&&(isRunning(mission)&&!allowParallel || activeMissions().length>=4)) {if(strict)throw new Error(activeMissions().length>=4?'Quatre missions sont déjà en cours. Attendez une livraison puis réessayez : votre brief est conservé.':'Cette mission est déjà en cours. Ouvrez un autre bureau pour un nouveau projet.');return;}
+  let prompt=String(promptOverride??$('mission-input').value).trim();
+  const originalPrompt=prompt;
   if(provider!=='demo' && !prompt) {if(strict)throw new Error('Ajoutez une mission avant de la confier à Oscar.');$('mission-input').reportValidity();return; }
   if(provider!=='demo') {
     const {provider:engine,pending}=connectionState(provider);
     const error=pending?'La connexion est en cours. Terminez-la dans votre navigateur, puis réessayez : votre brief est conservé.':!engine?.available||engine.auth?.loggedIn===false?'Connectez votre compte avant de lancer la mission. Votre brief est conservé.':'';
-    if(error){if(strict)throw new Error(error);$('form-error').textContent=error;$('form-error').hidden=false;openPanel('settings');$('login-message').textContent=error;$('login-message').hidden=false;return;}
+    if(error&&!canRecover){if(strict)throw new Error(error);$('form-error').textContent=error;$('form-error').hidden=false;openPanel('settings');$('login-message').textContent=error;$('login-message').hidden=false;return;}
     try{prompt=withLocaleInstruction(withTeamPreference(prompt,teamSize));}catch(error){if(strict)throw error;$('form-error').textContent=error.message;$('form-error').hidden=false;return;}
   }
   creating=true;$('form-error').hidden=true;updateForm();
   try {
-    const detail=await request('/api/missions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt || 'Imaginer le lancement d’un café de quartier : positionnement, idées de communication et une page de présentation.',provider})});
+    if(provider!=='demo'&&documentLibrary&&!await documentLibrary.refresh())throw new Error(translate('Les choix de documents n’ont pas pu être repris. Actualisez la bibliothèque avant de réessayer.'));
+    const documents=provider==='demo'?{}:{references:documentLibrary?.getReferences()||[],referenceIds:documentLibrary?.getSelection()||[],outputFormats:documentLibrary?.getOutputFormats()||[],templateId:documentLibrary?.getTemplateId()||null,templateRevision:documentLibrary?.getTemplateRevision()||null};
+    const requestId=provider==='demo'?undefined:await launchRequestIdentity({prompt:originalPrompt,provider,teamSize,referenceIds:documents.referenceIds,outputFormats:documents.outputFormats,templateId:documents.templateId,locale:getLocale()},{studio:promptOverride!==undefined});
+    const detail=await request('/api/missions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt || 'Imaginer le lancement d’un café de quartier : positionnement, idées de communication et une page de présentation.',provider,locale:getLocale(),...documents,...(requestId?{requestId}:{})})});
+    if(provider!=='demo'&&promptOverride===undefined){pendingBriefRequest=null;briefDrafts.remove('oscar');$('mission-input').value='';$('brief-draft-note').textContent=translate('Demande confirmée. Votre réponse est conservée dans l’historique.');}else if(promptOverride!==undefined)pendingStudioRequest=null;
     selectedId=detail.id;mission=detail;state.active=detail;state.activeMissions=[...activeMissions().filter(m=>m.id!==detail.id),detail];browsingNew=false;history.replaceState(null,'',`/?mission=${encodeURIComponent(detail.id)}`);
     const previous=state.missions.findIndex(m=>m.id===detail.id);
     if(previous<0) state.missions.unshift(detail);else state.missions[previous]=detail;
-    closeMemberForNavigation();dismissWelcome();closeOfficePanel({restoreFocus:false});showError('');renderAll();$('pixel-canvas').focus({preventScroll:true});officeSpeech?.speak('oscar',provider==='demo'?'Bienvenue dans la visite ! Cette démonstration vous montre notre travail sans appeler un modèle.':'Allez, let’s go ! Je rejoins mon bureau pour préparer votre projet.',{automatic:true});return detail;
+    closeMemberForNavigation();dismissWelcome();closeOfficePanel({restoreFocus:false});showError('');renderAll();$('pixel-canvas').focus({preventScroll:true});
+    if(!isRunning(detail)){openPanel('delivery');officeSpeech?.speak('oscar','Je retrouve votre mission et ses fichiers. Voici la livraison et les points à vérifier.',{automatic:true});}
+    else officeSpeech?.speak('oscar',provider==='demo'?'Bienvenue dans la visite ! Cette démonstration vous montre notre travail sans appeler un modèle.':detail.status==='planning'?'Allez, let’s go ! Je rejoins mon bureau pour préparer votre projet.':'Je retrouve la mission en cours. L’équipe continue son travail.',{automatic:true});return detail;
   } catch(error) { $('form-error').textContent=error.message;$('form-error').hidden=false;if(strict)throw error; }
   finally { creating=false;updateForm(); }
 }
@@ -578,13 +649,13 @@ function renderMember(role,taskId) {
   if(!mission || (role!=='oscar' && !tasks.length)) list.append(node('p','history-empty','Aucune tâche confiée pour cette mission.'));
   if(taskId) list.querySelector(`[data-task="${CSS.escape(String(taskId))}"]`)?.scrollIntoView({block:'nearest'});
 }
-function openMember(role,taskId) {
+function openMember(role,taskId,spokenLine) {
   memberReturnPanel=activePanel;closeOfficePanel({restoreFocus:false});
   lastMemberSignature='';
-  openedRole=role;openedTaskId=taskId || null;const quips=QUIPS[role] || QUIPS.oscar;openedQuip=quips[Math.floor(Math.random()*quips.length)];renderMember(role,taskId);
+  openedRole=role;openedTaskId=taskId || null;const quips=QUIPS[role] || QUIPS.oscar;openedQuip=['oscar','secretaire'].includes(role)?spokenLine||characterLine(role):quips[Math.floor(Math.random()*quips.length)];renderMember(role,taskId);
   const dialog=$('member-dialog');
   if(!dialog.open) dialog.showModal();
-  if(role==='oscar'||role==='secretaire')officeSpeech?.speak(role,`${translate(openedQuip)} ${translate((ROLE_DETAILS[role]||ROLE_DETAILS.oscar)[0])}`);
+  if(role==='oscar'||role==='secretaire')officeSpeech?.speak(role,openedQuip);
 }
 function setConnection(connected) {
   $('connection-dot').classList.toggle('connected',connected);
@@ -604,6 +675,14 @@ async function refreshState() {
   catch(error) { fetchErrorCount++;setConnection(false);showError(`Connexion à l’atelier impossible. ${error.message}`); }
 }
 $('mission-form').addEventListener('submit',event=>{event.preventDefault();launch($('provider-select').value);});
+restoreBriefDraft();
+$('mission-input').addEventListener('input',saveBriefDraft);
+$('provider-select').addEventListener('change',saveBriefDraft);
+$('team-size').addEventListener('change',saveBriefDraft);
+$('clear-brief-draft').addEventListener('click',()=>{pendingBriefRequest=null;briefDrafts.remove('oscar');$('mission-input').value='';$('brief-draft-note').textContent=translate('Brouillon effacé.');$('mission-input').focus();});
+$('reload-update').addEventListener('click',()=>location.reload());
+$('history-search').addEventListener('input',renderHistory);
+$('history-status').addEventListener('change',event=>{historyFilter=event.target.value;renderHistory();});
 $('provider-select').addEventListener('change',updateForm);
 $('demo-button').addEventListener('click',()=>launch('demo'));
 $('new-mission').addEventListener('click',()=>{if(isRunning(mission)){closeOfficePanel({restoreFocus:false});openAnotherOffice();}else{newMission({reveal:false});openPanel('catalog');}});
@@ -611,7 +690,7 @@ $('free-mission').addEventListener('click',newMission);
 $('stop-mission').addEventListener('click',stopMission);
 $('close-dialog').addEventListener('click',()=>$('member-dialog').close());
 $('member-dialog').addEventListener('click',event=>{if(event.target===$('member-dialog')) {const box=$('member-dialog').getBoundingClientRect();if(event.clientX<box.left || event.clientX>box.right || event.clientY<box.top || event.clientY>box.bottom) $('member-dialog').close();}});
-$('member-dialog').addEventListener('close',()=>{openedRole=null;openedTaskId=null;lastMemberSignature='';const previous=memberReturnPanel;memberReturnPanel=null;if(previous)openPanel(previous);});
+$('member-dialog').addEventListener('close',()=>{if($('member-dialog').open)return;openedRole=null;openedTaskId=null;lastMemberSignature='';const previous=memberReturnPanel;memberReturnPanel=null;if(previous)openPanel(previous);});
 $('team-oscar').addEventListener('click',()=>openMember('oscar'));
 document.addEventListener('click',event=>{const button=event.target.closest('[data-open-panel]');if(button)openPanel(button.dataset.openPanel);});
 $('close-office-panel').addEventListener('click',()=>closeOfficePanel());
@@ -622,24 +701,48 @@ document.querySelectorAll('[data-pixel-prop]').forEach(button=>button.addEventLi
 document.querySelectorAll('[data-pixel-role]').forEach(button=>button.addEventListener('click',()=>openMember(button.dataset.pixelRole)));
 $('pixel-pause').addEventListener('click',()=>{animationPaused=!animationPaused;pixelWorld.setPaused(animationPaused);$('pixel-pause').setAttribute('aria-pressed',String(animationPaused));$('pixel-pause').setAttribute('aria-label',animationPaused?'Reprendre les animations':'Pause animations');$('pixel-pause').title=animationPaused?'Reprendre les animations':'Pause animations';$('pixel-pause').querySelector('.dock-label').textContent=animationPaused?'Reprendre':'Pause';$('atelier-scene').dataset.paused=String(animationPaused);});
 $('pixel-fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{$('pixel-world-status').textContent='Le bureau utilise déjà toute la fenêtre. Le plein écran du navigateur peut aussi l’agrandir.';}});
-document.querySelectorAll('[data-prompt]').forEach(button=>button.addEventListener('click',()=>{$('mission-input').value=translate(button.dataset.prompt);$('mission-input').focus();}));
+document.querySelectorAll('[data-prompt]').forEach(button=>button.addEventListener('click',()=>{$('mission-input').value=translate(button.dataset.prompt);saveBriefDraft();$('mission-input').focus();}));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshState();});
 window.addEventListener('online',refreshState);
-window.addEventListener('beforeunload',()=>{clearTimeout(statusTimer);clearTimeout(completionTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
+window.addEventListener('beforeunload',()=>{archiveDownload?.abort();clearTimeout(statusTimer);clearTimeout(completionTimer);clearTimeout(weatherTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();dictationDialog?.destroy();documentLibrary?.destroy();personalizationDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
 
 coffeeDialog = new CoffeeDialog({recipient:'renaud2005@gmail.com'});
 clockDialog=new ClockDialog();
-creativeStudio=new CreativeStudio({getMission:()=>mission,onCreate:({brief,template})=>{if(isRunning(mission)){openAnotherOffice(template);return;}newMission();$('mission-input').value=brief;$('team-size').value='auto';}});
-for(const id of ['open-creative-studio','settings-creative-studio','delivery-creative-studio'])$(id).addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});creativeStudio.open();});
-connectorsDialog=new ConnectorsDialog({request,getMission:()=>mission});
+dictationDialog=new DictationDialog({onRecord:()=>officeSpeech?.stop(),onClose:()=>{if(dictationReturnPanel){const panel=dictationReturnPanel;dictationReturnPanel=null;openPanel(panel,{focus:false});if(panel==='brief')$('mission-input').focus({preventScroll:true});}}});
+for(const id of ['brief-dictation','settings-dictation'])$(id).addEventListener('click',()=>{if(id==='settings-dictation'){closeOfficePanel({restoreFocus:false});openPanel('brief');}dictateInto($('mission-input'));});
+documentLibrary=new DocumentLibraryDialog({request,getMission:()=>mission,onClose:()=>returnFromUtility(documentLibrary),onSelectionChanged:({ids,formats})=>{for(const id of ['brief-documents-status','guided-documents-status']){const status=$(id);if(status)status.textContent=`${ids.length} ${translate('exemples')} · ${formats.map(format=>({docx:'Word',pdf:'PDF',xlsx:'Excel'})[format]).join(', ')||translate('Format libre')}`;}},onExport:async options=>{if(!mission)throw new Error(translate('Choisissez une mission avant d’exporter.'));const id=mission.id;const result=await request(`/api/missions/${encodeURIComponent(id)}/export`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...options,locale:getLocale()})});if(mission?.id===id){mission=await request(`/api/missions/${encodeURIComponent(id)}`);renderMission();}return result;}});
+for(const id of ['brief-documents','guided-documents','settings-documents','delivery-documents'])$(id).addEventListener('click',()=>openUtility(documentLibrary));
+personalizationDialog=new PersonalizationDialog({request,onChange:acceptPersonalContext,onClose:()=>returnFromUtility(personalizationDialog)});
+$('settings-personalization').addEventListener('click',()=>openUtility(personalizationDialog));
+request('/api/profile').then(value=>{acceptPersonalContext(value);if(value.profile?.weatherEnabled)return refreshPersonalWeather();}).catch(()=>{});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&personalContext.profile?.weatherEnabled&&Date.now()>Number(personalContext.weather?.expiresAt||0))refreshPersonalWeather();});
+documentLibrary.refresh();
+creativeStudio=new CreativeStudio({getMission:()=>mission,onClose:()=>returnFromUtility(creativeStudio),onCreate:async({brief})=>{const detail=await launch($('provider-select').value,{strict:true,teamSize:'auto',allowParallel:true,promptOverride:brief});if(!detail?.id)throw new Error(translate('Le bureau n’a pas confirmé cette demande.'));utilityReturns.delete(creativeStudio);return detail;}});
+for(const id of ['open-creative-studio','settings-creative-studio','delivery-creative-studio'])$(id).addEventListener('click',()=>openUtility(creativeStudio));
+connectorsDialog=new ConnectorsDialog({request,getMission:()=>mission,onSecretary:mode=>openSecretary(mode)});
 automationsDialog=new AutomationsDialog({request,getState:()=>state,onMission:id=>{automationsDialog.close();selectMission(id);openPanel('progress');}});
 artifactViewer=new ArtifactViewer({request,onClose:()=>openPanel('delivery')});
 const openWorkFolder=id=>request(`/api/missions/${encodeURIComponent(id)}/open-folder`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-completionDialog=new CompletionDialog({avatar:()=>portrait('oscar'),onFolder:openWorkFolder,onFile:(item,file)=>artifactViewer.open(item,file),onDelivery:async item=>{if(selectedId!==item.id)await selectMission(item.id);openPanel('delivery');},onNew:()=>newMission(),onImprove:item=>{newMission();$('mission-input').value=`${translate('Améliore la mission précédente :')} ${item.title||item.prompt}\n${translate('Dossier du travail précédent :')} ${item.workDirectory||item.folderName||''}\n${translate('Examine les fichiers existants, propose les améliorations utiles et vérifie le résultat. Garde les originaux et livre les nouvelles versions dans cette nouvelle mission.')}`;},onClose:scheduleCompletion});
-secretaryDialog=new SecretaryDialog({request,getState:()=>state,onMission:async id=>{await selectMission(id);openPanel('progress');},onAutomations:()=>automationsDialog.open(),onConnectors:()=>connectorsDialog.open(),onActivity:activity=>pixelWorld?.setSecretaryActivity(activity.busy)});
-$('open-secretary').addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});secretaryDialog.open();});
+completionDialog=new CompletionDialog({avatar:()=>portrait('oscar'),onFolder:openWorkFolder,onFile:(item,file)=>artifactViewer.open(item,file),onDelivery:async item=>{if(selectedId!==item.id)await selectMission(item.id);openPanel('delivery');},onNew:()=>newMission(),onImprove:item=>{newMission();$('mission-input').value=`${translate('Améliore la mission précédente :')} ${item.title||item.prompt}\n${translate('Dossier du travail précédent :')} ${item.workDirectory||item.folderName||''}\n${translate('Examine les fichiers existants, propose les améliorations utiles et vérifie le résultat. Garde les originaux et livre les nouvelles versions dans cette nouvelle mission.')}`;saveBriefDraft();},onClose:scheduleCompletion});
+secretaryDialog=new SecretaryDialog({request,getState:()=>state,getProfile:()=>personalContext.profile||{},onDictate:target=>dictateInto(target),onMission:async id=>{await selectMission(id);openPanel('progress');},onAutomations:()=>automationsDialog.open(),onConnectors:()=>connectorsDialog.open(),onActivity:activity=>pixelWorld?.setSecretaryActivity(activity.busy)});
+$('open-secretary').addEventListener('click',()=>openSecretary());
 $('open-work-folder').addEventListener('click',async()=>{if(!mission)return;try{await openWorkFolder(mission.id);}catch(error){showError(error.message);}});
+$('download-archive').addEventListener('click',async()=>{
+  if(!mission||isRunning(mission)||archiveDownload)return;
+  const item=mission,controller=new AbortController();archiveDownload=controller;$('download-archive').disabled=true;
+  const status=$('archive-status');status.hidden=false;status.textContent=translate('Préparation de votre archive…');
+  try{
+    const response=await fetch(`/api/missions/${encodeURIComponent(item.id)}/archive`,{credentials:'same-origin',cache:'no-store',signal:controller.signal});
+    if(!response.ok){let result;try{result=await response.json();}catch{}throw new Error(result?.error||translate('L’archive n’a pas pu être préparée. Ouvrez le dossier de travail.'));}
+    const length=Number(response.headers.get('content-length'));if(response.headers.get('content-type')!=='application/zip'||!Number.isSafeInteger(length)||length<22||length>54*1024*1024){await response.body?.cancel();throw new Error(translate('L’archive reçue n’est pas reconnue. Ouvrez le dossier de travail.'));}
+    const blob=await response.blob();if(blob.size!==length)throw new Error(translate('Le téléchargement a été interrompu. Vous pouvez réessayer.'));
+    const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`${String(item.folderName||item.title||'mission').replace(/[\\/:*?"<>|\x00-\x1f]/gu,'-').slice(0,100)}.zip`;link.hidden=true;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+    if(mission?.id===item.id)status.textContent=translate('Archive préparée. Le téléchargement a été demandé au navigateur. Les fichiers cachés et dossiers de dépendances sont exclus.');
+  }catch(error){if(mission?.id===item.id)status.textContent=translate(error.message);}
+  finally{archiveDownload=null;renderDeliveries();}
+});
 $('review-completion').addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});completionDialog.open(mission);});
+$('reuse-mission').addEventListener('click',()=>{if(!mission||mission.assistant)return;const url=new URL(location.href);url.search='';url.searchParams.set('new','1');url.searchParams.set('reuse',mission.id);window.open(url.href,'_blank','noopener');});
 for(const id of ['open-connectors','settings-connectors'])$(id).addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});connectorsDialog.open();});
 for(const id of ['open-automations','settings-automations'])$(id).addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});automationsDialog.open();});
 $('dismiss-office-status').addEventListener('click',hideWorldStatus);
@@ -648,7 +751,7 @@ $('publish-project').addEventListener('click',()=>{closeOfficePanel({restoreFocu
 missionWizard = new MissionWizard($('mission-wizard-host'), {
   onComplete: async (prompt) => {
     const provider = $('guided-provider').value;
-    $('mission-input').value = prompt; $('provider-select').value = provider;
+    $('mission-input').value = prompt; $('provider-select').value = provider;saveBriefDraft();
     await launch(provider,{strict:true,teamSize:$('guided-team-size').value});
     wizardReturnPanel=null;$('mission-wizard-dialog').close();
   },
@@ -682,7 +785,7 @@ for(const category of MISSION_CATEGORIES) {
 $('template-search').addEventListener('input',renderCatalog);
 renderCatalog();
 $('close-wizard').addEventListener('click',()=>$('mission-wizard-dialog').close());
-$('mission-wizard-dialog').addEventListener('close',()=>{missionWizard.close();const previous=wizardReturnPanel;wizardReturnPanel=null;if(previous)openPanel(previous);});
+$('mission-wizard-dialog').addEventListener('close',()=>{if($('mission-wizard-dialog').open)return;missionWizard.close();const previous=wizardReturnPanel;wizardReturnPanel=null;if(previous)openPanel(previous);});
 $('open-missions-folder').addEventListener('click',async()=>{try{await request('/api/open-data',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch(error){showError(error.message);}});
 $('connect-provider').addEventListener('click',async()=>{
   try{await startProviderConnection($('provider-select').value,{renew:true});}catch(error){$('login-message').textContent=error.message;$('login-message').hidden=false;}
@@ -695,6 +798,8 @@ welcomeGuide=new WelcomeGuide({getState:()=>state,onChooseProvider:id=>{$('provi
   if(action==='demo')launch('demo');
   else if(action==='connectors')connectorsDialog.open();
   else if(action==='automations')automationsDialog.open();
+  else if(action==='secretary')openSecretary('free');
+  else if(action==='documents')documentLibrary.open();
   else if(action==='team-example'){newMission();$('team-size').value='15';$('mission-input').value='Crée un jeu de puzzle jouable dans mon navigateur, avec trois niveaux, une interface dessin animé et un mode d’emploi. Répartis le projet entre recherche, rédaction, code, design et analyse, avec des contributions complémentaires et des fichiers vérifiés.';}
   else openPanel(action);
 }});
@@ -709,9 +814,9 @@ officeSpeech=new OfficeSpeech({onChange:info=>{
   voiceDialog?.refresh();
 },onVoices:voices=>{const selected=$('voice-select').value;const auto=node('option','','Automatique · une voix par personnage');auto.value='auto';$('voice-select').replaceChildren(auto);for(const voice of voices){if(voice.installed===false)continue;const option=node('option','',`${voice.name} · ${voice.lang}`);option.value=voice.id||voice.name;$('voice-select').append(option);}if([...$('voice-select').options].some(o=>o.value===selected))$('voice-select').value=selected;}});
 $('voice-select').value=officeSpeech.voiceName;
-voiceDialog=new VoiceDialog({getSpeech:()=>officeSpeech});
-$('open-voice-settings').addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});voiceDialog.open();});
-$('hud-voice').addEventListener('click',()=>{if(officeSpeech.available&&officeSpeech.engine!=='captions')officeSpeech.setEnabled(!officeSpeech.enabled);else{closeOfficePanel({restoreFocus:false});voiceDialog.open();}});
+voiceDialog=new VoiceDialog({getSpeech:()=>officeSpeech,onClose:()=>returnFromUtility(voiceDialog)});
+$('open-voice-settings').addEventListener('click',()=>openUtility(voiceDialog));
+$('hud-voice').addEventListener('click',()=>{if(officeSpeech.available&&officeSpeech.engine!=='captions')officeSpeech.setEnabled(!officeSpeech.enabled);else openUtility(voiceDialog);});
 $('voice-enabled').addEventListener('change',()=>officeSpeech.setEnabled($('voice-enabled').checked));
 $('voice-select').addEventListener('change',()=>officeSpeech.setVoice($('voice-select').value));
 $('voice-test').addEventListener('click',()=>{officeSpeech.setEnabled(true);officeSpeech.speak('oscar','Bonjour, moi c’est Oscar ! Une idée, une équipe, et on se met au travail.');});

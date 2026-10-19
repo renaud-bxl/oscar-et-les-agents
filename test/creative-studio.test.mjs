@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildStudioSvg, validateStudioFilePath, studioFileUrl, sanitizeStudioSvg } from '../public/creative-studio.js';
+import { buildStudioSvg, suggestStudioConfig, validateStudioEdit, validateStudioFilePath, studioFileUrl, sanitizeStudioSvg } from '../public/creative-studio.js';
 
 test('le studio crée quatre compositions originales locales dans les quatre formats proposés', () => {
   const drawings = new Set();
@@ -44,4 +44,27 @@ test('les fichiers de mission doivent être des images relatives et chaque segme
 test('les déclarations SVG externes et les fichiers excessifs sont rejetés avant tout parseur', () => {
   for (const source of ['<!DOCTYPE svg SYSTEM "https://evil.invalid"><svg/>','<!ENTITY x SYSTEM "file:///etc/passwd"><svg/>','x'.repeat(2*1024*1024+1)]) assert.throws(()=>sanitizeStudioSvg(source),/externe|volumineux/);
   assert.throws(()=>sanitizeStudioSvg('<svg/>',{DOMParserImpl:null,XMLSerializerImpl:null}),/navigateur/);
+});
+
+test('une composition locale reprend le sujet café, événement, livre ou nature avec des dessins distincts', () => {
+  const cases=[['Une affiche pour un café avec une tasse','cafe'],['A concert poster with a microphone','event'],['Een boek met zachte kleuren','book'],['Un jardin botanique et des plantes','botanical']];
+  const drawings=new Set();
+  for(const [description,family] of cases){
+    const config=suggestStudioConfig(description,{format:'16:9'});
+    assert.equal(config.family,family);assert.equal(config.format,'16:9');assert.ok(description.includes(config.title));
+    const svg=buildStudioSvg(config);drawings.add(svg);
+    assert.ok((svg.match(/<path /g)||[]).length>=3,'L’illustration contient de vraies formes vectorielles.');
+    assert.equal(new Set([0,1,2,3].map(variation=>buildStudioSvg({...config,variation}))).size,4);
+    assert.doesNotMatch(svg,/<(?:script|image|foreignObject|style)\b|(?:href|onload)=/i);
+  }
+  assert.equal(drawings.size,4);
+  assert.equal(suggestStudioConfig('Une composition graphique épurée').family,'abstract');
+  assert.throws(()=>buildStudioSvg({family:'../../external'}),/univers/);
+});
+
+test('les modifications de texte, couleur et position restent des données bornées sans attribut arbitraire', () => {
+  const text='<script>alert(1)</script> Café & livres';
+  assert.deepEqual(validateStudioEdit({text,fill:'#abcdef',stroke:'#123456',dx:120,dy:-80}),{text,fill:'#abcdef',stroke:'#123456',dx:120,dy:-80});
+  assert.equal(validateStudioEdit({text:'a\x00b'}).text,'ab');
+  for(const patch of [{onclick:'evil()'},{href:'https://evil.invalid'},{fill:'url(https://evil.invalid)'},{stroke:'#fff'},{dx:Infinity},{dy:4097},{dx:'10'},{text:'a'.repeat(501)}])assert.throws(()=>validateStudioEdit(patch));
 });

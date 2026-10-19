@@ -2,7 +2,7 @@
 
 Donnez une mission à Oscar. Il recrute les bons spécialistes, ils arrivent dans un grand bureau illustré et animé, travaillent, rendent leurs dossiers… et prennent un café quand leur travail est validé.
 
-**Version 0.5.0** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
+**Version 0.6.0** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
 
 ![Le bureau illustré d’Oscar, les îlots de travail et le coin café](docs/bureau.png)
 
@@ -55,7 +55,7 @@ Le choix **Français / English / Nederlands**, dans le guide ou les réglages, e
 - **Sam — code** : pages web, scripts et outils.
 - **Alma — design** : structure visuelle, HTML/CSS/SVG et lisibilité.
 - **Jules — analyse** : données, calculs, comparaisons et recommandations étayées.
-- **Zoé — secrétariat** : prépare le point sur les messages et l’agenda, avec un service autorisé en lecture seule.
+- **Zoé — assistance** : répond aux questions libres et recherches Web, ou lit les messages et l’agenda avec un service autorisé.
 
 Ces personnages représentent des agents IA. Chaque tâche démarre un agent distinct. Oscar choisit les métiers nécessaires ; il n’appelle pas automatiquement les cinq pour une petite demande. Les animations montrent les états réels des tâches. Les pauses et les discussions sont décoratives ; elles ne retardent pas les appels aux modèles.
 
@@ -75,7 +75,7 @@ Des parcours complètent les usages professionnels : dossier de presse, discours
 
 Douze missions de **design créatif** préparent un visuel original, un kit de marque, des affiches, un logo, une illustration, un pack de publications, une infographie, une présentation produit, des icônes, une couverture ou une bannière web. Les livrables sont des dessins vectoriels originaux en **SVG modifiable**, avec textes éditables et, selon le projet, une présentation HTML locale. Les images fournies doivent être autorisées ; ces parcours ne promettent pas une photographie ou une génération d’image bitmap par IA. La disponibilité juridique d’un logo et les contraintes finales de l’imprimeur restent à vérifier.
 
-Le **studio créatif** permet aussi de composer des formes et des textes sur cet ordinateur, puis d’exporter un **SVG modifiable** ou un **PNG**. Il peut ouvrir un visuel livré par une mission. L’édition et l’export du studio ne consomment aucun quota de modèle ; une création confiée aux agents utilise votre abonnement. Le studio ne génère pas de photos et ne transforme pas automatiquement une image en dessin vectoriel.
+Le **studio créatif** commence par votre description, le support et le format. **Créer avec Oscar et les agents** lance une vraie mission sur votre abonnement ; ses SVG livrés peuvent ensuite être ouverts dans l’éditeur. Une alternative clairement indiquée **Composition locale · sans IA** dessine des compositions originales sur cet ordinateur. Les textes, couleurs et positions des éléments SVG sont modifiables ; **Annuler/Rétablir** permet de revenir sur les retouches. Les exports **SVG et PNG** reflètent vos changements. L’édition et les exports ne consomment pas de quota de modèle. Le studio ne promet pas de photographie et ne transforme pas automatiquement une image en dessin vectoriel.
 
 Choisissez une carte, répondez aux questions, ajustez le résumé, puis confiez-le à Oscar. **Mon idée** permet de partir d’une demande libre. Les missions préparent des livrables : les contenus de réseaux sociaux restent des brouillons, les questions parlementaires ne sont pas déposées et les dossiers d’éditeur ne sont pas envoyés automatiquement. Une publication éventuelle passe par votre action et votre confirmation dans la livraison.
 
@@ -97,6 +97,10 @@ Documents/
     ├── preferences.json
     ├── automations.json
     ├── connectors.json
+    ├── Modeles et exemples/      # références originales
+    ├── personnalisation/        # prénom, région et météo consentie
+    ├── dictee-locale/           # après installation de Whisper
+    ├── .documents-runtime/      # après préparation Word/PDF/Excel
     ├── voix-conversation/        # après installation du pack Oscar et Zoé
     ├── voix-locales/             # anciennes voix légères facultatives
     └── missions/
@@ -106,6 +110,7 @@ Documents/
                 ├── Livraison.md
                 ├── Livraison/
                 ├── Rapports/
+                ├── References/     # copies, textes extraits et manifeste
                 └── dossiers-des-spécialistes/
 ```
 
@@ -125,29 +130,63 @@ Par défaut, la lumière suit **l’heure locale de votre ordinateur** : aube de
 
 **Voir une démo** montre ce parcours avec huit personnages, dont quatre designers, sans appeler un modèle. Les missions guidées, le brief, les connexions, l’historique, le suivi et les fichiers restent accessibles sans quitter le bureau. Le bouton de plein écran inclut le menu et les panneaux. Le bandeau précise qu’il s’agit d’une simulation.
 
-**Oscar et Zoé sont les deux voix du bureau** ; les spécialistes gardent leurs répliques écrites. Le pack recommandé utilise [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) en local pour le français, l’anglais et le néerlandais. Un seul téléchargement volontaire prépare les deux personnages et les trois langues. Les tailles de téléchargement et d’installation sont indiquées avant confirmation. Les sous-titres restent disponibles pendant la préparation ou si aucune voix compatible n’est prête.
+**Seuls Oscar et Zoé parlent** ; les spécialistes gardent leurs répliques écrites. Les réglages proposent **deux voix par personnage**, avec une préécoute indépendante avant de valider chaque choix. Le pack recommandé utilise [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) en local pour le français, l’anglais et le néerlandais. Les tailles de téléchargement et d’installation sont indiquées avant confirmation. Les sous-titres restent disponibles pendant la préparation ou si aucune voix compatible n’est prête.
 
 Ce pack demande **Python 3.10 à 3.14 sur macOS ou Linux**. Le bureau prépare un environnement vocal séparé à partir du Python présent ; s’il manque, les réglages l’indiquent et conservent les sous-titres. Le pack privilégie le modèle français à 24 couches, et les modèles anglais et néerlandais à 6 couches : environ **1,2 Go de modèles et voix**, plus le programme local et ses dépendances, avec environ **2,2 Go à prévoir sur le disque**. Les tailles détaillées affichées par le serveur priment sur ces indications arrondies.
 
-Après installation, la synthèse fonctionne sur votre ordinateur, sans clé API ni service vocal distant. Le pack utilise uniquement les presets officiels **Marius pour Oscar** et **Estelle pour Zoé**, depuis les [poids sans clonage](https://huggingface.co/kyutai/pocket-tts-without-voice-cloning) ; aucun fichier de voix personnelle n’est demandé ou importé. Les extraits de démonstration permettent d’écouter les deux voix dans chaque langue **avant le téléchargement**. Ils ne démarrent pas automatiquement ; vos propres textes nécessitent ensuite le pack installé. Un cache local limité à **32 Mo et 100 extraits** évite de recalculer les mêmes répliques. Chaque demande est limitée à 500 caractères. Le premier chargement et la lecture peuvent prendre un instant ; le rendu, l’accent et la vitesse varient selon la langue et l’ordinateur. Préécoutez les voix pour les choisir. Les voix du système restent une option volontaire distincte ; elles ne sont jamais activées comme repli automatique.
+Après installation, la synthèse fonctionne sur votre ordinateur, sans clé API ni service vocal distant. Oscar propose les presets officiels **Marius ou Charles**, et Zoé **Estelle ou Alba**, depuis les [poids sans clonage](https://huggingface.co/kyutai/pocket-tts-without-voice-cloning) ; aucun fichier de voix personnelle n’est demandé ou importé. **Marius et Estelle restent les choix automatiques.** Le complément Charles et Alba ajoute six fichiers, soit environ **75 Mo**, en réutilisant les modèles déjà installés. Les douze extraits de démonstration permettent d’écouter chaque voix dans chaque langue **avant le téléchargement**. Ils ne démarrent pas automatiquement ; vos propres textes nécessitent ensuite les fichiers installés. Un cache local limité à **32 Mo et 100 extraits** évite de recalculer les mêmes répliques. Chaque demande est limitée à 500 caractères. Le premier chargement et la lecture peuvent prendre un instant ; le rendu, l’accent et la vitesse varient selon la langue et l’ordinateur. Les voix du système restent une option volontaire distincte ; elles ne sont jamais activées comme repli automatique.
 
-Le code Pocket TTS est MIT et ses poids sont CC BY 4.0. Les presets Marius (don volontaire) et Estelle (enregistrement Kyutai) sont CC0 ; les notices et la [provenance des voix](https://huggingface.co/kyutai/tts-voices) restent consultables. Les modèles et leurs licences sont conservés séparément du code de l’application. Les anciennes voix Piper restent dans une option secondaire : Siwis, Jessica et Pierre en français, Alba en anglais. Plus légères, elles conservent leurs propres notices : [Sherpa ONNX](https://k2-fsa.github.io/sherpa/onnx/javascript-api/examples/api_offline_tts.html) Apache 2.0, données Siwis/Alba CC BY 4.0 et Jessica/Pierre CC BY-SA 4.0, prononciation eSpeak NG GPL 3 ou ultérieure. Aucun composant vocal n’est téléchargé par une simple consultation de l’état.
+Le code Pocket TTS est MIT et ses poids sont CC BY 4.0. Les presets Marius (don volontaire) et Estelle (enregistrement Kyutai) sont CC0 ; Charles et Alba sont CC BY 4.0, avec attribution. Les notices et la [provenance des voix](https://huggingface.co/kyutai/tts-voices) restent consultables. Les modèles et leurs licences sont conservés séparément du code de l’application. Les crédits des douze préécoutes incluses figurent dans [VOICE-NOTICES.md](VOICE-NOTICES.md). Les anciennes voix Piper restent dans une option secondaire : Siwis, Jessica et Pierre en français, Alba en anglais. Plus légères, elles conservent leurs propres notices : [Sherpa ONNX](https://k2-fsa.github.io/sherpa/onnx/javascript-api/examples/api_offline_tts.html) Apache 2.0, données Siwis/Alba CC BY 4.0 et Jessica/Pierre CC BY-SA 4.0, prononciation eSpeak NG GPL 3 ou ultérieure. Aucun composant vocal n’est téléchargé par une simple consultation de l’état.
 
 La machine à café ouvre quatre soutiens volontaires à Renaud via PayPal : **Café 1 €**, **Sandwich 5 €**, **Snack 20 €** et **Resto 50 €**. Le choix revient à 1 € à chaque ouverture. Montant et destinataire sont visibles avant le départ vers PayPal ; cliquer sur un palier ne lance aucun paiement. La confirmation se fait uniquement sur PayPal. Ces noms sont symboliques : aucun repas ni fonction supplémentaire n’est vendu.
 
 ## Zoé, les services et les routines
 
-**Zoé** prépare un point sur vos messages, votre agenda ou une demande d’organisation. Choisissez un service autorisé, précisez le travail attendu, puis cliquez sur **Faire le point maintenant** ou **Programmer**. Les propositions de réponse restent des documents locaux : Zoé n’envoie aucun e-mail, ne crée aucun brouillon Gmail et ne modifie aucun rendez-vous. Une mission utilise un seul service à la fois.
+**Demande libre** permet de poser une question, chercher sur le Web, comparer des options ou préparer un texte, avec votre abonnement connecté. Aucun service de messagerie n’est nécessaire. Pour une recherche « près de chez moi », vous pouvez donner une ville ou autoriser la position du navigateur ; seule une position arrondie à deux décimales est ajoutée à cette demande. Refuser la localisation laisse la saisie de ville disponible.
 
-Le panneau **Connecteurs** vérifie les noms et états dans les clients officiels. **Ajouter à Codex ou Claude Code** modifie leur configuration normale après votre clic explicite, avec un nouveau nom commençant par `oscar-`. Une configuration existante n’est jamais remplacée. L’autorisation utilise le parcours officiel dans le navigateur ; certaines versions de Claude demandent le menu interactif `/mcp`. L’installation d’un plugin dans ChatGPT ne prouve pas sa connexion dans ces clients et n’importe pas ses comptes.
+Les onglets **Mails** et **Agenda** proposent les services de lecture réellement exposés par votre moteur. Le panneau **Connecteurs** comprend un assistant en trois étapes, explique les fonctions et états de chaque service, puis permet d’ouvrir Zoé ou de préparer un brief.
 
-Pour les lectures automatiques, **Codex doit confirmer une connexion autorisée au serveur officiel Gmail ou Google Agenda**. Ces services Google exigent une préparation séparée du projet Google Cloud, de leurs services et du client OAuth ; Google les propose actuellement en aperçu pour les développeurs. Oscar ne recueille pas les secrets OAuth. Voir les instructions officielles de [Gmail](https://developers.google.com/workspace/gmail/api/guides/configure-mcp-server) et [Google Agenda](https://developers.google.com/workspace/calendar/api/guides/configure-mcp-server). Sans ces prérequis et cette autorisation, le logiciel affiche une configuration requise et ne prétend pas lire vos données.
+Les plugins déjà autorisés dans **ChatGPT** sont retrouvés par l’interface officielle du client Codex, et les connecteurs **Claude** exposés à Claude Code sont également recherchés. Le logiciel affiche leur origine et vérifie les accès avant chaque lecture. Un plugin visible dans un compte n’est utilisable ici que si le client local le rend disponible. Une autorisation expirée ou des permissions manquantes restent un échec explicite. Oscar ne lit ni ne copie les fichiers d’identifiants.
 
-Le serveur sélectionné et son autorisation sont revérifiés avant chaque mission. Gmail est limité à **cinq outils de lecture** : consulter un message, un fil, les brouillons ou libellés existants, et rechercher des fils. Agenda est limité à consulter un événement, lister les agendas et événements, ou rechercher des événements. Les outils d’envoi et de modification sont exclus ; les autres connecteurs et la recherche Web sont désactivés pour cette lecture. Le contenu des messages et événements est traité comme une source à analyser, jamais comme une consigne qui autorise une action.
+Pour ajouter un service, ouvrez les plugins de ChatGPT ou les connecteurs Claude depuis l’assistant, autorisez-le dans le client officiel, puis cliquez sur **Retrouver mes connexions**. L’ajout d’un serveur MCP personnel reste disponible dans les options avancées ; il utilise la configuration et l’autorisation officielles, sous un nouveau nom, sans remplacer de serveur existant.
 
-Les routines locales peuvent s’exécuter chaque jour, en semaine, un jour hebdomadaire ou à intervalle régulier. Zoé propose notamment **chaque jour à 02:00**, **en semaine à 08:30** ou **toutes les heures**. Les horaires suivent le fuseau de cet ordinateur. **Le bureau doit rester lancé et l’ordinateur éveillé.** Une pause bloque les prochains départs et conserve la mission déjà lancée. Le logiciel évite le chevauchement d’une même routine et ne lance pas une rafale de rattrapage après une longue fermeture. Les limites de quatre missions et les quotas de l’abonnement s’appliquent aussi aux routines.
+Zoé n’envoie aucun e-mail, ne crée aucun brouillon Gmail et ne modifie aucun rendez-vous. Les propositions restent dans les fichiers locaux. Les lectures utilisent un seul service sélectionné, des outils explicitement autorisés en lecture seule et un accès revérifié au lancement. Les autres plugins servent à préparer un brief à poursuivre dans le client connecté ; cela n’exécute pas leur action depuis Oscar.
 
-Le connecteur [Higgsfield officiel](https://higgsfield.ai/creator-hub/help-center/integrations/what-is-higgsfield-mcp) peut être ajouté au client avec son autorisation dans le navigateur. Pour une génération, préparez un brief et poursuivez dans votre client interactif : les agents automatiques d’Oscar ne déclenchent pas cet outil. Le modèle, les paramètres et le coût en crédits doivent être vérifiés et confirmés avant toute génération. Outlook/Work IQ demande les accès professionnels et validations de l’organisation. Le transfert d’un brief vers un client ou un plugin ne constitue jamais une action réalisée.
+Les routines peuvent s’exécuter chaque jour, en semaine, un jour hebdomadaire ou à intervalle régulier. Le sujet d’une veille a son propre champ : aucun texte entre crochets n’est à deviner. **Le bureau doit rester lancé et l’ordinateur éveillé.** Les horaires suivent le fuseau local, sans chevauchement d’une même routine ni rafale de rattrapage après fermeture. La pause conserve le travail déjà lancé. Les quatre missions simultanées et les quotas de l’abonnement s’appliquent aussi aux routines.
+
+Le connecteur [Higgsfield officiel](https://higgsfield.ai/creator-hub/help-center/integrations/what-is-higgsfield-mcp) prépare un brief à reprendre dans le client interactif. Les agents d’Oscar ne déclenchent pas ses générations payantes : le modèle, les paramètres et le coût en crédits se vérifient et se confirment dans le service. Outlook/Work IQ dépend des accès professionnels de l’organisation.
+
+## Vos modèles et vos documents
+
+**Modèles et exemples**, dans les réglages, le brief, le questionnaire ou la livraison, accepte des fichiers et dossiers Word, Excel, PDF, Markdown, texte, CSV et JSON. Ils restent dans `Documents/Oscar et les agents/Modeles et exemples`. Choisissez jusqu’à huit exemples : chaque mission reçoit des copies en lecture seule, épinglées à la version sélectionnée. **Vérifier le texte lu** montre le texte qu’Oscar peut consulter, sans modifier l’original. Les titres, tableaux et indications de styles Word, les cellules Excel et le texte des PDF sont préparés localement ; un scan sans texte est signalé, sans prétendre effectuer un OCR. Les formules ne sont pas calculées. La lecture est limitée à 64 000 caractères par référence, 256 000 par mission et 50 pages par PDF ; les extraits partiels restent signalés. Les originaux restent conservés. Limites : 5 Mo par fichier, 80 fichiers et 100 Mo pour la bibliothèque.
+
+Choisissez les formats **Word, PDF et Excel** avant une mission ou exportez ensuite un texte livré. Les outils de lecture et d’export s’installent dans un environnement Python séparé, sans API ni service payant. Le lecteur PDF [pypdf 6.19.0](https://pypi.org/project/pypdf/6.19.0/), sous licence BSD-3-Clause, est épinglé avec les outils Word et Excel. Aucun lien ni ressource externe du document n’est chargé pendant la lecture. Les fichiers vérifiés sont ajoutés dans `Livraison/Exports` et restent accessibles dans le lecteur de livrables.
+
+Un modèle Word natif conserve ses éléments et remplace la zone `{{CONTENU}}` par le texte produit. Excel conserve les feuilles du modèle et ajoute une feuille de livraison. Le PDF est composé depuis le texte : un exemple PDF ou une image ne garantit pas une reproduction identique de sa mise en page. Les documents de référence servent aussi à guider le ton et la structure ; les faits restent à vérifier.
+
+## Dicter une demande
+
+**Dicter ma mission à Oscar** et le bouton de dictée de Zoé ouvrent un enregistrement volontaire. Autorisez le microphone, parlez, arrêtez puis réécoutez si vous le souhaitez. La transcription se fait localement ; corrigez le texte et cliquez sur **Utiliser ce texte**. Aucun enregistrement ni transcription ne lance une mission sans votre envoi.
+
+Le moteur facultatif [Whisper small / faster-whisper](https://github.com/SYSTRAN/faster-whisper) couvre notamment le français, l’anglais et le néerlandais. Son installation indique les tailles et nécessite une confirmation : environ **487 Mo de modèle**, avec **1,1 Go d’espace conseillé** pour le modèle et le programme isolé. Python **3.10 à 3.13** est nécessaire. Les poids, leur version et leur empreinte sont vérifiés ; aucun service vocal distant ni clé API. Les enregistrements temporaires sont effacés après transcription ou annulation. Limites : 90 secondes, 8 Mio, WAV/WebM/Ogg/MP4 reconnus. La relecture reste nécessaire, en particulier pour les noms propres.
+
+Si le navigateur refuse le microphone, la saisie au clavier reste disponible. L’annulation ferme l’enregistrement et libère le micro. La synthèse d’Oscar et Zoé s’arrête avant la prise de son pour éviter qu’ils se dictent eux-mêmes leur réponse.
+
+## Retrouver ses textes et ses fichiers
+
+Les textes en préparation pour Oscar, Zoé, le Studio et une nouvelle routine restent en brouillons dans ce navigateur pendant sept jours. Chaque onglet de bureau garde son propre espace. Un rechargement restaure le texte sans envoyer de demande ; **Effacer le brouillon** le retire. Les sélections de compte, documents, positions et mots de passe ne sont pas enregistrées dans ces brouillons. Les réglages de rythme d’une routine restent à confirmer.
+
+Dans **Mes missions**, recherchez un titre, une date ou un moteur et filtrez les missions par statut. **Reprendre ce brief dans un nouveau bureau** ouvre une copie modifiable de la demande et de ses choix encore valides, sans démarrer de travail ni modifier la mission d’origine. Un exemple modifié ou supprimé n’est pas repris silencieusement.
+
+Une livraison terminée propose **Télécharger toute la mission · ZIP**. L’archive contient le dossier de travail, y compris les résultats partiels d’une mission arrêtée ; les fichiers cachés et les dossiers `node_modules`/`vendor` sont exclus. Aucun lien symbolique n’est suivi. Limites : 500 fichiers, 15 Mo par fichier, 50 Mo de contenu. Le dossier reste directement accessible si le projet dépasse ces limites.
+
+Le bureau signale une interface mise à jour et propose **Recharger le bureau**. Il ne recharge pas seul un formulaire pendant votre saisie.
+
+## Un bureau qui vous reconnaît
+
+Les réglages **Mon prénom et ma région** personnalisent les salutations d’Oscar et Zoé. Chacun dispose de vingt-quatre répliques par langue, avec un cycle sans répétition immédiate et un contexte adapté à l’heure locale. La région se cherche dans un catalogue local [GeoNames](https://www.geonames.org/), avec attribution CC BY 4.0 ; aucune localisation par adresse IP.
+
+La météo est facultative et demande votre consentement. Une prévision récente de [MET Norway](https://www.met.no/en/free-meteorological-data) peut enrichir les répliques ; le logiciel n’invente pas le temps observé et ignore une prévision expirée. Les coordonnées sont arrondies avant requête et la source est indiquée. Le décor jour/nuit continue de suivre l’heure de l’ordinateur indépendamment de cette option.
 
 ## Publier après vérification
 
@@ -174,7 +213,22 @@ Chaque appel à un moteur est limité à **douze minutes**, y compris une phase 
 
 ## Utilisation depuis un client MCP local
 
-L’application autonome est l’interface principale. `mcp.mjs` expose aussi les outils d’état, de lancement, de lecture, d’arrêt et de lecture des livrables. Le serveur du bureau doit être ouvert.
+L’application autonome est l’interface principale. `mcp.mjs` propose dix outils au client connecté ; le serveur du bureau doit être ouvert.
+
+| Outil | Fonction |
+| --- | --- |
+| `oscar_status` | Lire l’état du bureau et ses missions. |
+| `oscar_start_mission` | Confier un projet à Oscar, avec exemples et formats facultatifs. |
+| `oscar_read_mission` | Retrouver la progression et les fichiers d’une mission. |
+| `oscar_stop_mission` | Arrêter cette mission en conservant ses fichiers. |
+| `oscar_read_deliverable` | Lire un livrable texte connu de la mission. |
+| `oscar_list_connectors` | Afficher les métadonnées des connexions reconnues. |
+| `oscar_document_library` | Lister les exemples disponibles et leurs révisions. |
+| `oscar_read_reference` | Lire un extrait de référence et ses limites dans la version exacte. |
+| `oscar_ask_zoe` | Poser une question libre ou demander une lecture autorisée de mails/agenda. |
+| `oscar_export_documents` | Exporter une livraison terminée en Word, PDF ou Excel. |
+
+Les capacités et outils privés sont toujours résolus côté serveur. Un paramètre MCP ne peut pas fabriquer une autorisation de compte. Les installations facultatives se confirment dans le bureau.
 
 ```json
 {

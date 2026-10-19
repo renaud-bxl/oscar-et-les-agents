@@ -1,0 +1,14 @@
+{
+  "source": "GeoNames cities15000",
+  "sourceUrl": "https://download.geonames.org/export/dump/cities15000.zip",
+  "sourceLastModified": "Mon, 19 Oct 2026 02:00:27 GMT",
+  "retrievedAt": "2026-10-19T02:44:54.157373+00:00",
+  "archiveSHA256": "e900af1e095974fe987247255de6de022b35f5dde5099ab0d186e17ecf06ce96",
+  "resourceSHA256": "f4e85f6a180eca929cf445dd25c31562735bb799f6fff49a46d9f4c3b6279c96",
+  "license": "CC BY 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "GeoNames — https://www.geonames.org/",
+  "changes": "Subset of cities15000; coordinates rounded to two decimals; up to 24 Latin aliases; compact fields; descending population. No user data.",
+  "recordCount": 34173,
+  "bytes": 4049303
+}
