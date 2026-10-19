@@ -26,7 +26,7 @@ function sanitize(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   const value = {};
   for (const key of textFields) if (typeof input[key] === 'string') value[key] = input[key].slice(0, key === 'text' ? 16000 : 200);
-  if (['mail', 'calendar', 'free'].includes(input.mode)) value.mode = input.mode;
+  if (['mail', 'calendar', 'service', 'free'].includes(input.mode)) value.mode = input.mode;
   if (['auto', 'codex', 'claude'].includes(input.provider)) value.provider = input.provider;
   if (['auto','4','8','12','15','20'].includes(input.teamSize)) value.teamSize=input.teamSize;
   if (typeof input.requestId === 'string' && REQUEST_ID.test(input.requestId)) value.requestId = input.requestId;

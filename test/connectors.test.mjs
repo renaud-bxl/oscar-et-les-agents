@@ -220,7 +220,7 @@ test('Gmail read plans verify the official URL and OAuth, and only allow five re
   await assert.rejects(f.manager.readPlan({ client: 'codex', name: 'gmail' }), /serveur Gmail officiel/);
   f.configs.set('gmail', { name: 'gmail', transport: { type: 'streamable_http', url: GMAIL_MCP_URL, http_headers: { Authorization: 'NEVER_DISPLAY' } } });
   await assert.rejects(f.manager.readPlan({ client: 'codex', name: 'gmail' }), /sans en-tête/);
-  f.rows.codex[0].auth_status = 'not_logged_in'; await assert.rejects(f.manager.readPlan({ client: 'codex', name: 'gmail' }), /autorisation Gmail/);
+  f.rows.codex[0].auth_status = 'not_logged_in'; await assert.rejects(f.manager.readPlan({ client: 'codex', name: 'gmail' }), cause=>cause.code==='CONNECTOR_AUTH');
   await assert.rejects(f.manager.readPlan({ client: 'claude', name: 'gmail' }), /autorisation/);
 });
 
@@ -237,6 +237,46 @@ test('inherited ChatGPT access joins canonical identity, callable authorization 
  snapshot.details.apps[0].distributionChannel='DEFAULT_OAI_CATALOG';snapshot.details.apps[0].toolSummaries[0].isReadOnly=false;assert.equal(parseInheritedApps(snapshot).find(row=>row.name==='chatgpt-gmail').enabledTools.includes('search_emails'),false);
  snapshot.details.apps[0].id='a-fake-gmail-id';assert.equal(parseInheritedApps(snapshot).find(row=>row.name==='chatgpt-gmail').readOnlyAutomation.available,false);
 });
+function genericAppMetadata(){
+ const id='connector_'+ 'a'.repeat(80);
+ return {installed:{apps:[{id,runtimeName:'Documents partagés',enabled:true,callable:true},{id:'other-app',enabled:true,callable:true}]},details:{apps:[{id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:[{name:'search',isReadOnly:true,isEnabled:true},{name:'files.read/list',isReadOnly:true,isEnabled:true},{name:'send',isReadOnly:false,isEnabled:true},{name:'blocked',isReadOnly:true,isEnabled:true,disabledReason:'Unavailable'},{name:'disabled',isReadOnly:true,isEnabled:false},{name:'unknown',isEnabled:true},{name:'unsafe\"={enabled=true}',isReadOnly:true,isEnabled:true}]}]}};
+}
+test('all installed official apps expose only bounded, active read tools and cannot inherit identity from a name',()=>{
+ const snapshot=genericAppMetadata(),id=snapshot.installed.apps[0].id;
+ const connection=value=>parseInheritedApps(value).find(row=>row.appId===id);
+ const row=connection(snapshot);assert.equal(row.type,'app');assert.equal(row.displayName,'Documents partagés');assert.equal(row.readOnlyAutomation.service,'app');assert.deepEqual(row.enabledTools,['search','files.read/list']);assert.deepEqual(row.disabledTools,['send','blocked','disabled','unknown']);assert.deepEqual(row.disabledApps,['other-app']);
+ for(const mutate of [value=>{value.installed.apps[0].id='different-id';},value=>{value.installed.apps[0].enabled=false;},value=>{value.installed.apps[0].callable=false;},value=>{value.details.apps[0].id='different-id';},value=>{value.details.apps[0].distributionChannel='CUSTOM';},value=>{delete value.details.apps[0].distributionChannel;},value=>{value.details.apps[0].toolSummaries=Array.from({length:201},()=>({name:'search',isReadOnly:true,isEnabled:true}));}]){
+  const changed=structuredClone(snapshot);mutate(changed);assert.equal(Boolean(connection(changed)?.readOnlyAutomation.available),false);
+ }
+ const duplicate=structuredClone(snapshot);duplicate.installed.apps.push({...duplicate.installed.apps[0]});assert.equal(parseInheritedApps(duplicate).filter(row=>row.appId===id).length,1);
+ duplicate.installed.apps.push({...duplicate.installed.apps[0],callable:false});assert.equal(connection(duplicate).readOnlyAutomation.available,false);
+ const contradictory=structuredClone(snapshot);contradictory.details.apps[0].toolSummaries.push({name:'search',isReadOnly:false,isEnabled:true});assert.deepEqual(connection(contradictory).enabledTools,['files.read/list']);
+ const directory=structuredClone(snapshot);directory.installed.apps=[];assert.equal(parseInheritedApps(directory).length,0);
+ const spoof=structuredClone(snapshot);spoof.installed.apps[0].runtimeName='Gmail';assert.equal(connection(spoof).type,'app');assert.equal(connection(spoof).appId,id);
+});
+test('generic app plans capture exact identity and immutable read permissions while HTTP copies remain untrusted',async t=>{
+ const snapshot=genericAppMetadata(),id=snapshot.installed.apps[0].id,name=`chatgpt-${id}`;
+ const f=await fixture(t,{appInspector:async()=>parseInheritedApps(snapshot)});f.rows.codex.push({name:'other-mcp',auth_status:'o_auth'});
+ const state=await f.manager.state();assert.deepEqual(state.connections.find(row=>row.name===name).readOnlyAutomation,{available:true,service:'app'});assert.equal(state.connections.some(row=>Object.hasOwn(row,'enabledTools')),false);
+ const plan=await f.manager.readPlan({client:'codex',name});assert.equal(plan.type,'app');assert.equal(plan.appId,id);assert.equal(plan.displayName,'Documents partagés');assert.ok(isTrustedReadPlan(plan));assert.ok(Object.isFrozen(plan));assert.ok(Object.isFrozen(plan.enabledTools));assert.ok(Object.isFrozen(plan.disabledTools));assert.ok(Object.isFrozen(plan.disabledApps));
+ const before=readConnectorArguments(plan);assert.ok(before.includes('apps.other-app.enabled=false'));assert.ok(before.includes('web_search="disabled"'));assert.ok(before.includes('mcp_servers={"other-mcp"={enabled=false}}'));
+ const toolConfig=before.find(value=>value.startsWith(`apps.${id}.tools=`));assert.ok(toolConfig.includes('"files.read/list"={enabled=true,approval_mode="auto"}'));assert.ok(toolConfig.includes('"send"={enabled=false}'));assert.ok(!toolConfig.includes('unsafe'));
+ snapshot.details.apps[0].toolSummaries[0].isReadOnly=false;assert.deepEqual(readConnectorArguments(plan),before);
+ assert.throws(()=>plan.enabledTools.push('send'),TypeError);assert.throws(()=>readConnectorArguments({...plan}),/pas été vérifié/);assert.throws(()=>readConnectorArguments({...plan,appId:'forged',enabledTools:['send']}),/pas été vérifié/);
+ const newer=await f.manager.readPlan({client:'codex',name});assert.deepEqual(newer.enabledTools,['files.read/list']);snapshot.installed.apps[0].callable=false;await assert.rejects(f.manager.readPlan({client:'codex',name}),cause=>cause.code==='CONNECTOR_AUTH');
+ assert.ok(f.calls.every(call=>!['add','login'].includes(call.args[1])));
+});
+test('refresh publishes each client atomically and revokes old app reads if metadata fails',async t=>{
+ const snapshot=appMetadata(),f=await fixture(t,{appInspector:async()=>parseInheritedApps(snapshot)});await f.manager.state();
+ let release;const gate=new Promise(resolve=>{release=resolve;});f.rows.codex.push({name:'new-mcp',auth_status:'o_auth'});
+ f.manager.appInspector=async()=>{await gate;throw new Error('SECRET');};
+ try{
+  await f.manager.state({refresh:true,wait:false});await new Promise(resolve=>setImmediate(resolve));const pending=await f.manager.state({wait:false});
+  assert.equal(pending.clients.codex.status,'checking');assert.equal(pending.connections.find(row=>row.name==='chatgpt-gmail').readOnlyAutomation.available,true);assert.equal(pending.connections.some(row=>row.name==='new-mcp'),false);
+  release();await f.manager.checking;const failed=await f.manager.state();assert.equal(failed.connections.some(row=>row.name==='new-mcp'),true);const gmail=failed.connections.find(row=>row.name==='chatgpt-gmail');assert.equal(gmail.status,'unverified');assert.equal(gmail.stale,true);assert.equal(gmail.readOnlyAutomation.available,false);assert.equal(JSON.stringify(failed).includes('SECRET'),false);
+  await assert.rejects(f.manager.readPlan({name:'chatgpt-gmail'}),cause=>cause.code==='CONNECTOR_AUTH');
+ }finally{release();await f.manager.checking;}
+});
 test('ChatGPT plans are revalidated, isolate every other app and never add a server or copy credentials',async t=>{
  const snapshot=appMetadata();let probes=0;const f=await fixture(t,{appInspector:async()=>{probes++;return parseInheritedApps(snapshot);}});f.rows.codex.push({name:'another-mcp',auth_status:'o_auth'},{name:'node_repl',auth_status:'o_auth'},{name:'code-review',plugin:true,auth_status:'o_auth'});
  const state=await f.manager.state();assert.equal(state.connections.find(row=>row.name==='chatgpt-gmail').readOnlyAutomation.available,true);assert.equal(state.connections.some(row=>Object.hasOwn(row,'enabledTools')),false);
@@ -250,7 +290,7 @@ test('ChatGPT plans are revalidated, isolate every other app and never add a ser
 });
 test('routine reads never treat a directory-only app or failed metadata probe as connected',async t=>{
  const snapshot=appMetadata();snapshot.installed.apps=[];const f=await fixture(t,{appInspector:async()=>parseInheritedApps(snapshot)});const state=await f.manager.state();assert.equal(state.connections.find(row=>row.name==='chatgpt-gmail').status,'needs_auth');await assert.rejects(f.manager.readPlan({name:'chatgpt-gmail'}),/autorisation/);
- f.manager.appInspector=async()=>{throw new Error('SECRET-OAUTH-DIAGNOSTIC');};const failed=await f.manager.state({refresh:true});assert.equal(failed.connections.some(row=>row.source==='chatgpt'),false);assert.equal(JSON.stringify(failed).includes('SECRET'),false);
+ f.manager.appInspector=async()=>{throw new Error('SECRET-OAUTH-DIAGNOSTIC');};const failed=await f.manager.state({refresh:true});assert.ok(failed.connections.filter(row=>row.source==='chatgpt').every(row=>row.status==='unverified'&&row.stale&&row.readOnlyAutomation.available===false));assert.equal(JSON.stringify(failed).includes('SECRET'),false);
 });
 test('existing Claude account connectors require connected state, inherited source and exact official identity',async t=>{
  const f=await fixture(t);f.rows.claude.push({name:'claude.ai Gmail',status:'connected'},{name:'claude.ai Google Calendar',status:'connected'});
@@ -271,6 +311,22 @@ test('inherited discovery uses metadata-only RPC, refuses incoming actions and s
  };
  const rows=await inspectCodexApps({binary:'/fake/codex',spawnImpl,timeoutMs:1000});assert.equal(rows.find(row=>row.name==='chatgpt-gmail').readOnlyAutomation.available,true);
  assert.deepEqual(requests.filter(row=>row.method).map(row=>row.method),['initialize','initialized','app/installed','app/read']);assert.equal(requests.find(row=>row.id==='incoming-action').error.code,-32601);assert.ok(kills.includes('SIGTERM'));
+ assert.deepEqual(requests.find(row=>row.method==='app/read').params,{appIds:snapshot.installed.apps.map(app=>app.id),includeTools:true});
+});
+test('official app discovery reads every unique installed identity in batches of at most 100 without a directory lookup',async()=>{
+ const apps=Array.from({length:205},(_,index)=>({id:`installed-${index}`,runtimeName:`Service ${index}`,enabled:true,callable:true}));
+ const requests=[],kills=[],spawnImpl=()=>{
+  const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=kind=>{kills.push(kind);queueMicrotask(()=>child.emit('close',0));};
+  child.stdin=new Writable({write(chunk,encoding,callback){
+   const request=JSON.parse(chunk.toString());requests.push(request);
+   if(request.id!==undefined){
+    const result=request.method==='initialize'?{}:request.method==='app/installed'?{apps:[...apps,apps[0],{id:'_default'},{id:'unsafe.id'}]}:{apps:request.params.appIds.map(id=>({id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:[{name:'read',isReadOnly:true,isEnabled:true}]}))};
+    queueMicrotask(()=>child.stdout.write(JSON.stringify({id:request.id,result})+'\n'));
+   }callback();
+  }});return child;
+ };
+ const rows=await inspectCodexApps({binary:'/fake/codex',spawnImpl,timeoutMs:1000}),reads=requests.filter(request=>request.method==='app/read');
+ assert.equal(rows.length,205);assert.ok(rows.every(row=>row.readOnlyAutomation.available&&row.type==='app'));assert.deepEqual(reads.map(request=>request.params.appIds.length),[100,100,5]);assert.deepEqual(reads.flatMap(request=>request.params.appIds),apps.map(app=>app.id));assert.ok(reads.every(request=>request.params.includeTools===true));assert.ok(requests.every(request=>['initialize','initialized','app/installed','app/read'].includes(request.method)));assert.ok(kills.includes('SIGTERM'));
 });
 test('a timed-out metadata client is stopped and never exposes its diagnostics',async()=>{
  const kills=[];const spawnImpl=()=>{const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.stdin=new PassThrough();child.kill=kind=>kills.push(kind);return child;};

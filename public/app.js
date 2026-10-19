@@ -97,7 +97,7 @@ const characterLines = new CharacterLines();
 function characterLine(role){return characterLines.next(role,{locale:getLocale(),firstName:personalContext.profile?.name,now:new Date(),weather:personalContext.weather});}
 function acceptPersonalContext(value){personalContext=value;clearTimeout(weatherTimer);if(value.profile?.weatherEnabled){const next=Number(value.weather?.expiresAt)||Date.now()+30*60000;weatherTimer=setTimeout(refreshPersonalWeather,Math.max(30*60000,next-Date.now()+1000));}}
 async function refreshPersonalWeather(){if(!personalContext.profile?.weatherEnabled)return;if(document.hidden){weatherTimer=setTimeout(refreshPersonalWeather,30*60000);return;}try{acceptPersonalContext(await request('/api/profile/weather'));}catch{weatherTimer=setTimeout(refreshPersonalWeather,30*60000);}}
-function openSecretary(mode,spokenLine){closeOfficePanel({restoreFocus:false});secretaryDialog?.open();if(mode&&['mail','calendar','free'].includes(mode))secretaryDialog?.choose(mode);officeSpeech?.speak('secretaire',spokenLine||characterLine('zoe'));}
+function openSecretary(mode,spokenLine,connection){closeOfficePanel({restoreFocus:false});secretaryDialog?.open();if(mode&&['mail','calendar','free','service'].includes(mode))secretaryDialog?.choose(mode);if(connection)secretaryDialog?.selectService(connection);officeSpeech?.speak('secretaire',spokenLine||characterLine('zoe'));}
 function dictateInto(target){dictationReturnPanel=activePanel;closeOfficePanel({restoreFocus:false});dictationDialog?.open({initialText:target?.value||'',onText:text=>{if(!target)throw new Error(translate('Choisissez une demande avant de dicter.'));if(text.length>target.maxLength&&target.maxLength>0)throw new Error(translate('Le texte dicté est trop long pour cette demande.'));target.value=text;target.dispatchEvent(new Event('input',{bubbles:true}));}});}
 const completionStatuses = new Map(),pendingCompletions = new Map();
 let completionTimer = null;
@@ -719,7 +719,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&personalC
 documentLibrary.refresh();
 creativeStudio=new CreativeStudio({getMission:()=>mission,onClose:()=>returnFromUtility(creativeStudio),onCreate:async({brief})=>{const detail=await launch($('provider-select').value,{strict:true,teamSize:'auto',allowParallel:true,promptOverride:brief});if(!detail?.id)throw new Error(translate('Le bureau n’a pas confirmé cette demande.'));utilityReturns.delete(creativeStudio);return detail;}});
 for(const id of ['open-creative-studio','settings-creative-studio','delivery-creative-studio'])$(id).addEventListener('click',()=>openUtility(creativeStudio));
-connectorsDialog=new ConnectorsDialog({request,getMission:()=>mission,onSecretary:mode=>openSecretary(mode)});
+connectorsDialog=new ConnectorsDialog({request,getMission:()=>mission,onSecretary:(mode,connection)=>openSecretary(mode,undefined,connection)});
 automationsDialog=new AutomationsDialog({request,getState:()=>state,onMission:id=>{automationsDialog.close();selectMission(id);openPanel('progress');}});
 artifactViewer=new ArtifactViewer({request,onClose:()=>openPanel('delivery')});
 const openWorkFolder=id=>request(`/api/missions/${encodeURIComponent(id)}/open-folder`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});

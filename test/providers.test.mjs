@@ -65,6 +65,9 @@ if (args.includes('--version')) {
         emit({type:'user',message:{content:[{type:'tool_result',tool_use_id:'read-1',is_error:false,content:'[]'}]}});
       }
     }
+    if(mode==='connector-app-success'||mode==='connector-app-unrelated'){
+      emit({type:'item.completed',item:{type:'mcp_tool_call',server:'codex_apps',tool:mode==='connector-app-success'?'documents.files.read/list':'documents.send',status:'completed',result:{content:[{type:'text',text:'[]'}],isError:false}}});
+    }
     if (mode === 'unicode') {
       const content = Buffer.from(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'Été 🌿'}}) + '\n' + JSON.stringify({type:'turn.completed',usage:{input_tokens:1}}));
       const offset = content.indexOf(Buffer.from('🌿')) + 2;
@@ -174,6 +177,16 @@ test('Codex inherited execution exposes only the selected read tools and keeps s
   const app=INHERITED_APPS.gmail,manager=new Connectors({dataDir:cwd,find:async()=>'/fake/codex',run:async()=>({code:0,stdout:'[]'}),appInspector:async()=>parseInheritedApps({installed:{apps:[{id:app.id,enabled:true,callable:true},{id:'other-plugin',enabled:true,callable:true}]},list:{data:[{id:app.id,isEnabled:true,isAccessible:true}]},details:{apps:[{id:app.id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:[...app.tools.map(name=>({name,isEnabled:true,isReadOnly:true})),{name:'send_email',isEnabled:true,isReadOnly:false}]}]}})});
   try{const connectorPlan=await manager.readPlan({name:app.name});await runAgent({provider:'codex',cwd,prompt:'Préparer un bilan local',connectorPlan,readOnly:true});const {args}=await capture();assert.equal(args[args.indexOf('-a')+1],'never');assert.equal(args[args.indexOf('--sandbox')+1],'read-only');assert.ok(args.includes('apps._default.enabled=false'));assert.ok(args.includes('apps.other-plugin.enabled=false'));assert.ok(args.find(arg=>arg.startsWith(`apps.${app.id}.tools=`)).includes('"send_email"={enabled=false}'));assert.deepEqual(args.slice(2,6),['--disable','plugins','--enable','apps']);assert.ok(!args.includes('--search'));}
   finally{await manager.close();}
+ });
+});
+test('Codex generic app execution preserves the captured tool identity and requires a successful authorized read',async()=>{
+ await fixture(async({cwd,capture})=>{
+  const id='installed-documents',manager=new Connectors({dataDir:cwd,find:async()=>'/fake/codex',run:async()=>({code:0,stdout:'[]'}),appInspector:async()=>parseInheritedApps({installed:{apps:[{id,runtimeName:'Documents',enabled:true,callable:true},{id:'other-app',enabled:true,callable:true}]},details:{apps:[{id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:[{name:'files.read/list',isEnabled:true,isReadOnly:true},{name:'send',isEnabled:true,isReadOnly:false}]}]}})});
+  try{
+   const connectorPlan=await manager.readPlan({name:`chatgpt-${id}`});process.env.FAKE_MODE='connector-app-success';await runAgent({provider:'codex',cwd,prompt:'Préparer une synthèse locale',connectorPlan,readOnly:true});
+   const {args}=await capture();assert.ok(args.includes('apps.other-app.enabled=false'));assert.ok(args.includes(`apps.${id}.default_tools_enabled=false`));assert.ok(args.includes(`apps.${id}.destructive_enabled=false`));assert.ok(args.includes('web_search="disabled"'));const tools=args.find(value=>value.startsWith(`apps.${id}.tools=`));assert.ok(tools.includes('"files.read/list"={enabled=true,approval_mode="auto"}'));assert.ok(tools.includes('"send"={enabled=false}'));assert.ok(!args.includes('--search'));assert.equal(args[args.indexOf('--sandbox')+1],'read-only');
+   process.env.FAKE_MODE='connector-app-unrelated';await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Préparer une synthèse locale',connectorPlan,readOnly:true}),cause=>cause.code==='CONNECTOR_NO_READ');
+  }finally{await manager.close();}
  });
 });
 test('une permission de connecteur refusée reste un échec malgré la fin normale du tour, sans exposer le compte', async () => {

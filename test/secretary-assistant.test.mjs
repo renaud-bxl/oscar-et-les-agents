@@ -181,3 +181,23 @@ test('seul un reçu interne valide peut être persisté, aucun plan de lecture H
  assert.throws(()=>app.engine.start({prompt:'Un reçu invalide.'},{assistant:true,secretaryRequest:{id:'request_valid_123',fingerprint:'a'.repeat(64),tools:['send']}}));
  const external=app.engine.start({prompt:'Le reçu HTTP est ignoré.',provider:'codex',secretaryRequest:{id:'request_valid_123',fingerprint:'a'.repeat(64)}},{assistant:true});await app.engine.wait(external.id);assert.equal(app.engine.get(external.id).secretaryRequest,undefined);assert.equal(calls,1);
 });
+
+test('Mes services transmet le plan Drive confirmé uniquement à Zoé et reprend sans nouvel appel',async t=>{
+ const name='chatgpt-connector_'+ 'a'.repeat(80),plan=Object.freeze({client:'codex',name,type:'app',source:'chatgpt',appId:'connector_drive_example',displayName:'Google Drive',enabledTools:Object.freeze(['search_files'])}),calls=[];
+ const{app,send}=await httpSetup(t,{connectorsFactory:()=>({ready:Promise.resolve(),active:new Set(),disabledNames:()=>[],readPlan:async()=>plan,close:async()=>{}}),runner:async input=>{calls.push(input);return{text:JSON.stringify(input.schema.properties.answer?reply:review)};}});
+ const body={mode:'service',prompt:'Retrouve le document utile dans le service choisi.',provider:'codex',connectorName:name,requestId:'service_request_12345678'};
+ const response=await send(body);assert.equal(response.status,202,await response.clone().text());const started=await response.json(),done=await app.engine.wait(started.id);
+ assert.equal(done.status,'completed');assert.equal(done.assistantMode,'service');assert.deepEqual(done.tasks,[]);assert.equal(calls.length,2);assert.equal(calls[0].connectorPlan,plan);assert.equal(calls[1].connectorPlan,undefined);assert.ok(calls.every(call=>call.readOnly));assert.match(calls[0].prompt,/app:\/\/connector_drive_example/);
+ assert.equal(app.automations.state().automations.length,0);const replay=await send(body);assert.equal((await replay.json()).id,started.id);assert.equal(calls.length,2);
+ for(const bad of [{...body,mode:'mail'},{...body,mode:'calendar'},{...body,mode:'free'},{...body,connectorName:'a'.repeat(121)},{...body,enabledTools:['send']},{...body,connectorPlan:{...plan}}])assert.equal((await send({...bad,requestId:undefined})).status,400);
+ assert.equal(calls.length,2);
+});
+
+test('une routine Mes services réutilise Drive en lecture, survit au rechargement et ne se lance pas à sa création',async t=>{
+ const name='chatgpt-connector_'+ 'b'.repeat(80),plan=Object.freeze({client:'codex',name,type:'app',source:'chatgpt',appId:'connector_drive_example',displayName:'Google Drive',enabledTools:Object.freeze(['search_files'])}),calls=[];
+ const engine=setup(t,async input=>{calls.push(input);return{text:JSON.stringify(input.schema.properties.answer?reply:review)};});
+ const scheduler=new Automations({engine,dataDir:engine.dataDir,resolveConnectorPlan:async()=>plan});t.after(()=>scheduler.close());
+ const created=scheduler.create({label:'Point documents',prompt:'Prépare une synthèse des fichiers utiles.',provider:'codex',assistant:true,assistantMode:'service',requiresConnector:true,connectorName:name,schedule:{frequency:'daily',time:'09:15'}});
+ assert.equal(calls.length,0);const restored=new Automations({engine,dataDir:engine.dataDir,resolveConnectorPlan:async()=>plan});t.after(()=>restored.close());assert.equal(restored.get(created.id).assistantMode,'service');assert.equal(restored.get(created.id).connectorName,name);assert.equal(restored.get(created.id).schedule.time,'09:15');
+ const launched=await restored.run(created.id),done=await engine.wait(launched.lastMissionId);assert.equal(done.status,'completed');assert.equal(done.assistantMode,'service');assert.equal(calls[0].connectorPlan,plan);assert.equal(calls[1].connectorPlan,undefined);assert.equal(calls.length,2);
+});

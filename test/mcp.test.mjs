@@ -36,6 +36,14 @@ test('MCP transmet une clé de reprise Oscar seulement si elle est valide et n�
  assert.equal(calls.length,1);
 });
 
+test('MCP Mes services transmet une connexion héritée longue sans accepter de capacités HTTP',async()=>{
+ const calls=[],handle=createHandler(options(async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});return jsonResponse({id:'service-mission',assistant:true,status:'planning'});}));
+ const args={prompt:'Retrouve mon document dans Drive.',provider:'codex',mode:'service',connectorName:'chatgpt-connector_'+ 'a'.repeat(80)};
+ const result=await handle(tool('oscar_ask_zoe',args));assert.equal(result.result.isError,undefined);assert.deepEqual(calls[0].body,args);
+ for(const bad of [{...args,connectorName:'a'.repeat(121)},{...args,connectorPlan:{appId:'forged'}},{...args,enabledTools:['send']},{...args,mode:'free'}])assert.equal((await handle(tool('oscar_ask_zoe',bad))).result.isError,true);
+ assert.equal(calls.length,1);const definition=(await handle(rpc('tools/list'))).result.tools.find(tool=>tool.name==='oscar_ask_zoe');assert.ok(definition.inputSchema.properties.mode.enum.includes('service'));assert.equal(definition.inputSchema.properties.connectorName.maxLength,120);
+});
+
 test('MCP exposes existing connectors, examples, direct Zoe and pinned document exports without installing anything',async()=>{
   const calls=[],handle=createHandler(options(async(url,init)=>{calls.push({url,init});return jsonResponse({id:'test-mission',status:'planning'});}));
   await handle(tool('oscar_list_connectors'));await handle(tool('oscar_document_library'));

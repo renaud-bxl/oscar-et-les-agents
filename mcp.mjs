@@ -79,8 +79,8 @@ export const TOOLS = [
   },
   {
     name:'oscar_ask_zoe',
-    description:'Confier une question directement à Zoé : recherche publique et aide générale en mode free sans connecteur, ou lecture Gmail/Agenda avec le nom exact d’une connexion éligible. Oscar vérifie la réponse ; aucun e-mail, réservation ni modification de calendrier. Utilise l’abonnement et retourne une mission immédiatement, à suivre avec oscar_read_mission.',
-    inputSchema:{type:'object',properties:{prompt:{type:'string',minLength:1,maxLength:12000},provider:{type:'string',enum:['codex','claude']},mode:{type:'string',enum:['free','mail','calendar']},requestId:{type:'string',minLength:8,maxLength:100,pattern:'^[A-Za-z0-9_-]+$',description:'Identifiant stable à réutiliser seulement pour réessayer exactement la même demande.'},connectorName:{type:'string',minLength:1,maxLength:64,pattern:'^[A-Za-z0-9][A-Za-z0-9_-]*$'}},required:['prompt','provider'],additionalProperties:false},
+    description:'Confier une question directement à Zoé : recherche publique et aide générale en mode free sans connecteur, ou lecture Gmail, Agenda, Google Drive et autres services en mode service avec le nom exact d’une connexion éligible. Oscar vérifie la réponse ; aucun e-mail, réservation ni modification de calendrier. Utilise l’abonnement et retourne une mission immédiatement, à suivre avec oscar_read_mission.',
+    inputSchema:{type:'object',properties:{prompt:{type:'string',minLength:1,maxLength:12000},provider:{type:'string',enum:['codex','claude']},mode:{type:'string',enum:['free','mail','calendar','service']},requestId:{type:'string',minLength:8,maxLength:100,pattern:'^[A-Za-z0-9_-]+$',description:'Identifiant stable à réutiliser seulement pour réessayer exactement la même demande.'},connectorName:{type:'string',minLength:1,maxLength:120,pattern:'^[A-Za-z0-9][A-Za-z0-9_-]*$'}},required:['prompt','provider'],additionalProperties:false},
     annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
   },
   {
@@ -120,9 +120,9 @@ function validateArguments(name, args) {
     if (!['codex', 'claude', 'demo'].includes(args.provider)) throw new ToolError('Le fournisseur doit être codex, claude ou demo.');
     if(args.requestId!==undefined&&(typeof args.requestId!=='string'||!/^[A-Za-z0-9_-]{8,100}$/.test(args.requestId)))throw new ToolError('L’identifiant de reprise est invalide.');
   } else if(name==='oscar_ask_zoe'){
-    if(typeof args.prompt!=='string'||!args.prompt.trim()||args.prompt.length>12000||!['codex','claude'].includes(args.provider)||args.mode!==undefined&&!['free','mail','calendar'].includes(args.mode))throw new ToolError('Précisez une question de 1 à 12 000 caractères et un moteur connecté.');
+    if(typeof args.prompt!=='string'||!args.prompt.trim()||args.prompt.length>12000||!['codex','claude'].includes(args.provider)||args.mode!==undefined&&!['free','mail','calendar','service'].includes(args.mode))throw new ToolError('Précisez une question de 1 à 12 000 caractères et un moteur connecté.');
     if(args.requestId!==undefined&&(typeof args.requestId!=='string'||!/^[A-Za-z0-9_-]{8,100}$/.test(args.requestId)))throw new ToolError('L’identifiant de reprise est invalide.');
-    if((args.mode||'free')==='free'?args.connectorName!==undefined:typeof args.connectorName!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(args.connectorName))throw new ToolError('Mails et Agenda demandent le nom exact d’un service autorisé ; une question libre n’utilise aucun compte privé.');
+    if((args.mode||'free')==='free'?args.connectorName!==undefined:typeof args.connectorName!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/.test(args.connectorName))throw new ToolError('Mails, Agenda et Mes services demandent le nom exact d’un service autorisé ; une question libre n’utilise aucun compte privé.');
   } else if(name==='oscar_read_reference'){
     if(typeof args.id!=='string'||!/^[a-f0-9]{24}$/u.test(args.id)||typeof args.revision!=='string'||!/^[a-f0-9]{64}$/u.test(args.revision))throw new ToolError('Utilisez l’identifiant et la version exacte d’un exemple de la bibliothèque.');
   } else if (!noArguments) {
@@ -239,7 +239,7 @@ export function createHandler({ fetchImpl = globalThis.fetch, url = process.env.
         result: {
           protocolVersion: PROTOCOL_VERSIONS.includes(params.protocolVersion) ? params.protocolVersion : PROTOCOL_VERSIONS[0],
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: 'oscar-et-les-agents', version: '0.6.0' },
+          serverInfo: { name: 'oscar-et-les-agents', version: '0.6.1' },
           instructions: 'Oscar dirige une équipe de cinq spécialistes. Démarrez une mission puis consultez son avancement et ses livrables. Le serveur de l’Atelier doit être lancé sur cet ordinateur.',
         },
       };
