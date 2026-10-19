@@ -34,3 +34,24 @@ test('les nouveaux onglets ont des brouillons indépendants, stables lors des ch
  const a=draftScope(blank,first),b=draftScope(blank,second);assert.notEqual(a,b);assert.match(a,/^office_/);assert.equal(draftScope(blank,first),a);assert.equal(draftScope(mission,first),a);assert.equal(draftScope(mission,second),b);
  const blocked={getItem(){throw new Error();}};assert.equal(draftScope(blank,blocked),'home');
 });
+test('le studio restaure ses choix et le brief exact du reçu, sans compte, fichier ni dessin',()=>{
+ const storage=memory(),draft=new DraftStorage({scope:'atelier',storage}),studioBrief='  Brief soumis\navec une mise en page exacte.\n';
+ const safe={text:'Créer une couverture originale',studioPreset:'illustration',studioFormat:'A4',studioBrief,requestId:'studio_12345678',requestHash:'c'.repeat(64)};
+ draft.write('studio',{...safe,provider:'claude',mode:'service',teamSize:'20',title:'non conservé',account:'compte privé',token:'SECRET',svg:'<svg>PRIVATE</svg>',blob:'blob:SECRET',latitude:50,longitude:4,references:[{id:'PRIVATE'}]});
+ assert.deepEqual(new DraftStorage({scope:'atelier',storage}).read('studio'),safe);
+ const raw=JSON.stringify([...storage.data.values()]);for(const forbidden of ['SECRET','PRIVATE','compte privé','claude','latitude','longitude','non conservé'])assert.ok(!raw.includes(forbidden));
+ draft.write('oscar',safe);assert.deepEqual(draft.read('oscar'),{text:safe.text,requestId:safe.requestId,requestHash:safe.requestHash});
+});
+test('le studio rejette les reçus incomplets, surdimensionnés et les choix inconnus sans tronquer un brief soumis',()=>{
+ const storage=memory(),draft=new DraftStorage({storage}),base={text:'Brouillon à garder',studioPreset:'branding',studioFormat:'16:9',studioBrief:'Brief exact',requestId:'studio_12345678',requestHash:'d'.repeat(64)};
+ for(const invalid of [{studioBrief:'x'.repeat(16001)},{studioBrief:''},{requestId:'../private'},{requestHash:'not-a-fingerprint'},{requestId:undefined}]){
+  draft.write('studio',{...base,...invalid});assert.deepEqual(draft.read('studio'),{text:base.text,studioPreset:'branding',studioFormat:'16:9'});
+ }
+ draft.write('studio',{text:base.text,studioPreset:'<svg>',studioFormat:'A0'});assert.deepEqual(draft.read('studio'),{text:base.text});
+ draft.write('studio',{...base,studioPreset:'unknown'});assert.deepEqual(draft.read('studio'),{text:base.text,studioFormat:'16:9'});
+});
+test('le reçu du studio respecte la durée et la limite globale des brouillons',()=>{
+ const storage=memory();let now=100000;const draft=new DraftStorage({storage,now:()=>now,maxBytes:2048});
+ draft.write('studio',{text:'Une idée',studioPreset:'social',studioFormat:'1:1',studioBrief:'x'.repeat(3000),requestId:'studio_12345678',requestHash:'e'.repeat(64)});assert.equal(draft.read('studio'),null);assert.equal(storage.data.size,0);
+ draft.write('studio',{text:'Une idée',studioPreset:'social',studioFormat:'1:1',studioBrief:'Brief exact',requestId:'studio_12345678',requestHash:'e'.repeat(64)});now+=7*86400000;assert.equal(draft.read('studio'),null);assert.equal(storage.data.size,0);
+});

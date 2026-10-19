@@ -4,9 +4,12 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { detectProviders, runAgent, MAX_AGENT_TIMEOUT_MS } from '../lib/providers.mjs';
+import { detectProviders, runAgent, MAX_AGENT_TIMEOUT_MS, isTrustedConnectorReadReceipt } from '../lib/providers.mjs';
 import {Connectors,GMAIL_MCP_URL} from '../lib/connectors.mjs';
-import {INHERITED_APPS,parseInheritedApps} from '../lib/connector-clients.mjs';
+import {INHERITED_APPS,CLAUDE_READ_SERVICES,parseInheritedApps,parseInheritedClaudeConnectors} from '../lib/connector-clients.mjs';
+import {Atelier} from '../lib/orchestrator.mjs';
+
+const claudeReadFixture=async()=>parseInheritedClaudeConnectors([{name:'claude.ai Gmail',source:'claudeai',scope:'claudeai',status:'connected',config:{type:'claudeai-proxy',url:GMAIL_MCP_URL,id:'official-gmail'},tools:[...CLAUDE_READ_SERVICES.gmail.tools.map(name=>({name,annotations:{readOnly:true}})),{name:'send_message',annotations:{}}]}]);
 
 const fakeSource = String.raw`
 const fs = require('node:fs');
@@ -16,15 +19,14 @@ const provider = process.argv[1].endsWith('codex') ? 'codex' : 'claude';
 if (args.includes('--version')) {
   console.log(provider === 'codex' ? 'codex-cli 0.162.0-alpha.17.2' : (process.env.FAKE_OLD ? '2.1.200' : '2.1.303 (Claude Code)'));
 } else if (args.includes('--help')) {
-  console.log(provider === 'codex' ? '--json --sandbox --color --skip-git-repo-check --output-schema' + (process.env.FAKE_NO_SEARCH ? '' : ' --search') : '--restricted --output-format --verbose --permission-mode "manual" "dontAsk" --permission-prompts --tools --allowedTools --strict-mcp-config --json-schema');
+  console.log(provider === 'codex' ? '--json --sandbox --color --skip-git-repo-check --output-schema' + (process.env.FAKE_NO_SEARCH ? '' : ' --search') : '--restricted --output-format --verbose --permission-mode "manual" "dontAsk" --permission-prompts --tools --allowedTools --strict-mcp-config --json-schema --input-format --no-session-persistence --setting-sources');
 } else if (args.includes('status')) {
   if (provider === 'codex') console.error('Logged in using ChatGPT');
   else console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', neverExpose: 'sk-status-secret' }));
 } else {
   let input = '';
   process.stdin.setEncoding('utf8');
-  process.stdin.on('data', chunk => input += chunk);
-  process.stdin.on('end', () => {
+  const respond = () => {
     const schemaIndex = args.indexOf('--output-schema');
     fs.writeFileSync(process.env.FAKE_CAPTURE, JSON.stringify({ provider, args, input, cwd: process.cwd(), apiKeysPresent: ['OPENAI_API_KEY','CODEX_API_KEY','ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN','CLAUDE_CODE_OAUTH_TOKEN'].some(key => Boolean(process.env[key])), schema: schemaIndex >= 0 ? JSON.parse(fs.readFileSync(args[schemaIndex + 1], 'utf8')) : null }));
     const emit = value => console.log(JSON.stringify(value));
@@ -68,6 +70,34 @@ if (args.includes('--version')) {
     if(mode==='connector-app-success'||mode==='connector-app-unrelated'){
       emit({type:'item.completed',item:{type:'mcp_tool_call',server:'codex_apps',tool:mode==='connector-app-success'?'documents.files.read/list':'documents.send',status:'completed',result:{content:[{type:'text',text:'[]'}],isError:false}}});
     }
+    if(mode.startsWith('connector-receipt')){
+      const reads=[['read-1','list_labels'],['read-1','list_labels'],['read-2','list_labels'],['read-3',provider==='codex'?'search_emails':'get_message']];
+      for(const [id,name]of reads){
+        if(provider==='codex')emit({type:'item.completed',item:{id,type:'mcp_tool_call',server:'codex_apps',tool:'gmail.'+name,arguments:{query:'PRIVATE-ARGUMENT',documentId:'PRIVATE-DOCUMENT'},status:'completed',result:{content:[{type:'text',text:'PRIVATE-PAYLOAD'}],isError:false}}});
+        else{
+          emit({type:'assistant',message:{content:[{type:'tool_use',id,name:'mcp__claude_ai_Gmail__'+name,input:{query:'PRIVATE-ARGUMENT',documentId:'PRIVATE-DOCUMENT'}}]}});
+          const result={type:'user',message:{content:[{type:'tool_result',tool_use_id:id,is_error:false,content:'PRIVATE-PAYLOAD'}]}};emit(result);emit(result);
+        }
+      }
+      if(provider==='codex')emit({type:'item.completed',item:{id:'unrelated',type:'mcp_tool_call',server:'codex_apps',tool:'gmail.create_draft',status:'completed',result:{content:[{type:'text',text:'PRIVATE-UNRELATED'}],isError:false}}});
+      else{
+        emit({type:'assistant',message:{content:[{type:'tool_use',id:'unrelated',name:'mcp__claude_ai_Gmail__create_draft',input:{}}]}});
+        emit({type:'user',message:{content:[{type:'tool_result',tool_use_id:'unrelated',is_error:false,content:'PRIVATE-UNRELATED'}]}});
+      }
+      if(mode==='connector-receipt-quota'){
+        if(provider==='codex')emit({type:'turn.failed',error:{message:'rate limit 429 PRIVATE-PAYLOAD'}});
+        else emit({type:'result',subtype:'error_during_execution',is_error:true,errors:['rate limit 429 PRIVATE-PAYLOAD']});
+        process.exitCode=1;return;
+      }
+      if(mode==='connector-receipt-error'){
+        if(provider==='codex')emit({type:'item.completed',item:{id:'read-error',type:'mcp_tool_call',server:'codex_apps',tool:'gmail.list_labels',status:'failed',error:{message:'upstream temporarily unavailable PRIVATE-PAYLOAD'}}});
+        else{
+          emit({type:'assistant',message:{content:[{type:'tool_use',id:'read-error',name:'mcp__claude_ai_Gmail__list_labels',input:{}}]}});
+          emit({type:'user',message:{content:[{type:'tool_result',tool_use_id:'read-error',is_error:true,content:'upstream temporarily unavailable PRIVATE-PAYLOAD'}]}});
+        }
+      }
+      if(mode==='connector-receipt-no-terminal'){process.stdin.destroy();return;}
+    }
     if (mode === 'unicode') {
       const content = Buffer.from(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'Été 🌿'}}) + '\n' + JSON.stringify({type:'turn.completed',usage:{input_tokens:1}}));
       const offset = content.indexOf(Buffer.from('🌿')) + 2;
@@ -87,7 +117,19 @@ if (args.includes('--version')) {
       emit({ type: 'assistant', message: {content:[{type:'thinking',thinking:'private thought never shown'},{type:'tool_use',name:'WebSearch',input:{query:'private query never shown'}},{type:'text',text:'Brouillon'}]} });
       emit({ type: 'result', subtype: 'success', result: 'Livrable Claude prêt', ...(args.includes('--json-schema') ? {structured_output:{answer:'structuré'}} : {}), usage: { input_tokens: 12, output_tokens: 6 } });
     }
-  });
+  };
+  if(provider==='claude'&&args.includes('--input-format')){
+    let buffer='',responded=false;
+    process.stdin.on('data',chunk=>{
+      buffer+=chunk;let end;
+      while((end=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,end);buffer=buffer.slice(end+1);if(!line.trim())continue;const frame=JSON.parse(line);
+        if(frame.type==='control_request'){
+          const response=frame.request.subtype==='initialize'?{}:{mcpServers:[{name:'claude.ai Gmail',source:'claudeai',scope:'claudeai',status:'connected',config:{type:'claudeai-proxy',url:'https://gmailmcp.googleapis.com/mcp/v1',id:'official-gmail'},tools:[...['get_message','get_thread','list_drafts','list_labels','search_threads'].map(name=>({name,annotations:{readOnly:true}})),{name:'send_message',annotations:{}}]}]};
+          console.log(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:frame.request_id,response}}));
+        }else if(frame.type==='user'&&!responded){responded=true;input=frame.message.content;respond();}
+      }
+    });
+  }else{process.stdin.on('data',chunk=>input+=chunk);process.stdin.on('end',respond);}
 }
 `;
 
@@ -183,7 +225,8 @@ test('Codex generic app execution preserves the captured tool identity and requi
  await fixture(async({cwd,capture})=>{
   const id='installed-documents',manager=new Connectors({dataDir:cwd,find:async()=>'/fake/codex',run:async()=>({code:0,stdout:'[]'}),appInspector:async()=>parseInheritedApps({installed:{apps:[{id,runtimeName:'Documents',enabled:true,callable:true},{id:'other-app',enabled:true,callable:true}]},details:{apps:[{id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:[{name:'files.read/list',isEnabled:true,isReadOnly:true},{name:'send',isEnabled:true,isReadOnly:false}]}]}})});
   try{
-   const connectorPlan=await manager.readPlan({name:`chatgpt-${id}`});process.env.FAKE_MODE='connector-app-success';await runAgent({provider:'codex',cwd,prompt:'Préparer une synthèse locale',connectorPlan,readOnly:true});
+   const connectorPlan=await manager.readPlan({name:`chatgpt-${id}`});process.env.FAKE_MODE='connector-app-success';const result=await runAgent({provider:'codex',cwd,prompt:'Préparer une synthèse locale',connectorPlan,readOnly:true});
+   assert.ok(isTrustedConnectorReadReceipt(result.connectorReadReceipt));assert.deepEqual(result.connectorReadReceipt,{client:'codex',service:'app',name:`chatgpt-${id}`,displayName:'Documents',appId:id,successfulCalls:1,tools:[{name:'files.read/list',successfulCalls:1}]});
    const {args}=await capture();assert.ok(args.includes('apps.other-app.enabled=false'));assert.ok(args.includes(`apps.${id}.default_tools_enabled=false`));assert.ok(args.includes(`apps.${id}.destructive_enabled=false`));assert.ok(args.includes('web_search="disabled"'));const tools=args.find(value=>value.startsWith(`apps.${id}.tools=`));assert.ok(tools.includes('"files.read/list"={enabled=true,approval_mode="auto"}'));assert.ok(tools.includes('"send"={enabled=false}'));assert.ok(!args.includes('--search'));assert.equal(args[args.indexOf('--sandbox')+1],'read-only');
    process.env.FAKE_MODE='connector-app-unrelated';await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Préparer une synthèse locale',connectorPlan,readOnly:true}),cause=>cause.code==='CONNECTOR_NO_READ');
   }finally{await manager.close();}
@@ -204,9 +247,85 @@ test('une permission de connecteur refusée reste un échec malgré la fin norma
 test('Claude inherits one verified account connector under restricted dontAsk with five exact read permissions',async()=>{
  await fixture(async({cwd,capture})=>{
   process.env.FAKE_MODE='connector-success';
-  const manager=new Connectors({dataDir:cwd,find:async()=>'/fake/claude',appInspector:async()=>[],run:async(binary,args)=>({code:0,stdout:args[1]==='list'?`claude.ai Gmail: ${GMAIL_MCP_URL} - ✓ Connected\nother: https://example.test - ✓ Connected`:`Source: claude.ai\nURL: ${GMAIL_MCP_URL}`})});
+  const manager=new Connectors({dataDir:cwd,find:async()=>'/fake/claude',appInspector:async()=>[],claudeInspector:claudeReadFixture,run:async(binary,args)=>({code:0,stdout:args[1]==='list'?`claude.ai Gmail: ${GMAIL_MCP_URL} - ✓ Connected\nother: https://example.test - ✓ Connected`:`Source: claude.ai\nURL: ${GMAIL_MCP_URL}`})});
   try{const connectorPlan=await manager.readPlan({client:'claude',name:'claudeai-gmail'});await runAgent({provider:'claude',cwd,prompt:'Préparer un bilan local',connectorPlan});const {args}=await capture();assert.ok(args.includes('--restricted'));assert.equal(args.includes('--strict-mcp-config'),false);assert.equal(args[args.indexOf('--permission-mode')+1],'dontAsk');const allowed=args[args.indexOf('--allowedTools')+1].split(',');assert.equal(allowed.filter(tool=>tool.startsWith('mcp__')).length,5);assert.ok(!allowed.some(tool=>/Bash|Agent|WebFetch|WebSearch|send|create_draft/.test(tool)));const settings=JSON.parse(args[args.indexOf('--settings')+1]);assert.deepEqual(settings.deniedMcpServers,[{serverName:'other'}]);}
   finally{await manager.close();}
+ });
+});
+
+for(const provider of ['codex','claude']){
+ test(`${provider}: trusted read receipts count successful calls without account content or duplicate events`,async()=>{
+  await fixture(async({cwd})=>{
+   const app=INHERITED_APPS.gmail;
+   const manager=new Connectors({dataDir:cwd,find:async()=>`/fake/${provider}`,claudeInspector:claudeReadFixture,
+    run:async(binary,args)=>({code:0,stdout:provider==='codex'?'[]':args[1]==='list'?`claude.ai Gmail: ${GMAIL_MCP_URL} - ✓ Connected`:`Source: claude.ai\nURL: ${GMAIL_MCP_URL}`}),
+    appInspector:async()=>provider==='codex'?parseInheritedApps({installed:{apps:[{id:app.id,enabled:true,callable:true}]},details:{apps:[{id:app.id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:app.tools.map(name=>({name,isEnabled:true,isReadOnly:true}))}]}}):[]});
+   try{
+    const name=provider==='codex'?app.name:'claudeai-gmail',connectorPlan=await manager.readPlan({client:provider,name});
+    process.env.FAKE_MODE='connector-receipt';const output=await runAgent({provider,cwd,prompt:'Lire en privé',connectorPlan,readOnly:true}),receipt=output.connectorReadReceipt;
+    assert.ok(isTrustedConnectorReadReceipt(receipt));assert.deepEqual(receipt,{client:provider,service:'gmail',name,displayName:'Gmail',...(provider==='codex'?{appId:app.id}:{}),successfulCalls:3,tools:[{name:'list_labels',successfulCalls:2},{name:provider==='codex'?'search_emails':'get_message',successfulCalls:1}]});
+    assert.ok(Object.isFrozen(receipt));assert.ok(Object.isFrozen(receipt.tools));assert.ok(receipt.tools.every(Object.isFrozen));assert.throws(()=>receipt.tools.push({name:'send',successfulCalls:1}),TypeError);assert.throws(()=>{receipt.tools[0].successfulCalls=100;},TypeError);
+    assert.equal(isTrustedConnectorReadReceipt({...receipt}),false);assert.equal(isTrustedConnectorReadReceipt(JSON.parse(JSON.stringify(receipt))),false);assert.equal(isTrustedConnectorReadReceipt(Object.create(receipt)),false);assert.ok(!/PRIVATE|read-1|read-2|read-3|documentId|query|content|arguments/.test(JSON.stringify(receipt)));
+    const another=await runAgent({provider,cwd,prompt:'Nouvelle réponse',connectorPlan,readOnly:true});assert.notEqual(another.connectorReadReceipt,receipt);assert.equal(another.connectorReadReceipt.successfulCalls,3);
+    for(const mode of ['connector-receipt-quota','connector-receipt-error','connector-receipt-no-terminal']){
+     process.env.FAKE_MODE=mode;await assert.rejects(runAgent({provider,cwd,prompt:'Lecture non validée',connectorPlan,readOnly:true}),cause=>cause.connectorReadReceipt===undefined&&!/PRIVATE/.test(cause.message));
+    }
+   }finally{await manager.close();}
+  });
+ });
+}
+test('ordinary model responses do not create or authenticate connector read receipts',async()=>{
+ await fixture(async({cwd})=>{
+  const output=await runAgent({provider:'codex',cwd,prompt:'Question publique'});assert.equal(Object.hasOwn(output,'connectorReadReceipt'),false);assert.equal(isTrustedConnectorReadReceipt({client:'codex',service:'gmail',successfulCalls:1,tools:[{name:'list_labels',successfulCalls:1}]}),false);
+  for(const value of [null,undefined,'receipt',1,true])assert.equal(isTrustedConnectorReadReceipt(value),false);
+ });
+});
+
+async function gmailReceipt(cwd){
+ const app=INHERITED_APPS.gmail,manager=new Connectors({dataDir:cwd,find:async()=>'/fake/codex',run:async()=>({code:0,stdout:'[]'}),appInspector:async()=>parseInheritedApps({installed:{apps:[{id:app.id,enabled:true,callable:true}]},details:{apps:[{id:app.id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:app.tools.map(name=>({name,isReadOnly:true,isEnabled:true}))}]}})});
+ try{const plan=await manager.readPlan({name:app.name});process.env.FAKE_MODE='connector-receipt';const output=await runAgent({provider:'codex',cwd,prompt:'Lecture simulée pour le contrôle interne',connectorPlan:plan,readOnly:true});return {plan,receipt:output.connectorReadReceipt};}finally{await manager.close();}
+}
+async function assertNoSavedReceipt(app,id){
+ const serialized=[JSON.stringify(app.get(id)),JSON.stringify(app.state())];
+ const readTree=async directory=>{for(const item of await readdir(directory,{withFileTypes:true})){const file=join(directory,item.name);if(item.isDirectory())await readTree(file);else serialized.push(await readFile(file,'utf8'));}};
+ await readTree(app.missionDir(id));assert.doesNotMatch(serialized.join('\n'),/connectorReadReceipt|successfulCalls|CONSTAT TECHNIQUE|PRIVATE-(?:ARGUMENT|DOCUMENT|PAYLOAD)/);
+}
+test('Atelier passes a real stream receipt to Oscar without passing account access or saving the receipt',async()=>{
+ await fixture(async({cwd,directory})=>{
+  const {plan,receipt}=await gmailReceipt(cwd),calls=[],states=[];
+  const app=new Atelier({dataDir:join(directory,'atelier'),providers:[{id:'codex',available:true}],runAgent:async options=>{
+   calls.push(options);if(options.schema?.properties.answer){assert.equal(options.connectorPlan,plan);return {text:JSON.stringify({title:'Réponse simulée',answer:'Une synthèse locale, avec ses limites.'}),connectorReadReceipt:receipt};}
+   assert.equal(options.connectorPlan,undefined);assert.match(options.prompt,/CONSTAT TECHNIQUE DU BUREAU/);assert.ok(options.prompt.includes(JSON.stringify(receipt)));assert.match(options.prompt,/jamais un nombre de messages ou de documents/);assert.match(options.prompt,/ne certifie ni les faits.*ni leur fraîcheur/);return {text:JSON.stringify({approved:true,feedback:'Réponse utile et limites explicites.'})};
+  }});app.on('change',state=>states.push(JSON.stringify(state)));
+  const mission=app.start({provider:'codex',prompt:'Fais une synthèse de mon service.'},{assistant:true,assistantMode:'service',connectorPlan:plan}),done=await app.wait(mission.id);
+  assert.equal(done.status,'completed');assert.equal(calls.length,2);assert.doesNotMatch(states.join('\n'),/connectorReadReceipt|successfulCalls|CONSTAT TECHNIQUE/);await assertNoSavedReceipt(app,mission.id);
+ });
+});
+test('Atelier clears the previous receipt when a corrected answer provides no current receipt',async()=>{
+ await fixture(async({cwd,directory})=>{
+  const {plan,receipt}=await gmailReceipt(cwd);let answers=0,reviews=0;
+  const app=new Atelier({dataDir:join(directory,'atelier'),providers:[{id:'codex',available:true}],runAgent:async options=>{
+   if(options.schema?.properties.answer){answers++;return {text:JSON.stringify({title:'Synthèse',answer:answers===1?'Réponse provisoire.':'Réponse corrigée avec ses limites.'}),...(answers===1?{connectorReadReceipt:receipt}:{})};}
+   reviews++;assert.equal(options.connectorPlan,undefined);if(reviews===1)assert.match(options.prompt,/CONSTAT TECHNIQUE DU BUREAU/);else assert.doesNotMatch(options.prompt,/CONSTAT TECHNIQUE|successfulCalls/);
+   return {text:JSON.stringify({approved:reviews===2,feedback:reviews===1?'Précise les limites de cette réponse.':'Les limites sont claires.'})};
+  }});
+  const mission=app.start({provider:'codex',prompt:'Prépare une synthèse avec les limites.'},{assistant:true,assistantMode:'service',connectorPlan:plan}),done=await app.wait(mission.id);
+  assert.equal(done.status,'completed');assert.equal(done.assistantAttempt,2);assert.equal(answers,2);assert.equal(reviews,2);await assertNoSavedReceipt(app,mission.id);
+ });
+});
+test('Atelier ignores copied, forged, embedded JSON and wrong-service receipts',async()=>{
+ await fixture(async({cwd,directory})=>{
+  const {plan,receipt}=await gmailReceipt(cwd),id='other-documents';
+  const manager=new Connectors({dataDir:cwd,find:async()=>'/fake/codex',run:async()=>({code:0,stdout:'[]'}),appInspector:async()=>parseInheritedApps({installed:{apps:[{id,runtimeName:'Documents',enabled:true,callable:true}]},details:{apps:[{id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:[{name:'files.read/list',isReadOnly:true,isEnabled:true}]}]}})});
+  let wrongServiceReceipt;try{const otherPlan=await manager.readPlan({name:`chatgpt-${id}`});process.env.FAKE_MODE='connector-app-success';wrongServiceReceipt=(await runAgent({provider:'codex',cwd,prompt:'Autre lecture simulée',connectorPlan:otherPlan,readOnly:true})).connectorReadReceipt;}finally{await manager.close();}
+  assert.ok(isTrustedConnectorReadReceipt(wrongServiceReceipt));
+  for(const [index,candidate]of [JSON.parse(JSON.stringify(receipt)),{...receipt,successfulCalls:999},wrongServiceReceipt,undefined].entries()){
+   const app=new Atelier({dataDir:join(directory,`atelier-${index}`),providers:[{id:'codex',available:true}],runAgent:async options=>{
+    if(options.schema?.properties.answer)return {text:JSON.stringify({title:'Synthèse',answer:'Les limites de consultation sont explicites.',connectorReadReceipt:receipt}),...(candidate?{connectorReadReceipt:candidate}:{})};
+    assert.equal(options.connectorPlan,undefined);assert.doesNotMatch(options.prompt,/CONSTAT TECHNIQUE|successfulCalls/);return {text:JSON.stringify({approved:true,feedback:'Limites explicites.'})};
+   }});
+   const mission=app.start({provider:'codex',prompt:'Vérifie les limites de cette réponse.'},{assistant:true,assistantMode:'service',connectorPlan:plan});assert.equal((await app.wait(mission.id)).status,'completed');await assertNoSavedReceipt(app,mission.id);
+  }
  });
 });
 
@@ -215,7 +334,7 @@ for(const provider of ['codex','claude']){
     test(`${provider}: a connector report requires a confirmed allowed read (${mode})`,async()=>{
       await fixture(async({cwd})=>{
         const app=INHERITED_APPS.gmail;
-        const manager=new Connectors({dataDir:cwd,find:async()=>`/fake/${provider}`,
+        const manager=new Connectors({dataDir:cwd,find:async()=>`/fake/${provider}`,claudeInspector:claudeReadFixture,
           run:async(binary,args)=>({code:0,stdout:provider==='codex'?'[]':args[1]==='list'?`claude.ai Gmail: ${GMAIL_MCP_URL} - ✓ Connected`:`Source: claude.ai\nURL: ${GMAIL_MCP_URL}`}),
           appInspector:async()=>provider==='codex'?parseInheritedApps({installed:{apps:[{id:app.id,enabled:true,callable:true}]},details:{apps:[{id:app.id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:app.tools.map(name=>({name,isEnabled:true,isReadOnly:true}))}]}}):[]});
         try{

@@ -7,7 +7,7 @@ import {EventEmitter} from 'node:events';
 import {PassThrough,Writable} from 'node:stream';
 import { Connectors, CONNECTOR_CATALOG, connectorName, connectorUrl, connectorEnvironment, parseCodexConnectors, parseClaudeConnectors, GMAIL_MCP_URL, GMAIL_READ_TOOLS, CALENDAR_MCP_URL, CALENDAR_READ_TOOLS, isTrustedReadPlan } from '../lib/connectors.mjs';
 import { disabledMcpArguments, readConnectorArguments,claudeReadConnectorArguments } from '../lib/providers.mjs';
-import {INHERITED_APPS,parseInheritedApps,inheritedClaudeIdentity,inspectCodexApps} from '../lib/connector-clients.mjs';
+import {INHERITED_APPS,CLAUDE_READ_SERVICES,parseInheritedApps,inheritedClaudeIdentity,parseInheritedClaudeConnectors,verifiedClaudeReadMetadata,inspectCodexApps,inspectClaudeConnectors} from '../lib/connector-clients.mjs';
 import { createAtelierServer } from '../server.mjs';
 
 async function fixture(t, options = {}) {
@@ -37,7 +37,8 @@ async function fixture(t, options = {}) {
     }
     throw new Error('Unexpected fake client call');
   };
-  const manager = new Connectors({ dataDir, find, run,appInspector:options.appInspector||(async()=>[]) });
+  const claudeInspector=options.claudeInspector||(async()=>parseInheritedClaudeConnectors(rows.claude.map(row=>configs.get(row.name)).filter(value=>value&&typeof value==='object')));
+  const manager = new Connectors({ dataDir, find, run,appInspector:options.appInspector||(async()=>[]),claudeInspector });
   await manager.ready;
   t.after(async () => { await manager.close(); await rm(dataDir, { recursive: true, force: true }); });
   const settle = async () => { await Promise.all([...manager.active.values()].map(item => item.completion)); };
@@ -292,16 +293,72 @@ test('routine reads never treat a directory-only app or failed metadata probe as
  const snapshot=appMetadata();snapshot.installed.apps=[];const f=await fixture(t,{appInspector:async()=>parseInheritedApps(snapshot)});const state=await f.manager.state();assert.equal(state.connections.find(row=>row.name==='chatgpt-gmail').status,'needs_auth');await assert.rejects(f.manager.readPlan({name:'chatgpt-gmail'}),/autorisation/);
  f.manager.appInspector=async()=>{throw new Error('SECRET-OAUTH-DIAGNOSTIC');};const failed=await f.manager.state({refresh:true});assert.ok(failed.connections.filter(row=>row.source==='chatgpt').every(row=>row.status==='unverified'&&row.stale&&row.readOnlyAutomation.available===false));assert.equal(JSON.stringify(failed).includes('SECRET'),false);
 });
-test('existing Claude account connectors require connected state, inherited source and exact official identity',async t=>{
+function claudeMetadata(type='gmail',overrides={}){
+ const service=CLAUDE_READ_SERVICES[type];
+ return {name:{gmail:'claude.ai Gmail',calendar:'claude.ai Google Calendar',drive:'claude.ai Google Drive'}[type],status:'connected',scope:'claudeai',source:'claudeai',config:{type:'claudeai-proxy',url:service.url,id:`official-${type}`},tools:[...service.tools.map(name=>({name,annotations:{readOnly:true}})),{name:{gmail:'send_message',calendar:'create_event',drive:'update_file'}[type],annotations:{readOnly:true}},{name:{gmail:'create_draft',calendar:'delete_event',drive:'trash_file'}[type],annotations:{}}],...overrides};
+}
+test('existing Claude account connectors require connected state, inherited provenance, exact official URL and fixed read tools',async t=>{
  const f=await fixture(t);f.rows.claude.push({name:'claude.ai Gmail',status:'connected'},{name:'claude.ai Google Calendar',status:'connected'});
- f.configs.set('claude.ai Gmail',`claude.ai Gmail:\n  Source: claude.ai\n  URL: ${GMAIL_MCP_URL}\n  Status: ✓ Connected`);
- f.configs.set('claude.ai Google Calendar',`claude.ai Google Calendar:\n  Source: claude.ai\n  URL: ${CALENDAR_MCP_URL}\n  Status: ✓ Connected`);
+ f.configs.set('claude.ai Gmail',claudeMetadata());
+ f.configs.set('claude.ai Google Calendar',claudeMetadata('calendar'));
  const state=await f.manager.state(),gmail=state.connections.find(row=>row.name==='claudeai-gmail');assert.equal(gmail.source,'claude.ai');assert.equal(gmail.readOnlyAutomation.available,true);
  const plan=await f.manager.readPlan({client:'claude',name:'claudeai-gmail'});assert.equal(plan.client,'claude');assert.equal(isTrustedReadPlan(plan),true);const options=claudeReadConnectorArguments(plan);assert.deepEqual(options.allowed,GMAIL_READ_TOOLS.map(tool=>`mcp__claude_ai_Gmail__${tool}`));assert.ok(!options.allowed.some(tool=>/send|create|modify/.test(tool)));assert.throws(()=>claudeReadConnectorArguments({...plan}),/pas été vérifié/);
- const parsed=JSON.parse(options.args[1]);assert.deepEqual(parsed.allowedMcpServers,[{serverName:'claude.ai Gmail'}]);assert.equal(parsed.permissions.defaultMode,'dontAsk');
- f.configs.set('claude.ai Gmail',`Source: claude.ai\nURL: https://opaque.claude.example/secret`);const unverified=await f.manager.state({refresh:true});assert.equal(unverified.connections.find(row=>row.name==='claudeai-gmail').status,'unverified');await assert.rejects(f.manager.readPlan({client:'claude',name:'claudeai-gmail'}),/autorisation/);
+ const parsed=JSON.parse(options.args[1]);assert.deepEqual(parsed.allowedMcpServers,[{serverUrl:GMAIL_MCP_URL}]);assert.equal(parsed.permissions.defaultMode,'dontAsk');assert.deepEqual(parsed.deniedMcpServers,[{serverName:'claude.ai Google Calendar'}]);assert.ok(parsed.permissions.deny.includes('mcp__claude_ai_Gmail__send_message'));assert.ok(parsed.permissions.deny.includes('mcp__claude_ai_Gmail__create_draft'));assert.ok(parsed.permissions.deny.includes('mcp__claude_ai_Google_Calendar__*'));
+ f.configs.set('claude.ai Gmail',claudeMetadata('gmail',{config:{type:'claudeai-proxy',id:'official-gmail',url:'https://opaque.claude.example/secret'}}));const unverified=await f.manager.state({refresh:true});assert.equal(unverified.connections.find(row=>row.name==='claudeai-gmail').status,'unverified');await assert.rejects(f.manager.readPlan({client:'claude',name:'claudeai-gmail'}),/autorisation/);
  assert.equal(inheritedClaudeIdentity('claude.ai Gmail',`Source: user\nURL: ${GMAIL_MCP_URL}`),null);assert.equal(inheritedClaudeIdentity('custom Gmail',`Source: claude.ai\nURL: ${GMAIL_MCP_URL}`),null);
  assert.ok(!f.calls.some(call=>['add','login'].includes(call.args[1])));
+});
+test('Claude metadata requires canonical provenance and never infers read authority from names or annotations',()=>{
+ const valid=claudeMetadata(),rows=parseInheritedClaudeConnectors([valid]),row=rows[0];
+ assert.equal(row.readOnlyAutomation.available,true);assert.deepEqual(row.enabledTools,GMAIL_READ_TOOLS);assert.ok(row.disabledTools.includes('send_message'));assert.equal(verifiedClaudeReadMetadata({...row}),null);assert.equal(verifiedClaudeReadMetadata(JSON.parse(JSON.stringify(row))),null);
+ for(const mutate of [
+  value=>{value.source='user';},value=>{value.scope='user';},value=>{delete value.source;},value=>{value.status='pending';},value=>{value.status='needs-auth';},
+  value=>{value.config.type='http';},value=>{value.config.url+='?token=NEVER_DISPLAY';},value=>{value.config.url='https://gmail.example.test/mcp/v1';},value=>{value.config.headers={Authorization:'NEVER_DISPLAY'};},value=>{delete value.config.id;},
+  value=>{value.tools.shift();},value=>{value.tools[0].annotations.readOnly=false;},value=>{value.tools[0].annotations.destructive=true;},value=>{value.tools.push({name:'get_message',annotations:{}});},value=>{value.tools.push({name:'unsafe(tool)',annotations:{readOnly:true}});},
+ ]){const changed=structuredClone(valid);mutate(changed);assert.equal(inheritedClaudeIdentity(changed),null);assert.ok(parseInheritedClaudeConnectors([changed]).every(item=>item.readOnlyAutomation.available===false));assert.ok(!JSON.stringify(parseInheritedClaudeConnectors([changed])).includes('NEVER_DISPLAY'));}
+ const renamed=claudeMetadata('gmail',{name:'claude.ai Courrier'});assert.equal(parseInheritedClaudeConnectors([renamed])[0].readOnlyAutomation.available,true);
+ assert.ok(parseInheritedClaudeConnectors([valid,renamed]).every(item=>!item.readOnlyAutomation.available));
+ const unknown=claudeMetadata('gmail',{name:'claude.ai Notes',config:{type:'claudeai-proxy',url:'https://notes.example.test/mcp',id:'opaque-notes'}}),unsupported=parseInheritedClaudeConnectors([unknown])[0];assert.equal(unsupported.status,'connected');assert.equal(unsupported.readOnlyAutomation.available,false);assert.match(unsupported.reason,/Aucun accès automatique/);
+});
+function claudeProtocolFixture(handle){
+ const requests=[],kills=[],spawns=[];let child;
+ const spawnImpl=(binary,args,options)=>{
+  spawns.push({binary,args,options});child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=kind=>{kills.push(kind);queueMicrotask(()=>child.emit('close',0));};
+  const emit=value=>queueMicrotask(()=>child.stdout.write(JSON.stringify(value)+'\n'));
+  child.stdin=new Writable({write(chunk,encoding,callback){const request=JSON.parse(chunk.toString());requests.push(request);handle?.(request,emit);callback();}});return child;
+ };
+ return {requests,kills,spawns,spawnImpl,get child(){return child;}};
+}
+test('Claude control discovery sends only initialize/status, waits for a complete snapshot and refuses incoming actions',async()=>{
+ let statuses=0;
+ const f=claudeProtocolFixture((request,emit)=>{
+  if(request.type!=='control_request')return;
+  if(request.request.subtype==='initialize')emit({type:'control_request',request_id:'untrusted-action',request:{subtype:'can_use_tool',tool_name:'send_message',input:{secret:'NEVER_DISPLAY'}}});
+  const response=request.request.subtype==='initialize'?{}:{mcpServers:++statuses===1?[claudeMetadata('gmail',{status:'pending'})]:[claudeMetadata(),claudeMetadata('calendar')]};
+  emit({type:'control_response',response:{subtype:'success',request_id:request.request_id,response}});
+ });
+ const env={HOME:'/normal/home',CLAUDE_CONFIG_DIR:'/normal/claude'};
+ const rows=await inspectClaudeConnectors({binary:'/fake/claude',cwd:'/local/data',env,spawnImpl:f.spawnImpl,expectedRuntimeNames:['claude.ai Gmail','claude.ai Google Calendar'],pollIntervalMs:0,timeoutMs:1000});
+ assert.equal(rows.length,2);assert.ok(rows.every(row=>row.readOnlyAutomation.available));assert.ok(statuses>=3);assert.deepEqual(f.requests.filter(row=>row.type==='control_request').map(row=>row.request.subtype),['initialize','mcp_status','mcp_status','mcp_status']);
+ assert.equal(f.requests.find(row=>row.type==='control_response').response.subtype,'error');assert.ok(f.requests.every(row=>!['user','assistant'].includes(row.type)));assert.ok(f.kills.includes('SIGTERM'));
+ const spawn=f.spawns[0];assert.equal(spawn.options.env,env);assert.equal(spawn.options.cwd,'/local/data');for(const flag of ['--restricted','--no-session-persistence','--no-chrome'])assert.ok(spawn.args.includes(flag));assert.equal(spawn.args[spawn.args.indexOf('--tools')+1],'');assert.equal(spawn.args[spawn.args.indexOf('--permission-mode')+1],'dontAsk');
+ assert.deepEqual(JSON.parse(spawn.args[spawn.args.indexOf('--settings')+1]).allowedMcpServers,[{serverUrl:GMAIL_MCP_URL},{serverUrl:CALENDAR_MCP_URL},{serverUrl:CLAUDE_READ_SERVICES.drive.url}]);assert.ok(!JSON.stringify(rows).includes('NEVER_DISPLAY'));
+});
+test('Claude Drive selects only reviewed file reads and denies every account mutation and the other inherited services',async t=>{
+ const f=await fixture(t);f.rows.claude.push({name:'claude.ai Google Drive',status:'connected'},{name:'claude.ai Gmail',status:'connected'});f.configs.set('claude.ai Google Drive',claudeMetadata('drive'));f.configs.set('claude.ai Gmail',claudeMetadata());
+ const plan=await f.manager.readPlan({client:'claude',name:'claudeai-drive'}),options=claudeReadConnectorArguments(plan),settings=JSON.parse(options.args[1]);assert.equal(plan.type,'drive');assert.equal(plan.url,CLAUDE_READ_SERVICES.drive.url);assert.deepEqual(plan.enabledTools,['get_file_metadata','list_recent_files','read_file_content','search_files']);assert.ok(!options.allowed.some(name=>/update|create|share|trash|download/.test(name)));assert.ok(settings.permissions.deny.includes('mcp__claude_ai_Google_Drive__update_file'));assert.ok(settings.permissions.deny.includes('mcp__claude_ai_Google_Drive__trash_file'));assert.deepEqual(settings.allowedMcpServers,[{serverUrl:CLAUDE_READ_SERVICES.drive.url}]);assert.deepEqual(settings.deniedMcpServers,[{serverName:'claude.ai Gmail'}]);
+});
+test('Claude metadata timeout, cancellation and unexpected model messages fail closed and stop only their probe',async()=>{
+ const keepAlive=setTimeout(()=>{},2000);
+ try{
+  const silent=claudeProtocolFixture();await assert.rejects(inspectClaudeConnectors({binary:'/fake/claude',spawnImpl:silent.spawnImpl,timeoutMs:15}),cause=>cause.code==='CONNECTOR_PROBE');assert.ok(silent.kills.includes('SIGTERM'));
+  const aborted=new AbortController(),cancelled=claudeProtocolFixture();const operation=inspectClaudeConnectors({binary:'/fake/claude',spawnImpl:cancelled.spawnImpl,signal:aborted.signal,timeoutMs:1000});aborted.abort();await assert.rejects(operation,cause=>cause.code==='CONNECTOR_PROBE');assert.ok(cancelled.kills.includes('SIGTERM'));
+  for(const type of ['user','assistant','result']){const unexpected=claudeProtocolFixture((request,emit)=>emit({type,message:'NEVER_DISPLAY'}));await assert.rejects(inspectClaudeConnectors({binary:'/fake/claude',spawnImpl:unexpected.spawnImpl,timeoutMs:1000}),cause=>cause.code==='CONNECTOR_PROBE'&&!cause.message.includes('NEVER_DISPLAY'));assert.ok(unexpected.kills.includes('SIGTERM'));}
+ }finally{clearTimeout(keepAlive);}
+});
+test('a failed Claude metadata refresh keeps names but revokes the exact in-memory read proof',async t=>{
+ const f=await fixture(t);f.rows.claude.push({name:'claude.ai Gmail',status:'connected'});f.configs.set('claude.ai Gmail',claudeMetadata());assert.equal((await f.manager.state()).connections.find(row=>row.name==='claudeai-gmail').readOnlyAutomation.available,true);
+ f.manager.claudeInspector=async()=>{throw new Error('SECRET-CONFIG-DIAGNOSTIC');};const state=await f.manager.state({refresh:true}),gmail=state.connections.find(row=>row.name==='claudeai-gmail');assert.equal(gmail.status,'unverified');assert.equal(gmail.readOnlyAutomation.available,false);assert.ok(!JSON.stringify(state).includes('SECRET'));await assert.rejects(f.manager.readPlan({client:'claude',name:'claudeai-gmail'}),cause=>cause.code==='CONNECTOR_AUTH');
 });
 test('inherited discovery uses metadata-only RPC, refuses incoming actions and stops its dedicated process',async()=>{
  const snapshot=appMetadata(),requests=[],kills=[];let child;

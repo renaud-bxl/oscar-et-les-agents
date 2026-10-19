@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildStudioSvg, suggestStudioConfig, validateStudioEdit, validateStudioFilePath, studioFileUrl, sanitizeStudioSvg } from '../public/creative-studio.js';
+import { CreativeStudio, buildStudioSvg, suggestStudioConfig, validateStudioEdit, validateStudioFilePath, studioFileUrl, sanitizeStudioSvg } from '../public/creative-studio.js';
+import { DraftStorage } from '../public/draft-storage.js';
 
 test('le studio crée quatre compositions originales locales dans les quatre formats proposés', () => {
   const drawings = new Set();
@@ -67,4 +68,28 @@ test('les modifications de texte, couleur et position restent des données born�
   assert.deepEqual(validateStudioEdit({text,fill:'#abcdef',stroke:'#123456',dx:120,dy:-80}),{text,fill:'#abcdef',stroke:'#123456',dx:120,dy:-80});
   assert.equal(validateStudioEdit({text:'a\x00b'}).text,'ab');
   for(const patch of [{onclick:'evil()'},{href:'https://evil.invalid'},{fill:'url(https://evil.invalid)'},{stroke:'#fff'},{dx:Infinity},{dy:4097},{dx:'10'},{text:'a'.repeat(501)}])assert.throws(()=>validateStudioEdit(patch));
+});
+
+function pendingStudio({storage,brief='Brief exactement soumis',onCreate}={}){
+ const data=new Map(),memory=storage||{getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value),removeItem:key=>data.delete(key)};
+ const studio=Object.assign(Object.create(CreativeStudio.prototype),{draftStore:new DraftStorage({storage:memory}),onCreate,description:{value:'Une couverture illustrée originale',focus(){}},config:{preset:'illustration',format:'A4'},promptPanel:{querySelectorAll:()=>[]},draftNote:{},promptPreset:{},promptFormat:{},local:{},clearDraft:{},newRequest:{},oscar:{},dialog:{open:false},showMessage(text,failure){this.lastMessage={text,failure};},brief:()=>brief});
+ return studio;
+}
+test('un reçu est conservé avant envoi et la reprise conserve le brief exact jusqu’à confirmation',async()=>{
+ const receipt={requestId:'studio_request_123',requestHash:'a'.repeat(64)},submitted=[];
+ const studio=pendingStudio({brief:'  Brief exact\navec ses lignes.\n',onCreate:async input=>{submitted.push(input);if(submitted.length===1){assert.equal(input.requestReceipt,null);assert.equal(input.onRequestIdentity(receipt),true);assert.deepEqual(studio.draftStore.read('studio'),{text:studio.description.value,studioPreset:'illustration',studioFormat:'A4',studioBrief:'  Brief exact\navec ses lignes.\n',...receipt});throw new Error('Réponse perdue');}assert.deepEqual(input.requestReceipt,receipt);return{id:'mission-confirmed'};}});
+ await studio.createWithOscar();assert.equal(studio.description.readOnly,true);assert.equal(studio.promptPreset.disabled,true);assert.equal(studio.newRequest.hidden,false);assert.equal(studio.oscar.textContent,'Reprendre la demande envoyée');
+ studio.config.preset='social';studio.config.format='1:1';studio.saveDraft();assert.equal(studio.draftStore.read('studio').studioPreset,'illustration');assert.equal(studio.draftStore.read('studio').studioFormat,'A4');
+ studio.brief=()=>{throw new Error('La reprise ne doit jamais reconstruire le brief.');};
+ const result=await studio.createWithOscar();assert.equal(result.id,'mission-confirmed');assert.equal(submitted[1].brief,submitted[0].brief);assert.equal(studio.requestReceipt,null);assert.equal(studio.draftStore.read('studio'),null);assert.equal(studio.description.readOnly,false);
+});
+test('préparer une nouvelle création détache le reçu seulement par une action explicite',async()=>{
+ const receipt={requestId:'studio_request_456',requestHash:'b'.repeat(64)};let calls=0;
+ const studio=pendingStudio({onCreate:async input=>{calls++;assert.equal(input.requestReceipt,null);input.onRequestIdentity(receipt);throw new Error('Réponse perdue');}});
+ await studio.createWithOscar();studio.prepareNewRequest();assert.equal(calls,1);assert.equal(studio.requestReceipt,null);assert.equal(studio.description.readOnly,false);assert.equal(studio.promptFormat.disabled,false);assert.deepEqual(studio.draftStore.read('studio'),{text:studio.description.value,studioPreset:'illustration',studioFormat:'A4'});assert.match(studio.lastMessage.text,/nouvelle mission/);
+});
+test('un stockage bloqué conserve la reprise en mémoire et annonce la limite du navigateur',async()=>{
+ const receipt={requestId:'studio_request_789',requestHash:'c'.repeat(64)};
+ const studio=pendingStudio({storage:{getItem(){throw new Error();},setItem(){throw new Error();},removeItem(){throw new Error();}},onCreate:async input=>{assert.equal(input.onRequestIdentity(receipt),false);throw new Error('Réponse perdue');}});
+ await studio.createWithOscar();assert.deepEqual(studio.requestReceipt,receipt);assert.equal(studio.description.readOnly,true);assert.match(studio.draftNote.textContent,/ne peut pas conserver/);
 });

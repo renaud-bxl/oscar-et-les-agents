@@ -92,7 +92,7 @@ let pendingStudioRequest = null;
 function saveBriefDraft(){const saved=briefDrafts.write('oscar',{text:$('mission-input').value,provider:$('provider-select').value,teamSize:$('team-size').value,...(pendingBriefRequest?.hash?{requestId:pendingBriefRequest.id,requestHash:pendingBriefRequest.hash}:{})});$('brief-draft-note').textContent=translate(saved?'Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.':'Votre navigateur ne peut pas conserver ce brouillon. Gardez cette fenêtre ouverte.');}
 function restoreBriefDraft(){const draft=briefDrafts.read('oscar');$('mission-input').value=draft?.text||'';if(draft?.provider&&['codex','claude'].includes(draft.provider)){$('provider-select').value=draft.provider;providerInitialized=true;}if(draft?.teamSize)$('team-size').value=draft.teamSize;pendingBriefRequest=draft?.requestId&&draft?.requestHash?{id:draft.requestId,hash:draft.requestHash}:null;$('brief-draft-note').textContent=translate(draft?.text?'Brouillon retrouvé sur cet ordinateur. Il n’a pas été envoyé.':'Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.');}
 function switchBriefDraft(){saveBriefDraft();briefDrafts.scope=draftScope();restoreBriefDraft();}
-async function launchRequestIdentity(intent,{studio=false}={}){const signature=JSON.stringify(intent);let hash=null;try{hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(signature))),byte=>byte.toString(16).padStart(2,'0')).join('');}catch{}let record=studio?pendingStudioRequest:pendingBriefRequest;if(record&&(hash?record.hash===hash:record.signature===signature))return record.id;record={id:globalThis.crypto?.randomUUID?.()||`request_${Date.now()}_${Math.random().toString(36).slice(2)}`,hash,signature};if(studio)pendingStudioRequest=record;else{pendingBriefRequest=record;saveBriefDraft();}return record.id;}
+async function launchRequestIdentity(intent,{studio=false}={}){const signature=JSON.stringify(intent);let hash=null;try{hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(signature))),byte=>byte.toString(16).padStart(2,'0')).join('');}catch{}let record=studio?pendingStudioRequest:pendingBriefRequest;if(record){if(hash?record.hash===hash:record.signature===signature)return record.id;if(studio)throw new Error(translate('Cette mission a changé depuis sa première validation. Lancez une nouvelle mission pour poursuivre.'));}record={id:globalThis.crypto?.randomUUID?.()||`request_${Date.now()}_${Math.random().toString(36).slice(2)}`,hash,signature};if(studio)pendingStudioRequest=record;else{pendingBriefRequest=record;saveBriefDraft();}return record.id;}
 const characterLines = new CharacterLines();
 function characterLine(role){return characterLines.next(role,{locale:getLocale(),firstName:personalContext.profile?.name,now:new Date(),weather:personalContext.weather});}
 function acceptPersonalContext(value){personalContext=value;clearTimeout(weatherTimer);if(value.profile?.weatherEnabled){const next=Number(value.weather?.expiresAt)||Date.now()+30*60000;weatherTimer=setTimeout(refreshPersonalWeather,Math.max(30*60000,next-Date.now()+1000));}}
@@ -226,7 +226,7 @@ async function request(url, options) {
   let response;try{response=await fetch(url,{credentials:'same-origin',...options});}catch(error){if(error.name==='AbortError')throw error;throw new Error(translate('Le bureau ne répond pas pour le moment. Vos saisies restent dans cette fenêtre.'));}
   let data;
   try { data = await response.json(); } catch { throw new Error('L’atelier a renvoyé une réponse inattendue. Réessayez dans un instant.'); }
-  if (!response.ok) throw Object.assign(new Error(data.error || 'Cette action n’a pas pu être réalisée.'),typeof data.code==='string'?{code:data.code}:{});
+  if (!response.ok) throw Object.assign(new Error(data.error || 'Cette action n’a pas pu être réalisée.'),{status:response.status},typeof data.code==='string'?{code:data.code}:{});
   return data;
 }
 function renderProviders() {
@@ -574,7 +574,16 @@ function newMission({forceLocal=false,reveal=true}={}) {
   $('mission-placeholder').lastElementChild.firstElementChild.textContent='Une équipe prête à se mettre au travail';
   renderAll();if(reveal)openPanel('brief');
 }
-async function launch(provider,{strict=false,teamSize=$('team-size').value,allowParallel=false,promptOverride}={}) {
+function acceptLaunchedMission(detail,provider){
+  selectedId=detail.id;mission=detail;state.active=detail;state.activeMissions=[...activeMissions().filter(m=>m.id!==detail.id),detail];browsingNew=false;history.replaceState(null,'',`/?mission=${encodeURIComponent(detail.id)}`);
+  const previous=state.missions.findIndex(m=>m.id===detail.id);
+  if(previous<0)state.missions.unshift(detail);else state.missions[previous]=detail;
+  closeMemberForNavigation();dismissWelcome();closeOfficePanel({restoreFocus:false});showError('');renderAll();$('pixel-canvas').focus({preventScroll:true});
+  if(!isRunning(detail)){openPanel('delivery');officeSpeech?.speak('oscar','Je retrouve votre mission et ses fichiers. Voici la livraison et les points à vérifier.',{automatic:true});}
+  else officeSpeech?.speak('oscar',provider==='demo'?'Bienvenue dans la visite ! Cette démonstration vous montre notre travail sans appeler un modèle.':detail.status==='planning'?'Allez, let’s go ! Je rejoins mon bureau pour préparer votre projet.':'Je retrouve la mission en cours. L’équipe continue son travail.',{automatic:true});return detail;
+}
+async function launch(provider,{strict=false,teamSize=$('team-size').value,allowParallel=false,promptOverride,studioReceipt=null,onStudioIdentity}={}) {
+  if(promptOverride!==undefined)pendingStudioRequest=studioReceipt?{id:studioReceipt.requestId,hash:studioReceipt.requestHash}:null;
   const canRecover=provider!=='demo'&&Boolean(promptOverride!==undefined?pendingStudioRequest:pendingBriefRequest);
   if(creating || !canRecover&&(isRunning(mission)&&!allowParallel || activeMissions().length>=4)) {if(strict)throw new Error(activeMissions().length>=4?'Quatre missions sont déjà en cours. Attendez une livraison puis réessayez : votre brief est conservé.':'Cette mission est déjà en cours. Ouvrez un autre bureau pour un nouveau projet.');return;}
   let prompt=String(promptOverride??$('mission-input').value).trim();
@@ -584,21 +593,24 @@ async function launch(provider,{strict=false,teamSize=$('team-size').value,allow
     const {provider:engine,pending}=connectionState(provider);
     const error=pending?'La connexion est en cours. Terminez-la dans votre navigateur, puis réessayez : votre brief est conservé.':!engine?.available||engine.auth?.loggedIn===false?'Connectez votre compte avant de lancer la mission. Votre brief est conservé.':'';
     if(error&&!canRecover){if(strict)throw new Error(error);$('form-error').textContent=error;$('form-error').hidden=false;openPanel('settings');$('login-message').textContent=error;$('login-message').hidden=false;return;}
-    try{prompt=withLocaleInstruction(withTeamPreference(prompt,teamSize));}catch(error){if(strict)throw error;$('form-error').textContent=error.message;$('form-error').hidden=false;return;}
   }
   creating=true;$('form-error').hidden=true;updateForm();
   try {
+    if(promptOverride!==undefined&&studioReceipt){
+      let receipt;try{receipt=await request(`/api/mission-requests/${encodeURIComponent(studioReceipt.requestId)}`);}catch(error){if(error.status!==404)throw error;}
+      if(receipt){
+        if(receipt.status!=='accepted'||!receipt.mission?.id)throw new Error(translate('Cette demande est encore en cours de vérification. Patientez un instant, puis reprenez-la.'));
+        pendingStudioRequest=null;return acceptLaunchedMission(receipt.mission,receipt.mission.provider);
+      }
+    }
+    if(provider!=='demo')prompt=withLocaleInstruction(withTeamPreference(prompt,teamSize));
     if(provider!=='demo'&&documentLibrary&&!await documentLibrary.refresh())throw new Error(translate('Les choix de documents n’ont pas pu être repris. Actualisez la bibliothèque avant de réessayer.'));
     const documents=provider==='demo'?{}:{references:documentLibrary?.getReferences()||[],referenceIds:documentLibrary?.getSelection()||[],outputFormats:documentLibrary?.getOutputFormats()||[],templateId:documentLibrary?.getTemplateId()||null,templateRevision:documentLibrary?.getTemplateRevision()||null};
     const requestId=provider==='demo'?undefined:await launchRequestIdentity({prompt:originalPrompt,provider,teamSize,referenceIds:documents.referenceIds,outputFormats:documents.outputFormats,templateId:documents.templateId,locale:getLocale()},{studio:promptOverride!==undefined});
+    if(promptOverride!==undefined&&pendingStudioRequest?.hash)onStudioIdentity?.({requestId:pendingStudioRequest.id,requestHash:pendingStudioRequest.hash});
     const detail=await request('/api/missions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt || 'Imaginer le lancement d’un café de quartier : positionnement, idées de communication et une page de présentation.',provider,locale:getLocale(),...documents,...(requestId?{requestId}:{})})});
     if(provider!=='demo'&&promptOverride===undefined){pendingBriefRequest=null;briefDrafts.remove('oscar');$('mission-input').value='';$('brief-draft-note').textContent=translate('Demande confirmée. Votre réponse est conservée dans l’historique.');}else if(promptOverride!==undefined)pendingStudioRequest=null;
-    selectedId=detail.id;mission=detail;state.active=detail;state.activeMissions=[...activeMissions().filter(m=>m.id!==detail.id),detail];browsingNew=false;history.replaceState(null,'',`/?mission=${encodeURIComponent(detail.id)}`);
-    const previous=state.missions.findIndex(m=>m.id===detail.id);
-    if(previous<0) state.missions.unshift(detail);else state.missions[previous]=detail;
-    closeMemberForNavigation();dismissWelcome();closeOfficePanel({restoreFocus:false});showError('');renderAll();$('pixel-canvas').focus({preventScroll:true});
-    if(!isRunning(detail)){openPanel('delivery');officeSpeech?.speak('oscar','Je retrouve votre mission et ses fichiers. Voici la livraison et les points à vérifier.',{automatic:true});}
-    else officeSpeech?.speak('oscar',provider==='demo'?'Bienvenue dans la visite ! Cette démonstration vous montre notre travail sans appeler un modèle.':detail.status==='planning'?'Allez, let’s go ! Je rejoins mon bureau pour préparer votre projet.':'Je retrouve la mission en cours. L’équipe continue son travail.',{automatic:true});return detail;
+    return acceptLaunchedMission(detail,provider);
   } catch(error) { $('form-error').textContent=error.message;$('form-error').hidden=false;if(strict)throw error; }
   finally { creating=false;updateForm(); }
 }
@@ -717,7 +729,7 @@ $('settings-personalization').addEventListener('click',()=>openUtility(personali
 request('/api/profile').then(value=>{acceptPersonalContext(value);if(value.profile?.weatherEnabled)return refreshPersonalWeather();}).catch(()=>{});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&personalContext.profile?.weatherEnabled&&Date.now()>Number(personalContext.weather?.expiresAt||0))refreshPersonalWeather();});
 documentLibrary.refresh();
-creativeStudio=new CreativeStudio({getMission:()=>mission,onClose:()=>returnFromUtility(creativeStudio),onCreate:async({brief})=>{const detail=await launch($('provider-select').value,{strict:true,teamSize:'auto',allowParallel:true,promptOverride:brief});if(!detail?.id)throw new Error(translate('Le bureau n’a pas confirmé cette demande.'));utilityReturns.delete(creativeStudio);return detail;}});
+creativeStudio=new CreativeStudio({getMission:()=>mission,onClose:()=>returnFromUtility(creativeStudio),onCreate:async({brief,requestReceipt,onRequestIdentity})=>{const detail=await launch($('provider-select').value,{strict:true,teamSize:'auto',allowParallel:true,promptOverride:brief,studioReceipt:requestReceipt,onStudioIdentity:onRequestIdentity});if(!detail?.id)throw new Error(translate('Le bureau n’a pas confirmé cette demande.'));utilityReturns.delete(creativeStudio);return detail;}});
 for(const id of ['open-creative-studio','settings-creative-studio','delivery-creative-studio'])$(id).addEventListener('click',()=>openUtility(creativeStudio));
 connectorsDialog=new ConnectorsDialog({request,getMission:()=>mission,onSecretary:(mode,connection)=>openSecretary(mode,undefined,connection)});
 automationsDialog=new AutomationsDialog({request,getState:()=>state,onMission:id=>{automationsDialog.close();selectMission(id);openPanel('progress');}});

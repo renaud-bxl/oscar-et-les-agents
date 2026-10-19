@@ -1,6 +1,15 @@
 // French source text stays in the interface; these entries only change its display.
 // Personal names, product names, file paths and mission content are not translated.
 const entries = [
+  ['Des services ont été détectés. Leur état précise s’ils peuvent être lus par Zoé ou utilisés dans votre client habituel.','Services were detected. Their status shows whether Zoé can read them or they can be used in your usual client.','Er zijn diensten gevonden. Hun status geeft aan of Zoé ze kan lezen of je ze in je gebruikelijke client kunt gebruiken.'],
+  ['Lecture avec Zoé','Read with Zoé','Lezen met Zoé'],
+  ['Brief dans le client uniquement','Brief in your client only','Briefing alleen in je client'],
+  ['Accès en lecture à vérifier','Reading access needs checking','Leestoegang nog te controleren'],
+  ['Cette demande est encore en cours de vérification. Patientez un instant, puis reprenez-la.','This request is still being checked. Wait a moment, then resume it.','Deze aanvraag wordt nog gecontroleerd. Wacht even en hervat de aanvraag daarna.'],
+  ['Reprendre la demande envoyée','Resume the submitted request','Verzonden aanvraag hervatten'],
+  ['Préparer une nouvelle création','Prepare a new creation','Een nieuwe creatie voorbereiden'],
+  ['Demande envoyée sans confirmation. Reprenez-la pour retrouver la mission, ou vérifiez l’historique avant d’en préparer une autre.','Request sent without confirmation. Resume it to find the mission, or check your history before preparing another one.','Aanvraag verzonden zonder bevestiging. Hervat de aanvraag om de opdracht terug te vinden, of controleer je geschiedenis voordat je een nieuwe voorbereidt.'],
+  ['La demande précédente peut déjà exister dans l’historique. Votre prochaine création lancera une nouvelle mission.','The previous request may already be in your history. Your next creation will start a new mission.','De vorige aanvraag kan al in je geschiedenis staan. Je volgende creatie start een nieuwe opdracht.'],
   ["Le bureau d’Oscar et les Agents", "The Oscar et les Agents office", "Het kantoor van Oscar et les Agents"],
   ["Entrez dans le bureau d’Oscar et les Agents. Missions, équipe et livraisons intégrées dans un bureau animé.", "Step inside the Oscar et les Agents office. Missions, your team and results come together in a lively office.", "Stap binnen bij Oscar et les Agents. Opdrachten, je team en resultaten komen samen in een levendig kantoor."],
   ["Bureau animé plein écran. Cliquez sur Oscar et les personnes, le tableau des missions, les dossiers et le mobilier. Les boutons du menu permettent les mêmes actions.", "Full-screen animated office. Click Oscar, team members, the mission board, folders or furniture. The menu buttons offer the same actions.", "Geanimeerd kantoor op volledig scherm. Klik op Oscar, de teamleden, het opdrachtenbord, de mappen of het meubilair. Met de menuknoppen kun je hetzelfde doen."],

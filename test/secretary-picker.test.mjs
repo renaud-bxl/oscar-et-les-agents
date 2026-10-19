@@ -24,6 +24,13 @@ test('Zoé keeps confirmed Gmail, Calendar and app services, excluding stale or 
   assert.equal(secretaryConnections(rows,{mode:'service'}).length,5);
 });
 
+test('a verified Claude Drive connection belongs to My services and never to mail or calendar',()=>{
+ const claudeDrive={...drive,client:'claude',name:'claudeai-drive',status:'connected',readOnlyAutomation:{available:true,service:'drive'}};
+ assert.deepEqual(secretaryConnections([gmail,claudeDrive],{client:'claude',mode:'service'}),[claudeDrive]);
+ for(const mode of ['mail','calendar'])assert.deepEqual(secretaryConnections([claudeDrive],{client:'claude',mode}),[]);
+ assert.deepEqual(secretaryConnections([{...claudeDrive,stale:true}],{client:'claude',mode:'service'}),[]);
+});
+
 test('Gmail is displayed while Codex is checking and a routine request is still pending',async()=>{
   const routines=deferred(),calls=[];
   const dialog=harness(async url=>{calls.push(url);return url==='/api/automations'?routines.promise:{connections:[gmail,calendar,drive],clients:{codex:{available:true,status:'checking'},claude:{available:true,status:'checking'}}};});

@@ -160,6 +160,18 @@ try{
  assert.equal(await page.locator('.secretary-program').isVisible(),false);
  assert.equal(await page.locator('#secretary-schedule-time').isVisible(),false);
  assert.equal(posts.length,2);
+ const claudeDrive={...drive,client:'claude',name:'qa-claude-drive',source:'claude.ai',status:'connected',readOnlyAutomation:{available:true,service:'drive'}};
+ snapshot.connections.push(claudeDrive);snapshot.clients.claude={available:true,status:'available'};
+ await page.setViewportSize({width:1440,height:1050});
+ await page.locator('#secretary-client').selectOption('claude');
+ await page.locator('.secretary-aside .secretary-refresh').click();
+ await page.waitForFunction(()=>document.querySelector('#secretary-connection option[value="claude:qa-claude-drive"]')?.disabled===false);
+ await page.locator('#secretary-connection').selectOption('claude:qa-claude-drive');
+ await page.locator('#secretary-prompt').fill('Préparer un point sur mes documents avec mon service Claude Drive simulé.');
+ const [claudeResponse]=await Promise.all([page.waitForResponse(response=>response.url()===fixture.base+'/api/secretary'&&response.request().method()==='POST'),page.locator('.secretary-run').click()]);
+ assert.equal(claudeResponse.status(),202);const claudeMission=await claudeResponse.json();await fixture.app.engine.wait(claudeMission.id);
+ assert.equal(fixture.app.engine.get(claudeMission.id).status,'completed');assert.equal(posts.at(-1).body.provider,'claude');assert.equal(posts.at(-1).body.connectorName,'qa-claude-drive');assert.equal(posts.at(-1).body.mode,'service');assert.equal(fixture.app.automations.entries.size,1);
+ record('Claude Drive remains selectable as My services and starts one immediate simulated reading with the chosen engine');
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);assert.equal(fixture.metrics.dictationInstalls,0);
  await writeFile(path.join(output,'rapport.json'),JSON.stringify({ok:true,checks,posts,simulatedReads,snapshots,errors,external,metrics:fixture.metrics},null,2));
  console.log(JSON.stringify({ok:true,checks:checks.length,report:path.join(output,'rapport.json')}));

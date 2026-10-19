@@ -2,7 +2,7 @@
 
 Donnez une mission à Oscar. Il recrute les bons spécialistes, ils arrivent dans un grand bureau illustré et animé, travaillent, rendent leurs dossiers… et prennent un café quand leur travail est validé.
 
-**Version 0.6.0** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
+**Version 0.6.2** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
 
 ![Le bureau illustré d’Oscar, les îlots de travail et le coin café](docs/bureau.png)
 
@@ -148,6 +148,8 @@ Les onglets **Mails** et **Agenda** proposent les services de lecture réellemen
 
 Les plugins déjà autorisés dans **ChatGPT** sont retrouvés par l’interface officielle du client Codex, et les connecteurs **Claude** exposés à Claude Code sont également recherchés. Le logiciel affiche leur origine et vérifie les accès avant chaque lecture. Un plugin visible dans un compte n’est utilisable ici que si le client local le rend disponible. Une autorisation expirée ou des permissions manquantes restent un échec explicite. Oscar ne lit ni ne copie les fichiers d’identifiants.
 
+Pour Claude, Gmail, Google Agenda et Google Drive utilisent les métadonnées du client officiel, avec des adresses et outils de lecture précis. Cette découverte a été vérifiée avec Claude Code **2.1.303**, sans question au modèle. Si le client ne fournit pas les informations nécessaires, le service reste à vérifier ; un nom affiché ou la présence d’un compte ne suffit pas. Les autres connexions restent visibles pour préparer un brief, sans leur attribuer un accès de lecture non confirmé. L’utilisation des clients et abonnements reste soumise aux conditions de leurs fournisseurs.
+
 Pour ajouter un service, ouvrez les plugins de ChatGPT ou les connecteurs Claude depuis l’assistant, autorisez-le dans le client officiel, puis cliquez sur **Retrouver mes connexions**. L’ajout d’un serveur MCP personnel reste disponible dans les options avancées ; il utilise la configuration et l’autorisation officielles, sous un nouveau nom, sans remplacer de serveur existant.
 
 Zoé n’envoie aucun e-mail, ne crée aucun brouillon Gmail et ne modifie aucun rendez-vous. Les propositions restent dans les fichiers locaux. Les lectures utilisent un seul service sélectionné, des outils explicitement autorisés en lecture seule et un accès revérifié au lancement. Les fonctions qui ne disposent pas d’outils de lecture confirmés restent accessibles par un brief à poursuivre dans le client connecté ; cela n’exécute pas leur action depuis Oscar.
@@ -177,6 +179,8 @@ Si le navigateur refuse le microphone, la saisie au clavier reste disponible. L�
 ## Retrouver ses textes et ses fichiers
 
 Les textes en préparation pour Oscar, Zoé, le Studio et une nouvelle routine restent en brouillons dans ce navigateur pendant sept jours. Chaque onglet de bureau garde son propre espace. Un rechargement restaure le texte sans envoyer de demande ; **Effacer le brouillon** le retire. Les sélections de compte, documents, positions et mots de passe ne sont pas enregistrées dans ces brouillons. Les réglages de rythme d’une routine restent à confirmer.
+
+Le Studio garde aussi le support, le format et le reçu de la dernière demande non confirmée. **Reprendre la demande envoyée** retrouve d’abord la mission déjà acceptée, sans recruter une deuxième équipe ni consommer un nouvel appel. Une vérification indisponible conserve le reçu ; elle ne relance rien. Pour changer de projet, **Préparer une nouvelle création** détache ce reçu après vous avoir rappelé de consulter l’historique.
 
 Dans **Mes missions**, recherchez un titre, une date ou un moteur et filtrez les missions par statut. **Reprendre ce brief dans un nouveau bureau** ouvre une copie modifiable de la demande et de ses choix encore valides, sans démarrer de travail ni modifier la mission d’origine. Un exemple modifié ou supprimé n’est pas repris silencieusement.
 

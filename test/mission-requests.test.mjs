@@ -14,6 +14,26 @@ async function setup(t,options={}){
 }
 const body={prompt:'Une mission à lancer une seule fois.',provider:'codex',requestId:'mission_request_123'};
 
+test('retrouver un reçu est une lecture sans moteur, sans fichiers ni nouvelle mission',async t=>{
+ const{app,base,send,calls}=await setup(t),lookup=(id,options)=>fetch(base+'/api/mission-requests/'+id,options);
+ assert.equal((await lookup(body.requestId)).status,404);assert.equal(calls(),0);
+ const first=await(await send(body)).json();await app.engine.wait(first.id);app.engine.providers=[];
+ app.documents.readItem=async()=>{throw new Error('Une reprise ne relit pas les exemples');};
+ const response=await lookup(body.requestId);assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');
+ const found=await response.json();assert.equal(found.status,'accepted');assert.equal(found.mission.id,first.id);assert.equal(found.mission.status,'failed');assert.equal(calls(),1);assert.equal(app.engine.missions.size,1);
+ assert.equal((await lookup('short')).status,400);assert.equal((await lookup(body.requestId+'?provider=claude')).status,400);assert.equal((await lookup(body.requestId,{headers:{Origin:'https://external.invalid'}})).status,403);assert.equal(calls(),1);
+});
+
+test('le reçu en précontrôle reste en vérification et ne démarre pas un second travail',async t=>{
+ const{app,base,send,calls}=await setup(t),reference=await app.documents.import({name:'Exemple.md',base64:Buffer.from('Exemple local').toString('base64')});
+ const original=app.documents.readItem.bind(app.documents);let entered,release;const started=new Promise(resolve=>{entered=resolve;}),waiting=new Promise(resolve=>{release=resolve;});
+ app.documents.readItem=async(...args)=>{entered();await waiting;return original(...args);};
+ const pending=send({...body,referenceIds:[reference.id]});await started;
+ const response=await fetch(base+'/api/mission-requests/'+body.requestId);assert.equal(response.status,202);assert.deepEqual(await response.json(),{status:'checking'});assert.equal(calls(),0);assert.equal(app.engine.missions.size,0);
+ release();const first=await(await pending).json();await app.engine.wait(first.id);
+ const found=await(await fetch(base+'/api/mission-requests/'+body.requestId)).json();assert.equal(found.mission.id,first.id);assert.equal(calls(),1);assert.equal(app.engine.missions.size,1);
+});
+
 test('réessayer la même mission retrouve son état terminal sans quota ni revalidation du moteur',async t=>{
  const{app,send,calls}=await setup(t);const first=await(await send({requestId:body.requestId,prompt:'  '+body.prompt+'  '})).json();await app.engine.wait(first.id);assert.equal(app.engine.get(first.id).status,'failed');assert.equal(calls(),1);
  app.engine.providers=[];app.engine.logins.codex={status:'connecting'};app.connectors.active.set('codex',{controller:new AbortController(),completion:Promise.resolve()});

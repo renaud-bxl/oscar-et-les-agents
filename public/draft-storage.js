@@ -22,15 +22,29 @@ export function draftScope(location = globalThis.location, session) {
   } catch { return 'home'; }
 }
 
-function sanitize(input) {
+function sanitize(input, slot) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   const value = {};
-  for (const key of textFields) if (typeof input[key] === 'string') value[key] = input[key].slice(0, key === 'text' ? 16000 : 200);
-  if (['mail', 'calendar', 'service', 'free'].includes(input.mode)) value.mode = input.mode;
-  if (['auto', 'codex', 'claude'].includes(input.provider)) value.provider = input.provider;
-  if (['auto','4','8','12','15','20'].includes(input.teamSize)) value.teamSize=input.teamSize;
-  if (typeof input.requestId === 'string' && REQUEST_ID.test(input.requestId)) value.requestId = input.requestId;
-  if (typeof input.requestHash === 'string' && /^[a-f0-9]{64}$/.test(input.requestHash)) value.requestHash = input.requestHash;
+  for (const key of slot === 'studio' ? ['text'] : textFields) if (typeof input[key] === 'string') value[key] = input[key].slice(0, key === 'text' ? 16000 : 200);
+  if (slot !== 'studio') {
+    if (['mail', 'calendar', 'service', 'free'].includes(input.mode)) value.mode = input.mode;
+    if (['auto', 'codex', 'claude'].includes(input.provider)) value.provider = input.provider;
+    if (['auto','4','8','12','15','20'].includes(input.teamSize)) value.teamSize=input.teamSize;
+  }
+  if (slot === 'studio') {
+    if (['affiche','branding','social','illustration'].includes(input.studioPreset)) value.studioPreset = input.studioPreset;
+    if (['1:1','4:5','A4','16:9'].includes(input.studioFormat)) value.studioFormat = input.studioFormat;
+    // A receipt must retain the exact submitted writing. Never truncate it and
+    // silently pair the old identity with a different brief after a reload.
+    if (value.studioPreset && value.studioFormat && typeof input.studioBrief === 'string' && input.studioBrief.trim() && input.studioBrief.length <= 16000 && typeof input.requestId === 'string' && REQUEST_ID.test(input.requestId) && typeof input.requestHash === 'string' && /^[a-f0-9]{64}$/.test(input.requestHash)) {
+      value.studioBrief = input.studioBrief;
+      value.requestId = input.requestId;
+      value.requestHash = input.requestHash;
+    }
+  } else {
+    if (typeof input.requestId === 'string' && REQUEST_ID.test(input.requestId)) value.requestId = input.requestId;
+    if (typeof input.requestHash === 'string' && /^[a-f0-9]{64}$/.test(input.requestHash)) value.requestHash = input.requestHash;
+  }
   return Object.values(value).some(item => typeof item === 'string' && item.trim()) ? value : null;
 }
 
@@ -51,7 +65,7 @@ export class DraftStorage {
       if (record?.version !== 1 || !Array.isArray(record.entries) || record.entries.length > 20) return entries;
       for (const row of record.entries) {
         if (!row || typeof row.scope !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(row.scope) || !SLOTS.has(row.slot) || !Number.isFinite(row.updatedAt) || row.updatedAt > this.now() + 60000 || this.now() - row.updatedAt >= this.ttl) continue;
-        const value = sanitize(row.value); if (value) entries.push({ scope: row.scope, slot: row.slot, updatedAt: row.updatedAt, value });
+        const value = sanitize(row.value, row.slot); if (value) entries.push({ scope: row.scope, slot: row.slot, updatedAt: row.updatedAt, value });
       }
     } catch { this.available = false; }
     return entries.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, this.maxEntries);
@@ -73,7 +87,7 @@ export class DraftStorage {
   }
   write(slot, input) {
     if (!SLOTS.has(slot)) return false;
-    const entries = this.readAll().filter(row => row.scope !== this.scope || row.slot !== slot), value = sanitize(input);
+    const entries = this.readAll().filter(row => row.scope !== this.scope || row.slot !== slot), value = sanitize(input, slot);
     if (value) entries.unshift({ scope: this.scope, slot, updatedAt: this.now(), value });
     return this.persist(entries);
   }

@@ -10,6 +10,17 @@ import { createAtelierServer } from '../server.mjs';
 const providers = [{ id:'codex', available:true, auth:{ loggedIn:true, method:'chatgpt' } }, { id:'claude', available:true, auth:{ loggedIn:true, method:'subscription' } }];
 const reply = { title:'Un déjeuner à préparer', answer:'# Votre réponse\n\nUne proposition précise avec ses limites.' };
 const review = { approved:true, feedback:'La réponse est proportionnée et explicite ses limites.' };
+
+test('Claude Drive can answer now and run a planned reading with its own verified service',async t=>{
+ const plan=Object.freeze({client:'claude',name:'claudeai-drive',type:'drive',source:'claude.ai',enabledTools:['search_files']}),calls=[];
+ const{app,send}=await httpSetup(t,{connectorsFactory:()=>({ready:Promise.resolve(),active:new Set(),disabledNames:()=>[],readPlan:async()=>plan,close:async()=>{}}),runner:async input=>{calls.push(input);return{text:JSON.stringify(input.schema.properties.answer?reply:review)};}});
+ const response=await send({mode:'service',prompt:'Prépare un point sur mes documents.',provider:'claude',connectorName:plan.name});assert.equal(response.status,202);
+ const done=await app.engine.wait((await response.json()).id);assert.equal(done.status,'completed');assert.equal(done.provider,'claude');assert.equal(calls[0].connectorPlan,plan);assert.equal(calls[1].connectorPlan,undefined);
+ for(const mode of ['mail','calendar'])assert.equal((await send({mode,prompt:'Mauvais onglet.',provider:'claude',connectorName:plan.name})).status,400);
+ const scheduler=new Automations({engine:app.engine,resolveConnectorPlan:async()=>plan});t.after(()=>scheduler.close());
+ const routine=scheduler.create({label:'Documents Claude',prompt:'Préparer une synthèse.',provider:'claude',assistant:true,assistantMode:'service',requiresConnector:true,connectorName:plan.name,schedule:{frequency:'daily',time:'17:45'}});
+ assert.equal(calls.length,2);const launched=await scheduler.run(routine.id);assert.equal((await app.engine.wait(launched.lastMissionId)).status,'completed');assert.equal(calls.length,4);assert.equal(calls[2].connectorPlan,plan);assert.equal(calls[3].connectorPlan,undefined);
+});
 function setup(t, runner, options={}) {
   const dataDir=mkdtempSync(path.join(os.tmpdir(),'oscar-direct-assistant-'));
   const engine=new Atelier({dataDir,runAgent:runner,providers:structuredClone(providers),...options});

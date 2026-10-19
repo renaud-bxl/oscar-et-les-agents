@@ -21,7 +21,7 @@ const service = row => {
   const value = String(row.readOnlyAutomation?.service || row.automationService || row.service || row.connectorId || '').toLowerCase();
   if (value === 'gmail' || value === 'mail') return 'mail';
   if (['calendar', 'google-calendar', 'google_calendar', 'googlecalendar'].includes(value)) return 'calendar';
-  if (value === 'app') return 'service';
+  if (value === 'app' || value === 'drive') return 'service';
   return null;
 };
 const connectionKey = row => `${row.client}:${row.name}`;

@@ -225,6 +225,11 @@ export class CreativeStudio {
     this.dialog.addEventListener('close',()=>{if(!this.dialog.open)this.closed();});
     document.body.append(this.dialog);this.build();
     const draft=this.draftStore.read('studio');if(typeof draft?.text==='string'){this.description.value=draft.text;this.draftNote.textContent='Brouillon retrouvé sur cet ordinateur. Il n’a pas été envoyé.';}
+    if(Object.hasOwn(PRESETS,draft?.studioPreset))this.config.preset=draft.studioPreset;
+    if(Object.hasOwn(FORMATS,draft?.studioFormat))this.config.format=draft.studioFormat;
+    if(draft?.studioBrief&&draft.requestId&&draft.requestHash){this.requestReceipt={requestId:draft.requestId,requestHash:draft.requestHash};this.submittedBrief=draft.studioBrief;this.submittedChoices={preset:this.config.preset,format:this.config.format};}
+    this.syncConfig();
+    this.syncRequestState();
   }
   field(label,key,type='text',maxLength) {
     const wrapper=node('label','creative-field');wrapper.append(node('span','',label));
@@ -251,21 +256,21 @@ export class CreativeStudio {
     for(const [label,text] of [['Un café','Une affiche pour l’ouverture du café Lune, avec une tasse dessinée, une ambiance chaleureuse et le nom du café.'],['Un événement','Une affiche pour un concert de jazz au jardin, avec un micro, une scène et une composition élégante.'],['Un livre','Une couverture de livre intitulé Les jours clairs, avec un livre ouvert et des couleurs douces.']]){
       const button=node('button','creative-example',label);button.type='button';button.addEventListener('click',()=>{this.description.value=text;this.saveDraft();this.description.focus();});examples.append(button);
     }
-    const choices=node('div','creative-brief-options');const support=this.select('Votre support',PRESETS,this.config.preset,value=>{this.config.preset=value;});this.promptPreset=support.select;
+    const choices=node('div','creative-brief-options');const support=this.select('Votre support',PRESETS,this.config.preset,value=>{this.config.preset=value;this.saveDraft();});this.promptPreset=support.select;
     const formats={'1:1':'Carré · 1:1','4:5':'Portrait · 4:5',A4:'Affiche · A4','16:9':'Paysage · 16:9'};
-    const format=this.select('Format',formats,this.config.format,value=>{this.config.format=value;});this.promptFormat=format.select;choices.append(support.wrapper,format.wrapper);
+    const format=this.select('Format',formats,this.config.format,value=>{this.config.format=value;this.saveDraft();});this.promptFormat=format.select;choices.append(support.wrapper,format.wrapper);
     const actions=node('div','creative-start-actions');this.oscar=node('button','creative-oscar','Créer avec Oscar et les agents');this.oscar.type='button';this.oscar.addEventListener('click',()=>this.createWithOscar());
-    this.local=node('button','creative-local-button','Essayer une composition locale · sans IA');this.local.type='button';this.local.addEventListener('click',()=>this.createLocal());actions.append(this.oscar,this.local);
+    this.local=node('button','creative-local-button','Essayer une composition locale · sans IA');this.local.type='button';this.local.addEventListener('click',()=>this.createLocal());this.newRequest=node('button','creative-return creative-new-request','Préparer une nouvelle création');this.newRequest.type='button';this.newRequest.hidden=true;this.newRequest.addEventListener('click',()=>this.prepareNewRequest());actions.append(this.oscar,this.local,this.newRequest);
     this.promptPanel.append(examples,choices,actions,node('p','creative-start-note','La création avec Oscar lance une mission avec votre abonnement et produit un vrai fichier. La composition locale utilise des modèles dessinés dans le studio ; elle n’appelle aucune IA.'));
     this.message=node('p','creative-message');this.message.setAttribute('role','status');this.message.hidden=true;
     this.body=node('div','creative-body');this.body.hidden=true;this.controls=node('section','creative-controls');this.controls.setAttribute('aria-label','Personnaliser ma création');
     this.localSettings=node('div','creative-local-settings');this.localSettings.append(node('h3','','Personnaliser la composition locale'));
     const presets=node('div','creative-presets');this.presetButtons={};
     for(const [id,label] of Object.entries(PRESETS)){
-      const button=node('button','creative-preset',label);button.type='button';button.dataset.creativePreset=id;button.addEventListener('click',()=>{this.config.preset=id;this.render();});presets.append(button);this.presetButtons[id]=button;
+      const button=node('button','creative-preset',label);button.type='button';button.dataset.creativePreset=id;button.addEventListener('click',()=>{this.config.preset=id;this.saveDraft();this.render();});presets.append(button);this.presetButtons[id]=button;
     }
     const family=this.select('Univers du dessin',FAMILIES,this.config.family,value=>{this.config.family=value;this.render();});this.family=family.select;
-    const localFormat=this.select('Format',formats,this.config.format,value=>{this.config.format=value;this.render();});this.format=localFormat.select;
+    const localFormat=this.select('Format',formats,this.config.format,value=>{this.config.format=value;this.saveDraft();this.render();});this.format=localFormat.select;
     this.localSettings.append(presets,family.wrapper,localFormat.wrapper,this.field('Nom de la marque','brand','text',80),this.field('Titre','title','textarea',180),this.field('Sous-titre','subtitle','textarea',240));
     const colors=node('div','creative-colors');colors.append(this.field('Couleur principale','primary','color'),this.field('Couleur secondaire','secondary','color'),this.field('Fond','background','color'));this.localSettings.append(colors);
     this.vary=node('button','creative-variation','↻ Explorer une autre composition');this.vary.type='button';this.vary.addEventListener('click',()=>{this.config.variation=(this.config.variation+1)%4;this.render();});
@@ -309,7 +314,25 @@ export class CreativeStudio {
   showMessage(text,failure=false){this.message.textContent=String(text||'').slice(0,1000);this.message.hidden=!text;this.message.classList.toggle('creative-error',failure);}
   showEditor(){this.stage='editor';this.promptPanel.hidden=true;this.body.hidden=false;this.footer.hidden=false;this.back.hidden=false;this.resume.hidden=true;}
   validDescription(){if(this.description.value.trim().length<12){this.showMessage('Décrivez votre idée en au moins 12 caractères pour commencer.',true);this.description.focus();return false;}return true;}
-  saveDraft(){const saved=this.draftStore.write('studio',{text:this.description.value});this.draftNote.textContent=saved?'Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.':'Votre navigateur ne peut pas conserver ce brouillon. Gardez cette fenêtre ouverte.';}
+  syncRequestState(){
+    const pending=Boolean(this.requestReceipt);
+    this.promptPreset.value=pending?this.submittedChoices.preset:this.config.preset;this.promptFormat.value=pending?this.submittedChoices.format:this.config.format;
+    this.description.readOnly=pending;this.promptPreset.disabled=pending;this.promptFormat.disabled=pending;this.local.disabled=pending;this.clearDraft.hidden=pending;this.newRequest.hidden=!pending;
+    for(const button of this.promptPanel.querySelectorAll('.creative-example'))button.disabled=pending;
+    this.oscar.textContent=pending?'Reprendre la demande envoyée':'Créer avec Oscar et les agents';
+    if(pending)this.draftNote.textContent=this.draftSaved===false?'Votre navigateur ne peut pas conserver ce brouillon. Gardez cette fenêtre ouverte.':'Demande envoyée sans confirmation. Reprenez-la pour retrouver la mission, ou vérifiez l’historique avant d’en préparer une autre.';
+  }
+  saveDraft(){
+    const choices=this.requestReceipt?this.submittedChoices:this.config;
+    let saved=this.draftStore.write('studio',{text:this.description.value,studioPreset:choices.preset,studioFormat:choices.format,...(this.requestReceipt?{...this.requestReceipt,studioBrief:this.submittedBrief}:{})});
+    if(saved&&this.requestReceipt){const restored=this.draftStore.read('studio');saved=restored?.requestId===this.requestReceipt.requestId&&restored.studioBrief===this.submittedBrief;}
+    this.draftSaved=saved;this.draftNote.textContent=saved?this.requestReceipt?'Demande envoyée sans confirmation. Reprenez-la pour retrouver la mission, ou vérifiez l’historique avant d’en préparer une autre.':'Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.':'Votre navigateur ne peut pas conserver ce brouillon. Gardez cette fenêtre ouverte.';
+    return saved;
+  }
+  prepareNewRequest(){
+    if(this.creating)return;
+    this.requestReceipt=null;this.submittedBrief=null;this.submittedChoices=null;this.syncRequestState();this.saveDraft();this.showMessage('La demande précédente peut déjà exister dans l’historique. Votre prochaine création lancera une nouvelle mission.');this.description.focus();
+  }
   createLocal(){
     if(!this.validDescription())return;
     this.original();this.config=suggestStudioConfig(this.description.value,this.config);this.syncConfig();this.render();this.showEditor();
@@ -404,10 +427,14 @@ export class CreativeStudio {
     return `Crée réellement le visuel décrit ci-dessous, en mobilisant les agents design et code utiles. Ne te contente pas d’un plan ou d’un brief.\n\nDESCRIPTION DE LA CRÉATION\n${description}\n\nSupport : ${PRESETS[value.preset]}\nFormat : ${value.format}${this.stage==='editor'?`\nRéglages de composition souhaités :\nMarque : ${value.brand}\nTitre : ${value.title}\nSous-titre : ${value.subtitle}\nCouleurs : ${value.primary}, ${value.secondary}, ${value.background}`:''}${this.imported?.path?`\nRéférence existante : ${this.imported.path}`:''}\n\nLivre au minimum un fichier SVG vectoriel original et entièrement modifiable dans Livraison/, avec une composition et une illustration adaptées au sujet, de vrais éléments texte, une typographie lisible et de bons contrastes. Évite les gabarits génériques sans rapport avec le sujet. Utilise des polices système et aucun script, image distante, ressource externe ou foreignObject : le fichier doit s’ouvrir seul et rester éditable dans le studio. Ajoute un aperçu PNG si les outils locaux le permettent. Vérifie les fichiers réels, les dimensions, l’orthographe et les marges. Pour une photo réaliste, explique les limites des outils disponibles sans prétendre avoir généré une photo. N’achète rien, ne publie rien et n’envoie rien.`;
   }
   async createWithOscar(){
-    if(this.creating||!this.validDescription())return;this.creating=true;const controls=[...this.promptPanel.querySelectorAll('input,select,textarea,button')].map(input=>[input,input.disabled]);for(const[input]of controls)input.disabled=true;this.showMessage('Transmission de votre création à Oscar…');
-    try{const result=await this.onCreate({template:'creation-visuelle',brief:this.brief(),description:this.description.value.trim()});if(!result?.id)throw new Error('Le lancement de la mission n’a pas été confirmé.');this.draftStore.remove('studio');this.lastMissionId=result.id;this.showMessage('');if(this.dialog.open)this.close();return result;}
+    if(this.creating||!this.requestReceipt&&!this.validDescription())return;this.creating=true;const controls=[...this.promptPanel.querySelectorAll('input,select,textarea,button')].map(input=>[input,input.disabled]);for(const[input]of controls)input.disabled=true;this.showMessage('Transmission de votre création à Oscar…');
+    const brief=this.requestReceipt?this.submittedBrief:this.brief(),submittedChoices=this.requestReceipt?this.submittedChoices:{preset:this.config.preset,format:this.config.format};
+    try{const result=await this.onCreate({template:'creation-visuelle',brief,description:this.description.value.trim(),requestReceipt:this.requestReceipt?{...this.requestReceipt}:null,onRequestIdentity:({requestId,requestHash})=>{
+      if(typeof requestId!=='string'||!/^[A-Za-z0-9_-]{8,100}$/u.test(requestId)||typeof requestHash!=='string'||!/^[a-f0-9]{64}$/u.test(requestHash))throw new Error('Le lancement de la mission n’a pas été confirmé.');
+      this.requestReceipt={requestId,requestHash};this.submittedBrief=brief;this.submittedChoices=submittedChoices;return this.saveDraft();
+    }});if(!result?.id)throw new Error('Le lancement de la mission n’a pas été confirmé.');this.draftStore.remove('studio');this.requestReceipt=null;this.submittedBrief=null;this.submittedChoices=null;this.lastMissionId=result.id;this.draftNote.textContent='Demande confirmée. Votre réponse est conservée dans l’historique.';this.showMessage('');if(this.dialog.open)this.close();return result;}
     catch(error){if(!this.destroyed)this.showMessage('La création n’a pas pu être lancée. '+String(error?.message||'Réessayez en conservant votre description.').slice(0,400),true);}
-    finally{this.creating=false;if(!this.destroyed)for(const[input,disabled]of controls)input.disabled=disabled;}
+    finally{this.creating=false;if(!this.destroyed){for(const[input,disabled]of controls)input.disabled=disabled;this.syncRequestState();}}
   }
   open(){if(this.destroyed)throw new Error('Ce studio a été fermé définitivement.');if(this.dialog.open)return;this.returnFocus=document.activeElement;this.notified=false;this.files();this.dialog.showModal();(this.stage==='brief'?this.description:this.elementSelect?.isConnected&&!this.vectorPanel.hidden?this.elementSelect:this.format).focus({preventScroll:true});}
   closed(){if(this.notified)return;this.notified=true;this.epoch++;this.abort?.abort();if(!this.destroyed){if(this.returnFocus?.isConnected)this.returnFocus.focus({preventScroll:true});this.onClose();}}
