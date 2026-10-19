@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#252d2a">
+  <meta name="description" content="Oscar recrute une équipe d’agents IA dans un bureau en pixel art. Missions guidées, ChatGPT ou Claude, sans clé API.">
+  <title>Oscar et les agents</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/pixel-scene.css">
+  <link rel="stylesheet" href="/mission-catalog.css">
+  <link rel="stylesheet" href="/coffee-dialog.css">
+  <script src="/app.js" type="module"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Navigation et historique">
+      <a class="brand" href="/" aria-label="Oscar et les agents, accueil"><span class="brand-symbol" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span>Oscar<span class="brand-small">et les agents</span></span></a>
+      <div class="sidebar-rule"></div>
+      <button class="new-button" id="new-mission" type="button"><span aria-hidden="true">＋</span> Nouvelle mission</button>
+      <div class="sidebar-heading"><span>Vos missions</span><span id="mission-count" class="count">0</span></div>
+      <nav class="mission-history" id="mission-history" aria-label="Missions précédentes"><p class="history-empty">L’atelier attend votre première idée.</p></nav>
+      <div class="sidebar-bottom"><div class="local-badge"><span class="connection-dot" id="connection-dot"></span><span id="connection-label">Connexion à l’atelier…</span></div><p>Votre équipe. Vos outils.<br>Un espace de travail local.</p><button class="open-data-button" id="open-missions-folder" type="button">▤ Mes missions dans Documents ↗</button><a class="creator-link" href="https://www.facebook.com/renaud.brussels" target="_blank" rel="noopener noreferrer">Créé par Renaud ↗</a><span class="version">OSCAR ET LES AGENTS · ÉDITION LOCALE</span></div>
+    </aside>
+    <main class="main-content" id="main-content">
+      <header class="topbar"><span class="breadcrumb">Votre espace de travail <span>/</span> <strong>L’atelier</strong></span><span class="topbar-label"><span class="small-circle" aria-hidden="true">O</span> Oscar & son équipe</span></header>
+      <section class="page-intro" aria-labelledby="page-title"><div><p class="eyebrow"><span class="sun-icon" aria-hidden="true">✳</span> LES BONNES IDÉES SE CONSTRUISENT ENSEMBLE</p><h1 id="page-title">Oscar et les agents</h1><p class="intro-copy">Vous donnez la mission. Oscar recrute, l’équipe travaille et le bureau prend vie.</p></div><div class="team-stamp"><span class="team-avatars" aria-hidden="true"><i>O</i><i>L</i><i>N</i><i>A</i></span><span>1 chef d’équipe<br><strong>5 spécialistes</strong></span></div></section>
+      <div class="alert global-alert" id="global-error" role="alert" hidden></div>
+      <div class="demo-banner" id="demo-banner" role="status" hidden><strong>Mode démonstration</strong><span>Cette mission est une simulation. Aucun modèle d’IA n’est appelé.</span></div>
+      <div class="workspace-grid">
+        <div class="workspace-left">
+          <section class="card scene-card" aria-labelledby="scene-title"><div class="card-heading"><div><span class="section-kicker">LE BUREAU · 8 BITS</span><h2 id="scene-title">L’équipe entre en scène</h2></div><span class="live-pill" id="scene-live"><span></span> Prêt à créer</span></div>
+            <div class="pixel-stage" id="atelier-scene" data-mode="idle">
+              <canvas id="pixel-canvas" width="576" height="352" tabindex="0" role="img" aria-label="Bureau en pixel art : Oscar fait venir les spécialistes selon la mission. Les boutons sous la scène permettent aussi de les sélectionner."></canvas>
+              <div class="pixel-hud"><span class="pixel-badge" id="pixel-mode">AU REPOS</span><span id="pixel-world-status" aria-live="polite">Oscar prépare le bureau.</span></div>
+            </div>
+            <div class="pixel-controls"><div class="pixel-roster" aria-label="Rencontrer l’équipe">
+              <button type="button" data-pixel-role="oscar">Oscar</button><button type="button" data-pixel-role="recherche">Lina</button><button type="button" data-pixel-role="redaction">Noé</button><button type="button" data-pixel-role="code">Sam</button><button type="button" data-pixel-role="design">Alma</button><button type="button" data-pixel-role="analyse">Jules</button>
+              </div><div class="pixel-actions"><button type="button" id="pixel-pause" aria-pressed="false">Pause animations</button><button type="button" id="pixel-fullscreen">Agrandir</button></div>
+              <div class="pixel-props" aria-label="Jouer avec le bureau"><button type="button" data-pixel-prop="coffee">☕ Café · 0,20 €</button><button type="button" data-pixel-prop="window">☀ Fenêtre</button><button type="button" data-pixel-prop="clock">◷ Horloge</button><button type="button" data-pixel-prop="lights">✦ Lumières</button></div><p class="pixel-legend">Entrée → bureau → Oscar → café. Chaque agent arrive pour une vraie tâche.</p>
+            </div><div class="scene-caption"><span class="caption-spark" aria-hidden="true">✦</span><span id="scene-caption">Chaque talent a son métier. Oscar garde la vue d’ensemble.</span><span class="scene-hint">Cliquez sur un membre de l’équipe</span></div>
+          </section>
+          <section class="card mission-library" id="mission-library" aria-labelledby="mission-library-title"><header class="mission-library-heading"><div><span class="section-kicker">ON PRÉPARE LE BRIEF ENSEMBLE</span><h2 id="mission-library-title">Choisissez votre prochaine mission</h2><p>Quelques questions, puis Oscar compose votre équipe.</p></div><button class="text-button" id="free-mission" type="button">Mission libre ↗</button></header><div class="mission-template-grid" id="mission-template-grid"></div></section>
+          <section class="card mission-card" aria-labelledby="mission-title"><div class="card-heading"><div><span class="section-kicker">DU BRIEF AU LIVRABLE</span><h2 id="mission-title">Votre mission, étape par étape</h2></div><button class="text-button danger-text" id="stop-mission" type="button" hidden><span aria-hidden="true">■</span> Arrêter</button></div><div class="phase-steps" id="phase-steps" aria-label="Étapes de la mission"><span data-step="0"><i>1</i>Plan</span><b></b><span data-step="1"><i>2</i>Création</span><b></b><span data-step="2"><i>3</i>Validation</span><b></b><span data-step="3"><i>4</i>Livraison</span></div><div class="mission-overview" id="mission-overview" hidden><span class="mission-status" id="mission-status"></span><p id="mission-prompt"></p><span class="mission-provider" id="mission-provider"></span></div><div class="task-list" id="task-list"></div><div class="mission-placeholder" id="mission-placeholder"><span aria-hidden="true">↗</span><div><strong>Une équipe prête à se mettre au travail</strong><p>Décrivez votre idée. Oscar prépare le plan, puis distribue les tâches.</p></div></div><details class="activity-details" id="activity-details" hidden><summary>Journal de l’atelier <span id="event-count"></span></summary><ol id="event-list"></ol></details></section>
+        </div>
+        <aside class="workspace-right" aria-label="Votre brief et les livrables">
+          <section class="card brief-card" aria-labelledby="brief-title"><div class="brief-header"><span class="oscar-avatar" aria-hidden="true">O</span><div><span class="section-kicker">OSCAR VOUS ÉCOUTE</span><h2 id="brief-title">Qu’allons-nous créer ?</h2></div></div><form id="mission-form"><label for="mission-input" class="sr-only">Décrivez votre mission</label><textarea id="mission-input" name="prompt" rows="5" maxlength="16000" placeholder="Un projet à lancer, une question à explorer, un contenu à écrire…" required></textarea><div class="brief-examples" id="brief-examples"><button type="button" data-prompt="Prépare un plan de lancement pour une marque de café locale, avec une analyse de la cible, trois idées de communication et une page de présentation.">Une idée à lancer <span>↗</span></button><button type="button" data-prompt="Crée une page de présentation claire et élégante pour mon activité, avec une proposition de structure et les textes.">Une page à créer <span>↗</span></button></div><label class="field-label" for="provider-select">Votre moteur d’IA</label><div class="select-wrap"><select id="provider-select" name="provider" aria-describedby="provider-message"><option value="codex">Codex · OpenAI</option><option value="claude">Claude · Anthropic</option></select><span aria-hidden="true">⌄</span></div><p class="provider-message" id="provider-message">Vérification de vos outils locaux…</p><button class="text-button connect-button" type="button" id="connect-provider">Se connecter dans le navigateur ↗</button><p class="provider-message" id="login-message" role="status" hidden></p><div class="form-error" id="form-error" role="alert" hidden></div><button class="primary-button" id="launch-button" type="submit"><span>Lancer la mission</span><span aria-hidden="true">↗</span></button><p class="brief-footnote">Oscar planifie. L’équipe crée. Vous gardez la main.</p></form><div class="demo-option"><span>Envie de visiter d’abord ?</span><button class="text-button" id="demo-button" type="button">Essayer la démonstration <span aria-hidden="true">→</span></button></div></section>
+          <section class="card delivery-card" aria-labelledby="delivery-title"><div class="card-heading"><div><span class="section-kicker">LE FRUIT DU TRAVAIL</span><h2 id="delivery-title">Vos livrables</h2></div><span class="delivery-icon" aria-hidden="true">↙</span></div><div class="delivery-empty" id="delivery-empty"><span class="folder-illustration" aria-hidden="true"><i></i><b>✦</b></span><p>Les idées prennent forme ici.</p><span>Vos résultats et fichiers apparaîtront<br>au fil de la mission.</span></div><div class="result-summary" id="result-summary" hidden><div class="result-label" id="result-label">Le mot d’Oscar</div><pre class="report-content result-content" id="result-content"></pre></div><div class="mission-error" id="mission-error" role="alert" hidden></div><div class="file-list" id="file-list"></div><div class="report-list" id="report-list"></div></section>
+        </aside>
+      </div>
+      <footer class="page-footer"><span>Un peu de méthode. Beaucoup d’idées.</span><span>Oscar et les agents <span aria-hidden="true">✳</span></span></footer>
+    </main>
+  </div>
+  <dialog id="member-dialog" class="member-dialog" aria-labelledby="member-title"><div class="dialog-header"><div><span class="section-kicker" id="member-role"></span><h2 id="member-title"></h2></div><button class="icon-button" id="close-dialog" type="button" aria-label="Fermer">×</button></div><p class="member-quip" id="member-quip"></p><p id="member-intro"></p><div id="member-tasks"></div></dialog>
+  <dialog id="mission-wizard-dialog" class="catalog-dialog" aria-labelledby="wizard-dialog-title"><header class="catalog-dialog-header"><div><span class="section-kicker">UNE MISSION À VOTRE MESURE</span><h2 id="wizard-dialog-title">Préparons le projet</h2></div><button class="icon-button" id="close-wizard" type="button" aria-label="Fermer le questionnaire">×</button></header><label class="guided-provider-label" for="guided-provider">Votre moteur d’IA<select id="guided-provider"><option value="codex">Codex · ChatGPT</option><option value="claude">Claude Code</option></select></label><div id="mission-wizard-host"></div></dialog>
+  <div class="sr-only" id="live-announcement" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

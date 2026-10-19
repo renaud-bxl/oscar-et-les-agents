@@ -1,0 +1,14 @@
+{
+  "name": "oscar-et-les-agents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "start": "node server.mjs --open",
+    "serve": "node server.mjs",
+    "test": "node --test test/*.test.mjs",
+    "mcp": "node mcp.mjs",
+    "setup": "node scripts/install.mjs"
+  }
+}

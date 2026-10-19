@@ -1,0 +1,11 @@
+data/
+*.log
+.env
+.env.*
+node_modules/
+.DS_Store
+.tools/
+.runtime/
+coverage/
+test-results/
+playwright-report/
