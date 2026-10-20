@@ -201,3 +201,8 @@ test('a replacement needing installation stays caption-only and never secretly r
  assert.equal(f.speech.characterVoices.oscar,'studio-oscar-paul-v2');assert.equal(f.speech.chooseVoice('oscar'),null);assert.equal(f.speech.speak('oscar','Bonjour'),false);assert.equal(f.calls.length,1);assert.equal(f.utterances.length,0);f.speech.destroy();
  assert.equal(supportsCharacter({id:'studio-oscar-paul-v2'},'zoe'),false);assert.equal(supportsCharacter({id:'studio-zoe-vera-v2'},'oscar'),false);
 });
+
+test('version one Piper defaults migrate once when the replacement Studio defaults are installed',async()=>{
+ const voices=[...VOICES,{...STUDIO[0],id:'studio-oscar-paul-v2',name:'Paul',character:'oscar'},STUDIO[1]],f=fixture({voices,stored:{version:1,engine:'natural',voice:'fr-pierre',characters:{oscar:'fr-pierre',zoe:'fr-jessica'}}});await f.speech.ready;
+ assert.equal(f.speech.preferencesVersion,2);assert.equal(f.speech.voiceName,'auto');assert.equal(f.speech.chooseVoice('oscar').id,'studio-oscar-paul-v2');assert.equal(f.speech.chooseVoice('zoe').id,'studio-zoe');f.speech.destroy();
+});

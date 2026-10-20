@@ -41,7 +41,8 @@ export class OfficeSpeech {
       for(const role of Object.keys(PROFILE))if(this.characterVoices[role]===previous){this.characterVoices[role]=next;replaced=true;}
     }
     if(replaced)this.save();
-    if(this.preferencesVersion>=2||!['studio-oscar','studio-zoe'].every(id=>this.local.voices.some(voice=>voice.id===id&&voice.installed)))return;
+    const defaults=this.local.voices.some(voice=>voice.id==='studio-oscar-paul-v2')?['studio-oscar-paul-v2','studio-zoe']:['studio-oscar','studio-zoe'];
+    if(this.preferencesVersion>=2||!defaults.every(id=>this.local.voices.some(voice=>voice.id===id&&voice.installed)))return;
     if(this.engine==='natural'){
       const legacy=choice=>LEGACY_VOICES.has(choice)||this.local.voices.some(voice=>LEGACY_VOICES.has(voice.id)&&voice.name===choice);
       if(legacy(this.voiceName))this.voiceName='auto';
