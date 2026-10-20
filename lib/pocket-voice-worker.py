@@ -20,7 +20,7 @@ ACTIVE = {}
 MODELS = {}
 STATES = {}
 VARIANTS = {"fr": "french_24l", "en": "english", "nl": "dutch"}
-VOICES = {"studio-oscar": "oscar", "studio-oscar-2": "charles", "studio-zoe": "zoe", "studio-zoe-2": "alba"}
+VOICES = {"studio-oscar-paul-v2": "paul-v2", "studio-oscar-2": "charles", "studio-zoe": "zoe", "studio-zoe-vera-v2": "vera-v2"}
 
 def local_path(value, exists=True):
     target = Path(value)

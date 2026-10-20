@@ -1,0 +1,80 @@
+/* A real material palette, without a filter, a veil, or changes to artwork. */
+:root[data-office-theme="light"]{color-scheme:light}
+:root[data-office-theme="dark"]{
+  color-scheme:dark;--night-paper:#101a24;--night-panel:#172531;--night-surface:#20323f;--night-raised:#29414f;
+  --night-line:#405a68;--night-ink:#e8f0f5;--night-muted:#b0c2ce;--night-accent:#add7f4;
+  --ink:var(--night-ink);--muted:var(--night-muted);--paper:var(--night-paper);--card:var(--night-panel);--line:var(--night-line);--sidebar:var(--night-panel);
+  --blue:#b0d5f5;--blue-soft:#293f54;--green:#a4ceb8;--terra:#f0baa0;--shadow:0 10px 35px #0004;
+  background:var(--night-paper);color:var(--night-ink)
+}
+.hud-theme{position:relative;flex-shrink:0}
+.hud-theme summary{display:grid;place-items:center;min-width:44px;min-height:44px;padding:9px;list-style:none;border:1px solid #e5ecf3;border-radius:12px;background:#ffffffe6;color:#526d8c;font-size:24px;line-height:1;cursor:pointer}
+.hud-theme summary::-webkit-details-marker{display:none}
+.hud-theme-menu{position:absolute;top:calc(100% + 12px);right:0;z-index:4;display:grid;gap:5px;width:230px;max-width:calc(100vw - 32px);padding:10px;border:1px solid #d9e3ec;border-radius:16px;background:#fff;box-shadow:0 14px 40px #10263630}
+.hud-theme-menu>strong{padding:5px 7px;color:#3c5267;font-size:12px}
+.hud-actions .hud-theme-menu button{justify-content:flex-start;width:100%;min-height:44px;font-size:14px}
+.office-theme-choices{display:flex;flex-wrap:wrap;gap:8px;min-width:0;margin:12px 0}
+.office-theme-choices button{flex:1 1 110px;min-height:44px;padding:11px 14px;border:1px solid #c6d2dc;border-radius:11px;background:#f7fafc;color:#38546a;font:inherit;font-size:13px;cursor:pointer}
+[data-office-theme-mode][aria-pressed="true"]{border-color:#79998b!important;background:#e6f0e9!important;color:#315441!important;box-shadow:inset 0 0 0 1px #79998b}
+.office-theme-settings{border:0;margin:0;padding:0}.office-theme-settings legend{font-size:15px;font-weight:600;color:inherit}.office-theme-settings p{font-size:12px;line-height:1.7;color:#52667b}
+.hud-theme summary:focus-visible,.office-theme-choices button:focus-visible{outline:3px solid #6997bd;outline-offset:3px}
+@media(min-width:901px){.office-hud{grid-template-columns:minmax(135px,1fr) minmax(0,2fr) auto}}
+@media(max-width:480px){
+  .office-hud{grid-template-columns:minmax(0,1fr)}.immersive-brand{grid-column:1;grid-row:1}.hud-actions{grid-column:1;grid-row:2;justify-content:space-between;width:100%}.hud-mission{grid-column:1;grid-row:3}
+  .hud-theme summary{min-width:36px;min-height:40px;padding:7px}.hud-theme-menu{left:0;right:auto}.hud-language-menu{left:0;right:auto}
+}
+
+/* The scene paints its own dark materials. These are the readable application surfaces. */
+:root[data-office-theme="dark"] body.immersive-office{
+  --office-glass:#172531;--office-glass-soft:#172531;--office-ink:var(--night-ink);--office-muted:var(--night-muted);--office-control:#c5dbe9;--office-stroke:#405a68;--office-shadow:0 12px 40px #0005;
+  background:var(--night-paper);color:var(--night-ink)
+}
+:root[data-office-theme="dark"] :is(dialog,.office-hud,.office-dock,.office-onboarding,.office-speech,.office-toast,.office-credit,.scene-shortcuts button,.hud-language-menu,.hud-theme-menu,.update-notice){
+  color-scheme:dark!important;background:var(--night-panel)!important;color:var(--night-ink)!important;border-color:var(--night-line)!important;box-shadow:0 16px 48px #0005!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important
+}
+:root[data-office-theme="dark"] dialog::backdrop{background:#050d1680!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+:root[data-office-theme="dark"] dialog :is(header,footer,section,article,form){background:transparent!important;border-color:var(--night-line)!important}
+:root[data-office-theme="dark"] :is(dialog,.office-hud,.office-dock,.office-onboarding,.office-speech,.office-toast,.office-credit,.hud-language-menu,.hud-theme-menu,.update-notice) :is(h1,h2,h3,h4,h5,h6,p,legend,label,a,small,summary,strong,b,span,dt,dd,li,time,pre,output){color:var(--night-ink)!important}
+:root[data-office-theme="dark"] :is(dialog,.office-hud) :is(small,.section-kicker,[class$="-hint"],[class$="-note"],[class$="-description"],[class$="-eyebrow"],[class$="-subtitle"],[class$="-intro"],.provider-message){color:var(--night-muted)!important}
+:root[data-office-theme="dark"] :is(dialog,.office-hud,.office-dock,.hud-theme-menu,.hud-language-menu) :is(button,summary){color:var(--night-ink)!important;border-color:var(--night-line)!important}
+:root[data-office-theme="dark"] dialog :is(button,[role="button"]),
+:root[data-office-theme="dark"] :is(.hud-actions,.office-dock) button,
+:root[data-office-theme="dark"] :is(.hud-theme,.hud-language) summary{background:var(--night-surface)!important}
+:root[data-office-theme="dark"] dialog :is(.text-button,.open-data-button,.creator-link,.creative-source,.connector-diagnostic,.connectors-help){background:transparent!important;color:var(--night-accent)!important}
+:root[data-office-theme="dark"] :is(dialog,.hud-actions,.office-dock) :is(button,summary):hover:not(:disabled){background:var(--night-raised)!important;border-color:#7a9db2!important}
+:root[data-office-theme="dark"] dialog :is(input:not([type="color"]):not([type="checkbox"]):not([type="radio"]),textarea,select){background:#101e29!important;color:var(--night-ink)!important;border-color:#557080!important;color-scheme:dark!important}
+:root[data-office-theme="dark"] dialog :is(input,textarea)::placeholder{color:#adbecb!important;opacity:1}
+:root[data-office-theme="dark"] dialog :is(input[type="checkbox"],input[type="radio"]){accent-color:#abd4e9}
+:root[data-office-theme="dark"] dialog :is(input,textarea,select):focus-visible{outline-color:#b2dcf7!important;border-color:#a2c9e0!important;box-shadow:0 0 0 3px #a2c9e026!important}
+:root[data-office-theme="dark"] :is(dialog,.office-hud,.office-dock,.hud-theme-menu) :focus-visible{outline:3px solid #b2dcf7!important;outline-offset:3px}
+:root[data-office-theme="dark"] dialog :is(table,th,td,hr,fieldset){border-color:var(--night-line)!important}
+
+/* Cards and retained form sections are restyled, never removed or rebuilt. */
+:root[data-office-theme="dark"] dialog :is([class*="card"],[class$="-note"],[class$="-hint"],[class$="-status"],[class$="-preview"],[class$="-empty"],[class$="-progress"],[class$="-install"],[class$="-confirm"],[class$="-row"],[class$="-tabs"],[class$="-draft"],[class$="-summary"],.connectors-scope,.connectors-assistant,.connectors-handoff,.automation-preset,.automation-schedule-preview,.secretary-context,.secretary-side,.secretary-benefits,.voice-mode,.welcome-option,.welcome-note,.welcome-preview,.coffee-option,.coffee-summary,.creative-canvas,.document-library-runtime,.document-library-item,.artifact-text,.artifact-preview-bar,.artifact-toolbar,.artifact-document-icon,.role-services,.member-quip,.member-task,.team-member,.history-item,.file-link,.report-toggle,.task,.task-review,.team-panel-note,.mission-overview,.settings-section,.brief-examples button,.writing-draft,.history-tools,.office-theme-settings){background:var(--night-surface)!important;border-color:var(--night-line)!important}
+:root[data-office-theme="dark"] dialog :is(.office-panel-body,.creative-controls,.creative-body,.secretary-body,.document-library-body,.coffee-options,.voice-body,.automations-body,.calendar-event-body){background:var(--night-panel)!important}
+:root[data-office-theme="dark"] dialog :is(.creative-preview,.artifact-preview){background:#0e1922!important}
+:root[data-office-theme="dark"] dialog :is(.guide-rail,.secretary-aside,.secretary-aside-mark,.secretary-free-tools,.secretary-answer,.secretary-answer-code,.document-library-drop,.document-library-outputs,.document-library-format,.document-library-ready,.document-library-export,.document-library-preview-text,.calendar-event-review,.calendar-event-result,.clock-oscar,.completion-stats,.completion-stat,.completion-folder,.guide-art-bubble,.role-service){background:var(--night-surface)!important;border-color:var(--night-line)!important}
+:root[data-office-theme="dark"] :is(.automation-status,.mission-provider,.mission-status,.team-status,.task-state,.connector-phase,.voice-badge,.count,.pixel-badge,.demo-banner,.guide-tags span,.catalog-count,.catalog-category,.mission-template-icon,.completion-badge){background:var(--night-surface)!important;border-color:var(--night-line)!important;color:var(--night-ink)!important}
+:root[data-office-theme="dark"] .clock-dial>circle:nth-of-type(2){fill:#263d4b;stroke:#526d7c}
+:root[data-office-theme="dark"] .clock-dial>circle:nth-of-type(3){fill:#172a36;stroke:#526d7c}
+:root[data-office-theme="dark"] .clock-dial text{fill:#d1e2eb}
+:root[data-office-theme="dark"] .clock-dial line{stroke:#c3d6e1}
+:root[data-office-theme="dark"] dialog .artifact-pdf-canvas{background:#fff!important}
+:root[data-office-theme="dark"] dialog .creative-artwork{background:transparent!important}
+:root[data-office-theme="dark"] :is(dialog,.office-dock,.hud-language-menu,.hud-theme-menu) :is([aria-pressed="true"],[aria-current="true"],.selected,[data-selected="true"],.dock-primary,.coffee-option[data-selected="true"],.creative-preset[aria-pressed="true"],.voice-mode:has(input:checked),.document-library-format:has(input:checked)){
+  background:#29483f!important;border-color:#8ab8a4!important;color:#e1faef!important;box-shadow:inset 0 0 0 1px #8ab8a455
+}
+:root[data-office-theme="dark"] dialog :is(.primary-button,.automation-submit,.secretary-submit,.secretary-primary,.dictation-primary,.personalization-save,.voice-done,.voice-choose,.creative-export-primary,.creative-oscar,.calendar-event-primary,.document-library-primary,.coffee-paypal,.welcome-next,.artifact-download){background:#31566c!important;border-color:#7da6bd!important;color:#f0f8fc!important}
+:root[data-office-theme="dark"] dialog :is([class*="error"],[role="alert"],.automation-confirm-delete){background:#442f2c!important;border-color:#ae7f6d!important;color:#ffdbcb!important}
+:root[data-office-theme="dark"] dialog :is(.danger-text,.automation-delete,.dictation-stop){color:#ffd0bd!important}
+:root[data-office-theme="dark"] :is(.live-pill,.team-status.approved,.task-state.approved,.team-status.done,.mission-status.completed,.connector-phase,.automation-status.completed){background:#233d35!important;border-color:#486b5b!important;color:#d6f0df!important}
+:root[data-office-theme="dark"] :is(.immersive-brand,.hud-mission-title,.hud-stats b,.dock-label,.office-credit,.scene-shortcuts button){color:var(--night-ink)!important}
+:root[data-office-theme="dark"] :is(.pixel-stage,#pixel-canvas){background:var(--night-paper)!important}
+:root[data-office-theme="dark"] .office-panel-header,:root[data-office-theme="dark"] dialog>header,:root[data-office-theme="dark"] dialog>footer{background:#1b2c39!important}
+:root[data-office-theme="dark"] .dock-separator{background:var(--night-line)!important}
+:root[data-office-theme="dark"] .hud-theme-menu>strong{color:var(--night-ink)}
+:root[data-office-theme="dark"] ::selection{background:#426b84;color:#fff}
+@media(prefers-reduced-motion:reduce){.hud-theme *{scroll-behavior:auto}}
+
+:root[data-office-theme="dark"] .task-state:is(.working,.reviewing,.revising){background:#253f54!important;border-color:#59778f!important;color:#dbedff!important}
+:root[data-office-theme="dark"] .task-state:is(.failed,.needs_review,.cancelled){background:#442f2c!important;border-color:#ae7f6d!important;color:#ffdbcb!important}

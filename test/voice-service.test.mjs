@@ -17,7 +17,7 @@ function fixture() {
     close: async () => calls.push(['close-piper']),
   };
   const studio = {
-    state: async () => ({ status: 'not_installed', available: false, runtimeDownloadMB: 700, cacheMaxMB: 32, voices: ['oscar', 'zoe'].map(name => ({ id: `studio-${name}`, languages: ['fr', 'en', 'nl'], installed: false })), licenseNotice: 'Studio licence' }),
+    state: async () => ({ status: 'not_installed', available: false, runtimeDownloadMB: 700, cacheMaxMB: 32, voices: ['studio-oscar-paul-v2', 'studio-zoe'].map(id => ({ id, languages: ['fr', 'en', 'nl'], installed: false })), licenseNotice: 'Studio licence' }),
     install: async body => calls.push(['install-studio', body]),
     speak: async body => { calls.push(['studio', body]); return { url: '/studio.wav' }; },
     audio: async key => { calls.push(['audio-studio', key]); if (key.startsWith('b')) throw Error('Missing studio audio'); return Buffer.from('studio'); },
@@ -35,9 +35,18 @@ test('studio catalogue advertises two conversational identities without installi
   assert.equal(state.available, true); assert.deepEqual(calls, []);
 });
 
+test('versioned preview links match Paul and Vera and never point at retired voice samples', async () => {
+  const {service,studio}=fixture();
+  studio.state=async()=>({status:'ready',available:true,voices:['studio-oscar-paul-v2','studio-oscar-2','studio-zoe','studio-zoe-vera-v2'].map(id=>({id,installed:true}))});
+  const state=await service.state();
+  for(const [id,file] of [['studio-oscar-paul-v2','oscar-paul-v2'],['studio-oscar-2','oscar-2'],['studio-zoe','zoe'],['studio-zoe-vera-v2','zoe-vera-v2']]){
+    assert.deepEqual(state.voices.find(row=>row.id===id).previewUrls,Object.fromEntries(['fr','en','nl'].map(language=>[language,`/voice-preview-${file}-${language}.wav`])));
+  }
+});
+
 test('voice installation requires confirmation, known identity and no arbitrary download options', async () => {
   const { service, calls } = fixture();
-  for (const body of [{ voiceId: 'studio-oscar' }, { voiceId: 'unknown', confirmed: true }, { voiceId: 'studio-oscar', confirmed: true, url: 'https://untrusted.invalid' }]) await assert.rejects(service.install(body));
+  for (const body of [{ voiceId: 'studio-oscar-paul-v2' }, { voiceId: 'unknown', confirmed: true }, { voiceId: 'studio-oscar-paul-v2', confirmed: true, url: 'https://untrusted.invalid' }]) await assert.rejects(service.install(body));
   assert.deepEqual(calls, []);
   await service.install({ voiceId: 'studio-zoe', confirmed: true });
   assert.deepEqual(calls, [['install-studio', { voiceId: 'studio-zoe', confirmed: true }]]);
@@ -53,10 +62,10 @@ test('a shared installation reports its actual progress even when an old voice i
 
 test('explicit language reaches the conversational model and cannot accidentally select a French legacy voice for Dutch', async () => {
   const { service, calls } = fixture();
-  await service.speak({ voiceId: 'studio-oscar', text: 'Goedemorgen!', language: 'nl' });
+  await service.speak({ voiceId: 'studio-oscar-paul-v2', text: 'Goedemorgen!', language: 'nl' });
   await service.speak({ voiceId: 'fr-pierre', text: 'Bonjour.', language: 'fr' });
-  assert.deepEqual(calls, [['studio', { voiceId: 'studio-oscar', text: 'Goedemorgen!', language: 'nl' }], ['piper', { voiceId: 'fr-pierre', text: 'Bonjour.' }]]);
-  for (const body of [{ voiceId: 'fr-pierre', text: 'Hallo', language: 'nl' }, { voiceId: 'studio-oscar', text: 'Hello', language: 'xx' }, { voiceId: 'studio-oscar', text: 'Hello', reference: '/private/file.wav' }]) await assert.rejects(service.speak(body));
+  assert.deepEqual(calls, [['studio', { voiceId: 'studio-oscar-paul-v2', text: 'Goedemorgen!', language: 'nl' }], ['piper', { voiceId: 'fr-pierre', text: 'Bonjour.' }]]);
+  for (const body of [{ voiceId: 'fr-pierre', text: 'Hallo', language: 'nl' }, { voiceId: 'studio-oscar-paul-v2', text: 'Hello', language: 'xx' }, { voiceId: 'studio-oscar-paul-v2', text: 'Hello', reference: '/private/file.wav' }]) await assert.rejects(service.speak(body));
   assert.equal(calls.length, 2);
 });
 
@@ -72,7 +81,7 @@ test('audio lookup stays within the two managed caches and closing releases both
 test('request cancellation reaches both Studio and optional Piper engines', async () => {
   const {service,piper,studio}=fixture(),controller=new AbortController(),signals=[];
   piper.speak=async(body,options)=>{signals.push(options.signal);};studio.speak=piper.speak;
-  await service.speak({voiceId:'studio-oscar',text:'Bonjour.',language:'fr'},{signal:controller.signal});
+  await service.speak({voiceId:'studio-oscar-paul-v2',text:'Bonjour.',language:'fr'},{signal:controller.signal});
   await service.speak({voiceId:'fr-pierre',text:'Bonjour.',language:'fr'},{signal:controller.signal});
   assert.deepEqual(signals,[controller.signal,controller.signal]);
 });
@@ -92,7 +101,7 @@ test('closing a speech request aborts its local generation without closing the o
   await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
   t.after(async () => { await app.close(); await rm(dataDir, { recursive: true, force: true }); });
   const base = `http://127.0.0.1:${app.server.address().port}`, controller = new AbortController();
-  const request = fetch(base + '/api/voice/synthesize', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Oscar-Client': '1' }, body: JSON.stringify({ voiceId: 'studio-oscar', text: 'Bonjour.', language: 'fr' }), signal: controller.signal });
+  const request = fetch(base + '/api/voice/synthesize', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Oscar-Client': '1' }, body: JSON.stringify({ voiceId: 'studio-oscar-paul-v2', text: 'Bonjour.', language: 'fr' }), signal: controller.signal });
   await started; controller.abort(); await assert.rejects(request, error => error.name === 'AbortError');
   let timer;
   await Promise.race([stopped, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Generation was not cancelled.')), 2000); })]).finally(() => clearTimeout(timer));

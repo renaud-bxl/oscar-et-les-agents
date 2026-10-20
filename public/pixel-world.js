@@ -9,6 +9,25 @@ const P={
   mint:'#a9cbbb',green:'#7ba591',darkgreen:'#517d6b',gold:'#e6c789',
   screen:'#d8eadf',glass:'#b5d7dd',sky:'#d9ebed',leaf:'#81a98e',shadow:'#786f61'
 };
+const SCENE_PALETTES=Object.freeze({
+  light:Object.freeze({wallTop:'#f7faf6',wallBottom:'#e1ebe4',floorTop:'#eee5d4',floorBottom:'#e2d2b6',trim:'#b9c7b980',trimLight:'#fdfbf4',seam:'#cbbb9d38',joint:'#cbbb9d2c'}),
+  dark:Object.freeze({wallTop:'#1e303e',wallBottom:'#263b47',floorTop:'#2b4149',floorBottom:'#20333c',trim:'#57727b',trimLight:'#314c58',seam:'#71868d38',joint:'#71868d2c'})
+});
+const DARK_MATERIALS=Object.freeze({
+  '#f8e6cf':'#4a626e','#eacdae':'#3a535f','#f6dfc4':'#4a626e','#e8c6a2':'#3a535f','#efdbbf':'#4a626e',
+  '#bc9a78':'#2c414d','#b89c7d':'#2c414d','#e7c9a7':'#354e5b','#d6b794':'#7d969c','#cdb18d':'#7d969c','#f5dfc4':'#7d969c',
+  '#b48f72':'#2d4350','#c9a381':'#405963','#f1e6d2':'#4d646e','#b99e7f':'#2d4350','#d3b797':'#405963','#e3cdb1':'#4d646e','#b99876':'#304956',
+  '#cfb593':'#45606a','#ecd7b6':'#314b57','#c5a282':'#3d5864','#b09b80':'#536b75',
+  '#fffdf6':'#263d4c','#fffaf0':'#2c4350','#fffdf4':'#263d4c','#fffdf5':'#263d4c','#fafaf0':'#263d4c','#fff7e8':'#2c4350','#fff6e8':'#2c4350',
+  '#304f43':'#e8f2ed','#395549':'#e8f2ed','#385647':'#e8f2ed','#344b48':'#e8f2ed','#3f5946':'#dfede7',
+  '#627563':'#dfede7','#5d745f':'#dfede7','#667a62':'#d5e6df','#82917d':'#d5e6df','#91a58c':'#c0d8cf','#a6ad9b':'#c0d8cf',
+  '#c0cfbf':'#67838d','#c9d6c8':'#67838d','#c7cbb5':'#67838d'
+});
+export const officeScenePalette=theme=>SCENE_PALETTES[theme==='dark'?'dark':'light'];
+export function officeMaterialColor(color,theme='light'){
+  if(theme!=='dark'||typeof color!=='string'||!/^#[a-f\d]{6}(?:[a-f\d]{2})?$/iu.test(color))return color;
+  const mapped=DARK_MATERIALS[color.slice(0,7).toLowerCase()];return mapped?mapped+color.slice(7):color;
+}
 const ROLES={
   recherche:{name:'Lina',label:'Recherche',names:['Lina','Camille','Nora','Iris'],shirt:'#d8a18c',hair:'#674f45',skin:'#edbc99'},
   redaction:{name:'Noé',label:'Rédaction',names:['Noé','Hugo','Inès','Lou'],shirt:'#91aebd',hair:'#5e514b',skin:'#d8a583'},
@@ -37,8 +56,11 @@ const OSCAR_VISITS={recherche:{x:430,y:370},redaction:{x:1010,y:370},code:{x:890
 const REVIEW_WAIT=Array.from({length:20},(_,i)=>({x:510+(i%10)*40,y:350+Math.floor(i/10)*40}));
 const COFFEE=Array.from({length:20},(_,i)=>({x:190+(i%4)*20,y:650+Math.floor(i/4)*40}));
 const CHAT=[{x:610,y:650},{x:850,y:650},{x:610,y:690},{x:850,y:690},{x:610,y:730},{x:850,y:730},{x:610,y:770},{x:850,y:770},{x:610,y:810},{x:650,y:810},{x:690,y:810},{x:730,y:810},{x:770,y:810},{x:810,y:810},{x:850,y:810},{x:650,y:650},{x:690,y:650},{x:730,y:650},{x:770,y:650},{x:810,y:650}];
+const STROLL=[{x:430,y:510},{x:890,y:570},{x:1210,y:510},{x:230,y:570}];
 const BUSY_TASKS=new Set(['working','revising']),EXIT_TASKS=new Set(['failed','cancelled']);
-const TRAVEL_STATES=new Set(['entering','to_desk','to_oscar','to_review_queue','to_review_wait','to_coffee','to_chat','returning','leaving']);
+const RESULT_TASKS=new Set(['reviewing','approved','needs_review','failed']);
+const REVIEW_STATES=new Set(['to_oscar','waiting_oscar','to_review_queue','review_queue','handoff','to_review_wait','waiting_review','needs_review']);
+const TRAVEL_STATES=new Set(['entering','to_desk','to_oscar','to_review_queue','to_review_wait','to_coffee','to_chat','to_lounge','to_stroll','returning','leaving']);
 const LAMPS=[{x:490,y:108},{x:720,y:64},{x:950,y:108},{x:550,y:520,floor:true},{x:1240,y:520,floor:true}];
 const HOTSPOTS=[
   {kind:'coffee',label:'Machine à café',x:57,y:565,w:123,h:173},
@@ -131,6 +153,7 @@ export class PixelWorld {
     this._reviewOwner=null;this._raf=null;this._lastTick=null;this._lastPaint=0;
     this._manualPaused=false;this._destroyed=false;this._doorOpen=0;this._statusMemo='';this._lastCompleted=null;
     this.props={windowMode:'day',lights:LAMPS.map(()=>true),coffeeUntil:0,clockUntil:0,doorUntil:0,catUntil:0,catStart:0};
+    this._theme=document.documentElement?.dataset?.officeTheme==='dark'?'dark':'light';
     const preference=readAmbiencePreference();
     this._ambienceMode=preference?.mode||'auto';this._lightsAuto=preference?.lightsMode!=='manual'||!preference?.lights;
     this._manualLights=preference?.lights||LAMPS.map(()=>true);this.ambience=null;this._ambienceSignature='';
@@ -139,7 +162,7 @@ export class PixelWorld {
     this._lastInteraction=null;this._lastClickedBubble=null;this._visibleBubbles=[];
     this._media=window.matchMedia?.('(prefers-reduced-motion: reduce)');
     this.reducedMotion=!!this._media?.matches;
-    this._onMotion=()=>{this.reducedMotion=!!this._media?.matches;this._lastTick=null;this._draw();};
+    this._onMotion=()=>{this.reducedMotion=!!this._media?.matches;if(!this.reducedMotion)for(const a of this.agents.values())if(a.state==='lounge')a.deadline=Math.min(a.deadline,this.time+3);this._lastTick=null;this._draw();};
     this._onVisibility=()=>{this._lastTick=null;if(!document.hidden){this._refreshAmbience(true);this._draw();}this._schedule();};
     this._onClick=e=>this._select(e);
     this._onKey=e=>{if(e.key==='Enter'||e.key===' ') {e.preventDefault();this._selectActor({role:'oscar',id:null});}};
@@ -148,7 +171,9 @@ export class PixelWorld {
     this._onLeave=()=>{this.canvas.style.cursor='';this.canvas.title=this._initialTitle;this._hoveredProp=null;this._draw();};
     this._onResize=()=>this._resizeViewport();
     this._onLanguage=()=>{this._background=this._makeBackground();this._draw();};
+    this._onTheme=event=>this._setTheme(event?.detail?.theme||document.documentElement?.dataset?.officeTheme||'light');
     document.addEventListener('oscar:language',this._onLanguage);
+    document.addEventListener('oscar:theme',this._onTheme);
     document.addEventListener('visibilitychange',this._onVisibility);
     this._media?.addEventListener?.('change',this._onMotion);
     canvas.addEventListener('click',this._onClick);
@@ -186,6 +211,7 @@ export class PixelWorld {
   }
   setSpeaking(role){this.speakingRole=role||null;this._draw();}
   setSecretaryActivity(busy){this.secretaryBusy=!!busy;this._draw();}
+  _setTheme(theme){if(this._destroyed||!['dark','light'].includes(theme)||theme===this._theme)return false;this._theme=theme;this._background=this._makeBackground();this._draw();return true;}
 
   update(mission) {
     if(this._destroyed) return;
@@ -247,7 +273,7 @@ export class PixelWorld {
     if(kind==='coffee') {
       this.props.coffeeUntil=this.time+4.2;x=142;y=580;bubble='Un petit café, une grande idée.';
       text='Psshh ! Le café est prêt. La seule réunion que tout le monde accepte.';
-      const idle=[...this.agents.values()].filter(a=>a.visible&&!a.retiring&&a.task.status==='approved'&&['resting','coffee','chat'].includes(a.state));
+      const idle=[...this.agents.values()].filter(a=>a.visible&&!a.retiring&&a.task.status==='approved'&&['resting','coffee','chat','lounge','strolling'].includes(a.state));
       for(const a of idle.slice(0,2)) this._bubble(a,a.state==='coffee'?'Mon abonnement préféré.':'Il en reste pour moi ?',3);
       if(!idle.length&&this.oscarState==='idle') {this._oscarBubble='Je supervise la mousse.';this._oscarBubbleUntil=this.time+3;}
     } else if(kind==='window') {
@@ -308,7 +334,7 @@ export class PixelWorld {
 
   snapshot() {
     return {
-      missionId:this.missionId,bounds:{width:W,height:H},viewport:{...this.viewport},ambience:this._ambienceSnapshot(),frame:this.frame,time:Math.round(this.time*100)/100,
+      missionId:this.missionId,theme:this._theme||'light',bounds:{width:W,height:H},viewport:{...this.viewport},ambience:this._ambienceSnapshot(),frame:this.frame,time:Math.round(this.time*100)/100,
       paused:this._manualPaused||document.hidden,reducedMotion:this.reducedMotion,oscarState:this.oscarState,oscar:{x:this.oscar.x,y:this.oscar.y,place:this.oscar.place,destination:this.oscar.destination,moving:!!this.oscar.path.length,visits:this.oscar.visits},
       doorOpen:this._doorOpen,reviewOwner:this._reviewOwner,secretary:{name:'Zoé',busy:!!this.secretaryBusy},
       bubbles:this._visibleBubbles.map(b=>({...b})),spaces:(this._spaceLabels||[]).map(p=>({...p})),
@@ -321,6 +347,7 @@ export class PixelWorld {
         target:a.target?{...a.target}:null,desk:a.slot,visible:a.visible,
         taskStatus:a.task.status,attempt:taskAttempt(a.task),handoffAttempt:a.handoffAttempt,
         retiring:!!a.retiring,reactivations:a.reactivations||0,
+        leisureStep:a.leisureStep||0,
         paper:a.paper,mug:a.mug,direction:a.direction,visited:[...a.visited],
         reaction:this._reactions.get(a.key)?.until>this.time?this._reactions.get(a.key).kind:null,
         pathLength:a.path.length,bubble:this.time<a.bubbleUntil?a.bubble:null
@@ -337,6 +364,7 @@ export class PixelWorld {
     this._raf=null;
     document.removeEventListener('visibilitychange',this._onVisibility);
     document.removeEventListener('oscar:language',this._onLanguage);
+    document.removeEventListener('oscar:theme',this._onTheme);
     this._media?.removeEventListener?.('change',this._onMotion);
     this._resizeObserver?.disconnect();window.removeEventListener?.('resize',this._onResize);
     this.canvas.removeEventListener('click',this._onClick);
@@ -419,6 +447,7 @@ export class PixelWorld {
     this._bubble(a,a.task.status==='needs_review'?'Je reprends ce point.':'On améliore ça !');
     this._travel(a,'returning',DESKS[a.slot].stand,'working');
   }
+  _pendingDelivery(a){return RESULT_TASKS.has(a.task.status)&&!a.handoffAttempts.has(taskAttempt(a.task));}
   _startReview(a) {
     a.paper=true;a.mug=false;a.reviewRequestedAt=this.time;
     if(!this._reviewOwner||this._reviewOwner===a.key) {
@@ -428,20 +457,25 @@ export class PixelWorld {
     } else this._travel(a,'to_review_queue',REVIEW_WAIT[a.slot%REVIEW_WAIT.length],'review_queue');
   }
   _startCoffee(a) {
-    if(a.task.status!=='approved') return;
+    const attempt=taskAttempt(a.task);if(a.task.status!=='approved'||!a.handoffAttempts.has(attempt)) return;
     this._releaseReview(a);a.paper=false;a.mug=false;
     this._bubble(a,'Validé ! Pause café.');
-    this._event('approved',a);
+    a.approvedAttempts??=new Set();if(!a.approvedAttempts.has(attempt)){a.approvedAttempts.add(attempt);this._event('approved',a);}
     this._travel(a,'to_coffee',COFFEE[a.slot%COFFEE.length],'coffee');
   }
   _startSocial(a) {
-    const others=[...this.agents.values()].filter(b=>b!==a&&b.visible&&!b.retiring&&b.task.status==='approved'&&['coffee','to_chat','chat','resting','returning'].includes(b.state));
-    if(others.length) {
-      this._travel(a,'to_chat',CHAT[a.slot%CHAT.length],'chat');
-    } else this._travel(a,'returning',DESKS[a.slot].stand,'resting');
+    if(a.task.status!=='approved'||!a.handoffAttempts.has(taskAttempt(a.task)))return;
+    if(this.reducedMotion){if(a.state==='lounge')a.deadline=this.time+30;else this._travel(a,'to_lounge',CHAT[a.slot%CHAT.length],'lounge');return;}
+    const step=a.leisureStep||0;a.leisureStep=step+1;
+    const others=[...this.agents.values()].filter(b=>b!==a&&b.visible&&!b.retiring&&b.task.status==='approved'&&['coffee','to_chat','chat','to_lounge','lounge','strolling','resting','returning'].includes(b.state));
+    if(step%4===0)this._travel(a,others.length?'to_chat':'to_lounge',CHAT[a.slot%CHAT.length],others.length?'chat':'lounge');
+    else if(step%4===1)this._travel(a,'to_stroll',STROLL[(a.slot+Math.floor(step/4))%STROLL.length],'strolling');
+    else if(step%4===2)this._travel(a,'returning',DESKS[a.slot].stand,'resting');
+    else this._startCoffee(a);
   }
   _arrived(a) {
     a.path=[];a.target=null;const state=a.afterTravel;a.afterTravel=null;
+    if(state==='handoff'&&this.oscar.place!=='desk'){this._visit(a,'waiting_oscar');a.direction='up';this._bubble(a,'Mon dossier est prêt.');return;}
     this._visit(a,state||'resting');
     if(state==='briefing') {
       a.direction='right';a.deadline=this.time+.8;
@@ -451,6 +485,7 @@ export class PixelWorld {
     } else if(state==='working') {
       a.direction=DESKS[a.slot]?.direction||'up';a.workSince=this.time;a.paper=false;a.mug=false;
       if(a.task.status==='queued') this._visit(a,'waiting_task');
+      else if(this._pendingDelivery(a))this._startReview(a);
       else this._bubble(a,a.task.status==='revising'?'Je corrige le détail.':'À moi de jouer !',2);
     } else if(state==='handoff') {
       a.direction='up';a.deadline=this.time+1.35;
@@ -462,19 +497,21 @@ export class PixelWorld {
     } else if(state==='review_queue') {a.direction=a.x<REVIEW.x?'right':'left';this._bubble(a,'Mon dossier est prêt.');}
     else if(state==='waiting_review') {a.direction='up';a.paper=false;if(a.task.status==='needs_review')this._visit(a,'needs_review');this._bubble(a,a.task.status==='needs_review'?'À vérifier':'J’attends le retour.');}
     else if(state==='coffee') {a.direction='left';a.mug=true;a.deadline=this.time+2.5+a.random()*2;this._bubble(a,'Un café bien mérité !');this._event('coffee',a);}
+    else if(state==='lounge'){a.direction=a.x<730?'right':'left';a.mug=false;a.deadline=this.time+4+a.random()*3;this._bubble(a,'On se retrouve ici ?',3);}
+    else if(state==='strolling'){a.direction='down';a.mug=false;a.deadline=this.time+1.5+a.random()*2;this._bubble(a,'Je fais le tour des idées.',3);}
     else if(state==='chat') {
       a.direction=a.x<730?'right':'left';a.mug=a.random()>.45;a.deadline=this.time+3+a.random()*3;
       const other=[...this.agents.values()].find(b=>b!==a&&b.state==='chat'&&b.task.status==='approved');
       this._bubble(a,other?['Joli travail !','Et ta prochaine idée ?','Bien joué, l’équipe !'][Math.floor(a.random()*3)]:'On se retrouve ici ?',3.6);
       if(other) this._bubble(other,['Merci !','On forme une belle équipe.','Je suis partant !'][Math.floor(a.random()*3)],3.2);
       this._event('chat',a);
-    } else if(state==='resting') {a.direction='down';a.mug=false;a.nextIdleAt=this.time+6+a.random()*14;}
+    } else if(state==='resting') {a.direction='down';a.mug=false;a.nextIdleAt=this.time+3+a.random()*4;}
     else if(state==='gone') {a.visible=false;this._releaseReview(a);this.agents.delete(a.key);this._event('exit',a);}
   }
 
   _stepAgent(a,dt) {
     const activeMission=a.missionId===this.missionId;
-    const pendingHandoff=['approved','reviewing','needs_review','failed'].includes(a.task.status)&&!a.handoffAttempts.has(taskAttempt(a.task));
+    const pendingHandoff=this._pendingDelivery(a);
     const cancelled=a.task.status==='cancelled'||activeMission&&this.mission?.status==='cancelled';
     const exit=cancelled||(!pendingHandoff&&a.state!=='handoff'&&(a.retiring||a.task.status==='failed'||activeMission&&this.mission?.status==='failed'));
     if(exit&&a.state!=='leaving') {
@@ -490,8 +527,9 @@ export class PixelWorld {
     if(!a.visible) return;
     const attempt=taskAttempt(a.task);
     const needsWork=BUSY_TASKS.has(a.task.status);
-    const awayFromWork=['to_oscar','to_review_queue','review_queue','handoff','to_review_wait','waiting_review','needs_review','to_coffee','coffee','to_chat','chat','resting'].includes(a.state);
+    const awayFromWork=['to_oscar','waiting_oscar','to_review_queue','review_queue','handoff','to_review_wait','waiting_review','needs_review','to_coffee','coffee','to_chat','chat','to_lounge','lounge','to_stroll','strolling','resting'].includes(a.state);
     if(needsWork&&awayFromWork&&(attempt>a.handoffAttempt||a.task.status==='revising')) this._returnToDesk(a);
+    else if(pendingHandoff&&['to_coffee','coffee','to_chat','chat','to_lounge','lounge','to_stroll','strolling','resting'].includes(a.state))this._startReview(a);
     a.lastAttempt=attempt;
     if(TRAVEL_STATES.has(a.state)) {
       let remaining=a.speed*dt;
@@ -523,6 +561,7 @@ export class PixelWorld {
       if(!this._reviewOwner) {this._reviewOwner=a.key;this._travel(a,'to_oscar',REVIEW,'handoff');}
       return;
     }
+    if(a.state==='waiting_oscar'){if(this.oscar.place==='desk'){a.afterTravel='handoff';this._arrived(a);}return;}
     if(a.state==='handoff'&&this.oscar.place!=='desk'){a.deadline=Math.max(a.deadline,this.time+.7);return;}
     if(a.state==='handoff'&&this.time>=a.deadline) {
       this._releaseReview(a);a.paper=false;
@@ -540,9 +579,9 @@ export class PixelWorld {
       return;
     }
     if(a.state==='coffee'&&this.time>=a.deadline) {a.mug=false;this._startSocial(a);return;}
-    if(a.state==='chat'&&this.time>=a.deadline) {a.mug=false;this._travel(a,'returning',DESKS[a.slot].stand,'resting');return;}
+    if(['chat','lounge','strolling'].includes(a.state)&&this.time>=a.deadline) {a.mug=false;this._startSocial(a);return;}
     if(a.state==='resting'&&a.task.status==='approved'&&this.time>=a.nextIdleAt) {
-      if(a.random()<.55) this._startCoffee(a);else this._startSocial(a);
+      this._startSocial(a);
     }
   }
 
@@ -600,18 +639,19 @@ export class PixelWorld {
     else if(a.place==='welcome'){this._oscarBubble='Explique-moi ce que tu veux faire';this._oscarBubbleUntil=this.time+5;}
   }
   _updateOscar(dt=0) {
-    const live=[...this.agents.values()].filter(a=>a.visible&&!a.retiring);
-    if(live.some(a=>a.state==='handoff')||this.mission?.tasks?.some(t=>t.status==='reviewing')) this.oscarState='reviewing';
+    const visible=[...this.agents.values()].filter(a=>a.visible),live=visible.filter(a=>!a.retiring);
+    const review=!!this._reviewOwner||visible.some(a=>this._pendingDelivery(a)||REVIEW_STATES.has(a.state)&&!BUSY_TASKS.has(a.task.status))||this.mission?.tasks?.some(t=>t.status==='reviewing');
+    if(review) this.oscarState='reviewing';
     else if(this.mission?.status==='planning') this.oscarState='planning';
     else if(this.mission?.status==='completed'&&this.time<this._oscarBubbleUntil) this.oscarState='celebrating';
     else if(['running','reviewing'].includes(this.mission?.status)) this.oscarState='coordinating';
     else this.oscarState='idle';
-    const a=this.oscar,review=!!this._reviewOwner||live.some(x=>x.state==='handoff')||this.mission?.tasks?.some(t=>t.status==='reviewing');
+    const a=this.oscar;
     const busy=['planning','running','reviewing'].includes(this.mission?.status)||review;
     if(review)this._oscarRoute('desk',OSCAR_HOME);
     else if(!this.mission)this._oscarRoute('welcome',OSCAR_WELCOME);
     else if(['planning','reviewing'].includes(this.mission.status))this._oscarRoute('desk',OSCAR_HOME);
-    else if(busy&&a.place==='desk'&&this.time>=a.nextVisitAt){const workers=live.filter(x=>x.task.status==='working'),role=workers[a.visits%Math.max(1,workers.length)]?.role||'code';this._oscarRoute('visit',OSCAR_VISITS[role]);}
+    else if(busy&&a.place==='desk'&&this.time>=a.nextVisitAt){const workers=live.filter(x=>BUSY_TASKS.has(x.task.status)&&x.state==='working');if(workers.length){const role=workers[a.visits%workers.length].role;this._oscarRoute('visit',OSCAR_VISITS[role]);}else a.nextVisitAt=this.time+2;}
     else if(a.place==='visit'&&this.time>=a.visitUntil)this._oscarRoute('desk',OSCAR_HOME);
     else if(busy&&a.place==='welcome')this._oscarRoute('desk',OSCAR_HOME);
     else if(!busy&&!a.path.length&&a.place==='desk'&&this.time>=a.nextVisitAt)this._oscarRoute('welcome',OSCAR_WELCOME);
@@ -653,6 +693,14 @@ export class PixelWorld {
     let text;
     if(a.role==='oscar') text=this.getCharacterLine?.('oscar')||['Les bonnes idées ont une place.','Mon superpouvoir ? Déléguer.','Une idée, puis un plan.'][n%3];
     else if(a.state==='leaving') text='Je rends les clés et la tasse.';
+    else if(a.state==='to_oscar')text='Mon résultat pour Oscar.';
+    else if(['to_review_queue','review_queue','waiting_oscar'].includes(a.state))text='Mon dossier est prêt.';
+    else if(a.state==='handoff')text=a.task?.status==='failed'?'Un problème à te signaler.':'À toi de vérifier !';
+    else if(['to_review_wait','waiting_review'].includes(a.state))text='J’attends le retour.';
+    else if(a.state==='needs_review')text='À vérifier';
+    else if(['to_lounge','lounge'].includes(a.state))text='On se retrouve ici ?';
+    else if(['to_stroll','strolling'].includes(a.state))text='Je fais le tour des idées.';
+    else if(a.state==='coffee')text='Un café bien mérité !';
     else if(a.task?.status==='queued') text='Prêt ! J’attends le brief.';
     else if(a.task?.status==='reviewing') text='Oscar lit. Je retiens ma tasse.';
     else if(['revising','needs_review'].includes(a.task?.status)) text='Je corrige. Le café attendra.';
@@ -687,34 +735,29 @@ export class PixelWorld {
 
   _round(c,x,y,w,h,r,fill,stroke=null) {
     c.beginPath();c.roundRect(x,y,w,h,r);
-    if(fill){c.fillStyle=fill;c.fill();}
-    if(stroke){c.strokeStyle=stroke;c.lineWidth=1;c.stroke();}
+    if(fill){c.fillStyle=officeMaterialColor(fill,this._theme);c.fill();}
+    if(stroke){c.strokeStyle=officeMaterialColor(stroke,this._theme);c.lineWidth=1;c.stroke();}
   }
-  _ellipse(c,x,y,rx,ry,fill) {c.beginPath();c.ellipse(x,y,rx,ry,0,0,Math.PI*2);c.fillStyle=fill;c.fill();}
-  _line(c,x1,y1,x2,y2,color,width=1) {c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.strokeStyle=color;c.lineWidth=width;c.lineCap='round';c.stroke();}
+  _ellipse(c,x,y,rx,ry,fill) {c.beginPath();c.ellipse(x,y,rx,ry,0,0,Math.PI*2);c.fillStyle=officeMaterialColor(fill,this._theme);c.fill();}
+  _line(c,x1,y1,x2,y2,color,width=1) {c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.strokeStyle=officeMaterialColor(color,this._theme);c.lineWidth=width;c.lineCap='round';c.stroke();}
   _shadow(c,draw,blur=18,offset=9) {c.save();c.shadowColor='#5664541c';c.shadowBlur=blur;c.shadowOffsetY=offset;draw();c.restore();}
   _text(c,text,x,y,color=P.ink,size=14,align='left',weight=500) {
     c.font=`${weight} ${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    c.textBaseline='alphabetic';c.textAlign=align;c.fillStyle=color;c.fillText(translate(String(text)),x,y);
+    c.textBaseline='alphabetic';c.textAlign=align;c.fillStyle=officeMaterialColor(color,this._theme);c.fillText(translate(String(text)),x,y);
   }
   _drawViewportBackdrop(c) {
     const {width,height,scale,offsetX,offsetY}=this.viewport,floorY=offsetY+209*scale;
-    const wall=c.createLinearGradient(0,offsetY+24*scale,0,offsetY+224*scale);wall.addColorStop(0,'#f7faf6');wall.addColorStop(1,'#e1ebe4');
+    const palette=officeScenePalette(this._theme),wall=c.createLinearGradient(0,offsetY+24*scale,0,offsetY+224*scale);wall.addColorStop(0,palette.wallTop);wall.addColorStop(1,palette.wallBottom);
     c.fillStyle=wall;c.fillRect(0,0,width,height);
-    const floor=c.createLinearGradient(0,offsetY+214*scale,0,offsetY+822*scale);floor.addColorStop(0,'#eee5d4');floor.addColorStop(1,'#e2d2b6');
+    const floor=c.createLinearGradient(0,offsetY+214*scale,0,offsetY+822*scale);floor.addColorStop(0,palette.floorTop);floor.addColorStop(1,palette.floorBottom);
     c.fillStyle=floor;c.fillRect(0,floorY,width,height-floorY);
-    this._line(c,0,offsetY+212*scale,width,offsetY+212*scale,'#b9c7b980',6*scale);
-    this._line(c,0,offsetY+218*scale,width,offsetY+218*scale,'#fdfbf4',4*scale);
+    this._line(c,0,offsetY+212*scale,width,offsetY+212*scale,palette.trim,6*scale);
+    this._line(c,0,offsetY+218*scale,width,offsetY+218*scale,palette.trimLight,4*scale);
     const maxRow=Math.ceil(((height-offsetY)/scale-224)/38),firstCol=Math.floor((-offsetX/scale-42)/220)-1,lastCol=Math.ceil(((width-offsetX)/scale-42)/220)+1;
     for(let row=0;row<=maxRow;row++) {
-      const y=offsetY+(224+row*38)*scale;this._line(c,0,y,width,y,'#cbbb9d38',Math.max(.4,scale));
-      for(let j=firstCol;j<=lastCol;j++){const x=offsetX+(42+j*220+(row%2)*110)*scale;this._line(c,x,y,x,y+38*scale,'#cbbb9d2c',Math.max(.4,scale));}
+      const y=offsetY+(224+row*38)*scale;this._line(c,0,y,width,y,palette.seam,Math.max(.4,scale));
+      for(let j=firstCol;j<=lastCol;j++){const x=offsetX+(42+j*220+(row%2)*110)*scale;this._line(c,x,y,x,y+38*scale,palette.joint,Math.max(.4,scale));}
     }
-    const alpha=this._ambientShade();
-    c.save();c.globalCompositeOperation='multiply';
-    if(alpha){c.fillStyle=`rgba(28,28,35,${alpha})`;c.fillRect(0,offsetY+210*scale,width,height-offsetY-210*scale);}
-    const wallShade=(1-this.ambience.daylight)*.15;if(wallShade){c.fillStyle=`rgba(45,65,101,${wallShade})`;c.fillRect(0,0,width,offsetY+210*scale);}
-    c.restore();
   }
   _makeBackground() {
     const canvas=document.createElement('canvas');canvas.width=Math.round(W*this.pixelRatio);canvas.height=Math.round(H*this.pixelRatio);
@@ -767,7 +810,7 @@ export class PixelWorld {
     for(const seat of DESKS.filter(d=>d.role===role)) this._chair(c,seat.stand.x,seat.stand.y,accent,seat.position<2);
     this._shadow(c,()=>this._round(c,x+2,y+13,w-4,h-8,22,'#a48d7160'),22,13);
     this._round(c,x,y+7,w,h-7,21,'#bc9a78');
-    const top=c.createLinearGradient(x,y,x,y+h);top.addColorStop(0,'#f8e6cf');top.addColorStop(1,'#eacdae');
+    const top=c.createLinearGradient(x,y,x,y+h);top.addColorStop(0,officeMaterialColor('#f8e6cf',this._theme));top.addColorStop(1,officeMaterialColor('#eacdae',this._theme));
     this._round(c,x,y,w,h-12,20,top,'#d6b794');
     this._line(c,x+20,y+10,x+w-20,y+10,'#ffffff60',2);
     for(const seat of DESKS.filter(d=>d.role===role)) this._screen(c,seat,false);
@@ -810,7 +853,7 @@ export class PixelWorld {
     if(!frontOnly) {
       this._round(c,596,188,248,129,30,'#abc3ab18');this._chair(c,720,238,'#729e86',true);
       this._shadow(c,()=>this._round(c,610,232,220,62,19,'#b89c7d'),20,10);
-      const top=c.createLinearGradient(610,220,830,280);top.addColorStop(0,'#f6dfc4');top.addColorStop(1,'#e8c6a2');
+      const top=c.createLinearGradient(610,220,830,280);top.addColorStop(0,officeMaterialColor('#f6dfc4',this._theme));top.addColorStop(1,officeMaterialColor('#e8c6a2',this._theme));
       this._round(c,610,220,220,63,19,top,'#cdb18d');
     } else {
       this._round(c,612,248,216,37,[0,0,17,17],'#e7c9a7');
@@ -1051,7 +1094,7 @@ export class PixelWorld {
     const width=layout?.w??Math.min(300,c.measureText(str).width+26),bx=layout?.x??Math.max(48,Math.min(W-width-48,x-width/2)),by=layout?.y??Math.max(45,y);
     this._shadow(c,()=>this._round(c,bx,by,width,34,13,'#fffdf5'),10,4);
     const pin=Math.max(bx+13,Math.min(bx+width-13,x));
-    c.beginPath();c.moveTo(pin-5,by+32);c.quadraticCurveTo(pin,by+45,pin+7,by+32);c.fillStyle='#fffdf5';c.fill();
+    c.beginPath();c.moveTo(pin-5,by+32);c.quadraticCurveTo(pin,by+45,pin+7,by+32);c.fillStyle=officeMaterialColor('#fffdf5',this._theme);c.fill();
     this._ellipse(c,bx+10,by+17,2.5,2.5,accent);this._text(c,str,bx+20,by+22,'#627563',13);
   }
   _drawBubbles(c,live) {
@@ -1110,7 +1153,7 @@ export class PixelWorld {
     const ordered=[...live,...(this.oscar.y>=290?[oscar]:[])].sort((a,b)=>a.y-b.y||a.x-b.x);for(const a of ordered)this._sprite(c,a,a.role==='oscar');
     for(const a of live) {
       if(a.state==='working'&&!this.reducedMotion&&Math.floor(this.time*2+a.slot)%5===0){this._ellipse(c,a.x+26,a.y-57,2,2,P.gold);this._ellipse(c,a.x+31,a.y-63,1.5,1.5,P.gold);}
-      if(a.task.status==='approved'&&['resting','coffee','chat'].includes(a.state)){this._ellipse(c,a.x+20,a.y-39,5,5,'#e3edd8');this._line(c,a.x+18,a.y-39,a.x+20,a.y-37,'#81a477',1.5);this._line(c,a.x+20,a.y-37,a.x+23,a.y-42,'#81a477',1.5);}
+      if(a.task.status==='approved'&&['resting','coffee','chat','lounge','strolling'].includes(a.state)){this._ellipse(c,a.x+20,a.y-39,5,5,'#e3edd8');this._line(c,a.x+18,a.y-39,a.x+20,a.y-37,'#81a477',1.5);this._line(c,a.x+20,a.y-37,a.x+23,a.y-42,'#81a477',1.5);}
     }
     this._drawLamps(c);this._drawPropFeedback(c);
     this._drawBubbles(c,live);

@@ -37,7 +37,8 @@ test('profile and document routes preserve local guards, explicit consent, impor
  assert.equal((await send('/api/documents/'+item.id,{},'DELETE',{Origin:'https://external.invalid'})).status,403);
  assert.equal((await fetch(base+'/api/documents/'+item.id,{method:'DELETE',headers:{'X-Oscar-Client':'1'}})).status,403);
  assert.equal((await send('/api/documents/'+item.id,{},'DELETE')).status,200);assert.equal((await app.documents.state()).items.length,0);
- for(const file of ['personalization-dialog.js','personalization-dialog.css','character-lines.js','document-library.js','document-library.css','voice-preview-oscar-2-fr.wav','voice-preview-zoe-2-en.wav'])assert.equal((await fetch(base+'/'+file)).status,200,file);
+ for(const file of ['personalization-dialog.js','personalization-dialog.css','character-lines.js','document-library.js','document-library.css','voice-preview-oscar-2-fr.wav','voice-preview-zoe-vera-v2-en.wav','voice-preview-oscar-paul-v2-fr.wav','office-theme-init.js','office-theme.css','mission-timing.js','translations-performance.js','translations-voices.js'])assert.equal((await fetch(base+'/'+file)).status,200,file);
+ for(const old of ['voice-preview-oscar-fr.wav','voice-preview-zoe-2-en.wav'])assert.equal((await fetch(base+'/'+old)).status,404);
  assert.equal((await fetch(base+'/../lib/personalization.mjs')).status,404);assert.equal((await fetch(base+'/resources/cities.json')).status,404);
 });
 

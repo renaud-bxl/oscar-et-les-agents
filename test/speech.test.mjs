@@ -184,3 +184,20 @@ test('installing optional variants keeps ready voices playable without installin
  assert.equal(speech.speak('zoe','Test',{voiceId:'studio-zoe-2'}),false);assert.equal(changes.at(-1).caption,true);assert.equal(calls.filter(call=>call.url==='/api/voice/install').length,0);assert.equal(calls.filter(call=>call.url==='/api/voice/synthesize').length,1);
  speech.acceptLocal({...speech.local,voices:speech.local.voices.map(voice=>({...voice,installed:false}))});assert.equal(speech.available,false);assert.equal(speech.speak('zoe','Test'),false);speech.destroy();
 });
+
+test('replacement voices migrate saved Marius and Alba without touching Charles or Estelle',async()=>{
+ const replacements=[{...STUDIO[0],id:'studio-oscar-paul-v2',name:'Paul',character:'oscar'},{...STUDIO[1],id:'studio-zoe-vera-v2',name:'Vera',character:'zoe'}],voices=[replacements[1],ALTERNATIVES[0],STUDIO[1],replacements[0]];
+ try{for(const locale of ['fr','en','nl']){
+  setLocale(locale);const f=fixture({voices,stored:{version:2,characters:{oscar:'studio-oscar',zoe:'studio-zoe-2'}}});await f.speech.ready;
+  assert.deepEqual(f.speech.characterVoices,{oscar:'studio-oscar-paul-v2',zoe:'studio-zoe-vera-v2'});assert.equal(f.speech.chooseVoice('oscar').name,'Paul');assert.equal(f.speech.chooseVoice('zoe').name,'Vera');
+  f.host.document.dispatchEvent(new Event('pointerdown'));f.speech.speak('oscar','Bonjour');await tick();f.speech.stop();f.speech.speak('oscar','Je commence',{automatic:true});await tick();assert.deepEqual(f.calls.filter(c=>c.url==='/api/voice/synthesize').map(c=>JSON.parse(c.options.body).voiceId),['studio-oscar-paul-v2','studio-oscar-paul-v2']);
+  const saved=JSON.parse(f.saved.get('oscar-voice-v1'));assert.equal(saved.characters.zoe,'studio-zoe-vera-v2');f.speech.destroy();
+  const keep=fixture({voices,stored:{version:2,characters:{oscar:'studio-oscar-2',zoe:'studio-zoe'}}});await keep.speech.ready;assert.equal(keep.speech.chooseVoice('oscar').id,'studio-oscar-2');assert.equal(keep.speech.chooseVoice('zoe').id,'studio-zoe');keep.speech.destroy();
+  const automatic=fixture({voices});await automatic.speech.ready;assert.equal(automatic.speech.chooseVoice('oscar').id,'studio-oscar-paul-v2');assert.equal(automatic.speech.chooseVoice('zoe').id,'studio-zoe');automatic.speech.destroy();
+ }}finally{setLocale('fr');}
+});
+test('a replacement needing installation stays caption-only and never secretly reuses the retired voice',async()=>{
+ const voices=[...STUDIO,...ALTERNATIVES,{...STUDIO[0],id:'studio-oscar-paul-v2',character:'oscar',installed:false}];const f=fixture({voices,stored:{version:2,characters:{oscar:'studio-oscar'}}});await f.speech.ready;
+ assert.equal(f.speech.characterVoices.oscar,'studio-oscar-paul-v2');assert.equal(f.speech.chooseVoice('oscar'),null);assert.equal(f.speech.speak('oscar','Bonjour'),false);assert.equal(f.calls.length,1);assert.equal(f.utterances.length,0);f.speech.destroy();
+ assert.equal(supportsCharacter({id:'studio-oscar-paul-v2'},'zoe'),false);assert.equal(supportsCharacter({id:'studio-zoe-vera-v2'},'oscar'),false);
+});

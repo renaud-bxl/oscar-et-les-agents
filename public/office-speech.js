@@ -3,6 +3,7 @@ import {getLocale,translate} from './i18n.js';
 const PROFILE={oscar:{pitch:.9,rate:1},zoe:{pitch:1.02,rate:.98}};
 const STORE='oscar-voice-v1';
 const LEGACY_VOICES=new Set(['fr-pierre','fr-jessica','fr-siwis','en-alba']);
+const REPLACED_VOICES=Object.freeze({'studio-oscar':'studio-oscar-paul-v2','studio-zoe-2':'studio-zoe-vera-v2'});
 const ENGINES=new Set(['natural','system','captions']);
 const language=voice=>String(voice?.lang||'').toLowerCase().split(/[-_]/)[0];
 const speaker=role=>{const key=String(role||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();return key==='secretaire'?'zoe':Object.hasOwn(PROFILE,key)?key:null;};
@@ -13,7 +14,7 @@ export const supportsLanguage=(voice,locale=getLocale())=>{
 export const supportsCharacter=(voice,role)=>{
   const key=speaker(role);if(!key)return false;
   if(voice?.recommended&&voice.character!==undefined)return speaker(voice.character)===key;
-  const studio=String(voice?.id||'').match(/^studio-(oscar|zoe)(?:-\d+)?$/);
+  const studio=String(voice?.id||'').match(/^studio-(oscar|zoe)(?:-\d+|-(?:paul|vera)-v2)?$/);
   return studio?studio[1]===key:true;
 };
 
@@ -31,6 +32,15 @@ export class OfficeSpeech {
   }
   save(){try{this.host.localStorage?.setItem(STORE,JSON.stringify({version:this.preferencesVersion,enabled:this.enabled,voice:this.voiceName,engine:this.engine,characters:this.characterVoices}));}catch{}}
   migratePreferences(){
+    // Migrate only saved choices represented by the new catalogue. Explicit
+    // auditions must always request the exact model shown by their card.
+    let replaced=false;
+    for(const [previous,next] of Object.entries(REPLACED_VOICES)){
+      if(!this.local.voices.some(voice=>voice.id===next))continue;
+      if(this.voiceName===previous){this.voiceName=next;replaced=true;}
+      for(const role of Object.keys(PROFILE))if(this.characterVoices[role]===previous){this.characterVoices[role]=next;replaced=true;}
+    }
+    if(replaced)this.save();
     if(this.preferencesVersion>=2||!['studio-oscar','studio-zoe'].every(id=>this.local.voices.some(voice=>voice.id===id&&voice.installed)))return;
     if(this.engine==='natural'){
       const legacy=choice=>LEGACY_VOICES.has(choice)||this.local.voices.some(voice=>LEGACY_VOICES.has(voice.id)&&voice.name===choice);
@@ -71,7 +81,7 @@ export class OfficeSpeech {
     }
     if(this.engine==='system'){const local=matching.filter(voice=>voice.localService);return(local.length?local:matching)[0]||null;}
     if(!matching.length)return null;const preferred=all.some(voice=>voice.recommended)?matching.filter(voice=>voice.recommended):matching;if(!preferred.length)return null;
-    const original=preferred.find(voice=>voice.id===`studio-${key}`);if(original)return original;
+    const original=preferred.find(voice=>voice.id===(key==='oscar'?'studio-oscar-paul-v2':'studio-zoe'))||preferred.find(voice=>voice.id===`studio-${key}`);if(original)return original;
     const desired=key==='oscar'?'male':'female',gendered=preferred.filter(voice=>voice.gender===desired||voice.gender===(desired==='male'?'masculine':'feminine'));return(gendered.length?gendered:preferred)[0];
   }
   caption(role,text,error,extra={}){this.notify({role,text,fallback:true,caption:true,speaking:false,preparing:false,...(error?{error}: {}),...extra});return false;}

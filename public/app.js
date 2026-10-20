@@ -17,11 +17,14 @@ import { DocumentLibraryDialog } from '/document-library.js';
 import { PersonalizationDialog } from '/personalization-dialog.js';
 import { CharacterLines } from '/character-lines.js';
 import { DictationDialog } from '/dictation-dialog.js';
+import { OfficeTheme } from '/office-theme.js';
+import { MissionTiming } from '/mission-timing.js';
 import { CalendarEventDialog,calendarCommand,calendarQuestion } from '/calendar-event-dialog.js';
 import { DraftStorage, draftScope } from '/draft-storage.js';
 'use strict';
 
 const $ = (id) => document.getElementById(id);
+const officeTheme = new OfficeTheme();
 const roleInfo = {
   secretaire: {name:'Zoé',label:'Secrétariat',initial:'Z',intro:'Zoé prépare vos e-mails, votre agenda et vos priorités avec les services que vous avez connectés.'},
   oscar: {name: 'Oscar', label: 'Chef d’équipe', initial: 'O', intro: 'Oscar transforme votre idée en plan de travail, confie chaque tâche au bon spécialiste, puis vérifie et assemble les résultats.'},
@@ -106,6 +109,7 @@ let completionTimer = null;
 let lastNarrated = null;
 let statusTimer = null;
 let activePanel = null;
+const missionTiming = new MissionTiming({container:$('mission-timing'),isVisible:()=>activePanel==='progress'});
 let panelReturnFocus = null;
 let memberReturnPanel = null;
 let memberReturnFocus = null;
@@ -126,7 +130,7 @@ const PANEL_LABELS = {catalog:['Les missions',`${MISSION_TEMPLATES.length} point
 function restorePanel() {
   const content=$('office-panel-body').firstElementChild;
   if(content) $('office-panel-storage').append(content);
-  activePanel=null;
+  activePanel=null;missionTiming.setVisible(false);
   document.querySelectorAll('[data-open-panel]').forEach(button=>button.setAttribute('aria-expanded','false'));
 }
 function closeOfficePanel({restoreFocus=true}={}) {
@@ -139,7 +143,7 @@ function openPanel(name,{focus=true}={}) {
   if(!content || !PANEL_LABELS[name]) return;
   if(!$('office-panel').open) panelReturnFocus=document.activeElement;
   if(content.parentElement!==$('office-panel-body')) {restorePanel();$('office-panel-body').append(content);}
-  activePanel=name;$('office-panel').dataset.panel=name;
+  activePanel=name;missionTiming.setVisible(name==='progress');$('office-panel').dataset.panel=name;
   $('office-panel-title').textContent=PANEL_LABELS[name][0];$('office-panel-kicker').textContent=PANEL_LABELS[name][1];
   $('panel-error').textContent=$('global-error').textContent;$('panel-error').hidden=$('global-error').hidden;
   if(!$('office-panel').open) $('office-panel').showModal();
@@ -482,6 +486,7 @@ function renderDeliveries() {
   }
 }
 function renderMission() {
+  missionTiming.update(mission);
   $('publish-project').hidden=!mission;
   $('publish-project').disabled=!mission||isRunning(mission);
   $('demo-banner').hidden=mission?.provider !== 'demo';
@@ -720,7 +725,7 @@ $('pixel-fullscreen').addEventListener('click',async()=>{try{if(document.fullscr
 document.querySelectorAll('[data-prompt]').forEach(button=>button.addEventListener('click',()=>{$('mission-input').value=translate(button.dataset.prompt);saveBriefDraft();$('mission-input').focus();}));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshState();});
 window.addEventListener('online',refreshState);
-window.addEventListener('beforeunload',()=>{archiveDownload?.abort();clearTimeout(statusTimer);clearTimeout(completionTimer);clearTimeout(weatherTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();dictationDialog?.destroy();documentLibrary?.destroy();personalizationDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
+window.addEventListener('beforeunload',()=>{officeTheme.destroy();missionTiming.destroy();archiveDownload?.abort();clearTimeout(statusTimer);clearTimeout(completionTimer);clearTimeout(weatherTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();dictationDialog?.destroy();documentLibrary?.destroy();personalizationDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
 
 coffeeDialog = new CoffeeDialog({recipient:'renaud2005@gmail.com'});
 clockDialog=new ClockDialog({onClose:()=>returnFromUtility(clockDialog)});
