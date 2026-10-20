@@ -310,6 +310,31 @@ test('routine reads never treat a directory-only app or failed metadata probe as
  const snapshot=appMetadata();snapshot.installed.apps=[];const f=await fixture(t,{appInspector:async()=>parseInheritedApps(snapshot)});const state=await f.manager.state();assert.equal(state.connections.find(row=>row.name==='chatgpt-gmail').status,'needs_auth');await assert.rejects(f.manager.readPlan({name:'chatgpt-gmail'}),/autorisation/);
  f.manager.appInspector=async()=>{throw new Error('SECRET-OAUTH-DIAGNOSTIC');};const failed=await f.manager.state({refresh:true});assert.ok(failed.connections.filter(row=>row.source==='chatgpt').every(row=>row.status==='unverified'&&row.stale&&row.readOnlyAutomation.available===false));assert.equal(JSON.stringify(failed).includes('SECRET'),false);
 });
+
+test('primary calendar consultations exclude calendar listing without changing normal plans or discovered permissions',async t=>{
+ const snapshot=appMetadata(),f=await fixture(t,{appInspector:async()=>parseInheritedApps(snapshot)}),name=INHERITED_APPS.calendar.name;
+ const primary=await f.manager.readPlan({client:'codex',name,calendarPrimary:true});
+ assert(isTrustedReadPlan(primary));assert(Object.isFrozen(primary));assert(Object.isFrozen(primary.enabledTools));assert(Object.isFrozen(primary.executionTools));
+ assert.deepEqual(primary.enabledTools,INHERITED_APPS.calendar.tools.filter(tool=>tool!=='list_calendars'));
+ assert.deepEqual(primary.executionTools.map(binding=>binding.tool),primary.enabledTools);assert(!primary.executionTools.some(binding=>binding.name==='google_calendar.list_calendars'));
+ assert.equal(primary.disabledTools.filter(tool=>tool==='list_calendars').length,1);
+ const args=readConnectorArguments(primary),policy=args.find(value=>value.startsWith(`apps.${INHERITED_APPS.calendar.id}.tools=`));assert(policy.includes('"list_calendars"={enabled=false}'));assert(!policy.includes('"list_calendars"={enabled=true'));
+ assert.throws(()=>readConnectorArguments({...primary}),/pas été vérifié/);
+ const normal=await f.manager.readPlan({client:'codex',name});assert.deepEqual(normal.enabledTools,INHERITED_APPS.calendar.tools);assert(normal.executionTools.some(binding=>binding.tool==='list_calendars'));assert(!normal.disabledTools.includes('list_calendars'));
+ const gmail=await f.manager.readPlan({client:'codex',name:INHERITED_APPS.gmail.name,calendarPrimary:true});assert.deepEqual(gmail.enabledTools,INHERITED_APPS.gmail.tools);assert(!gmail.disabledTools.includes('list_calendars'));
+ const detected=f.manager.detected.codex.find(row=>row.name===name);assert(detected.enabledTools.includes('list_calendars'));
+});
+
+test('primary calendar mode refuses an empty read subset and leaves local Google MCP plans unchanged',async t=>{
+ const snapshot=appMetadata(),calendar=snapshot.details.apps.find(row=>row.id===INHERITED_APPS.calendar.id);calendar.toolSummaries=calendar.toolSummaries.filter(tool=>tool.name==='list_calendars');
+ const f=await fixture(t,{appInspector:async()=>parseInheritedApps(snapshot)});
+ await assert.rejects(f.manager.readPlan({client:'codex',name:INHERITED_APPS.calendar.name,calendarPrimary:true}),cause=>cause.code==='CONNECTOR_READ_ONLY');
+ assert.deepEqual((await f.manager.readPlan({client:'codex',name:INHERITED_APPS.calendar.name})).enabledTools,['list_calendars']);
+ f.rows.codex.push({name:'local-agenda',auth_status:'o_auth'});f.configs.set('local-agenda',{name:'local-agenda',transport:{type:'streamable_http',url:CALENDAR_MCP_URL}});
+ const local=await f.manager.readPlan({client:'codex',name:'local-agenda',calendarPrimary:true});assert.deepEqual(local.enabledTools,CALENDAR_READ_TOOLS);assert(isTrustedReadPlan(local));
+ f.rows.claude.push({name:'claude.ai Google Calendar',status:'connected'});f.configs.set('claude.ai Google Calendar',claudeMetadata('calendar'));
+ const claude=await f.manager.readPlan({client:'claude',name:'claudeai-calendar',calendarPrimary:true});assert.deepEqual(claude.enabledTools,CALENDAR_READ_TOOLS);assert(claude.enabledTools.includes('list_calendars'));assert(isTrustedReadPlan(claude));
+});
 function claudeMetadata(type='gmail',overrides={}){
  const service=CLAUDE_READ_SERVICES[type];
  return {name:{gmail:'claude.ai Gmail',calendar:'claude.ai Google Calendar',drive:'claude.ai Google Drive'}[type],status:'connected',scope:'claudeai',source:'claudeai',config:{type:'claudeai-proxy',url:service.url,id:`official-${type}`},tools:[...service.tools.map(name=>({name,annotations:{readOnly:true}})),{name:{gmail:'send_message',calendar:'create_event',drive:'update_file'}[type],annotations:{readOnly:true}},{name:{gmail:'create_draft',calendar:'delete_event',drive:'trash_file'}[type],annotations:{}}],...overrides};
