@@ -1,5 +1,6 @@
 import { EXTRA_TEMPLATES } from './mission-extras.js';
 import { getLocale, translate } from './i18n.js';
+import { dictationEntry } from './dictation-entry.js';
 
 const answer = (answers, key, fallback = 'À proposer selon le contexte') => {
   const value = answers?.[key];
@@ -293,12 +294,13 @@ export function buildWizardSubmission(template, answers, summary, locale = getLo
 
 /** A dedicated container hosts the wizard. This class only collects a brief. */
 export class MissionWizard {
-  constructor(container, { onComplete, onCancel } = {}) {
+  constructor(container, { onComplete, onCancel, onDictate } = {}) {
     if (!container?.ownerDocument || typeof container.appendChild !== 'function') throw new TypeError('Un élément de page est nécessaire pour afficher le formulaire.');
     this.container = container;
     this.document = container.ownerDocument;
     this.onComplete = typeof onComplete === 'function' ? onComplete : () => {};
     this.onCancel = typeof onCancel === 'function' ? onCancel : () => {};
+    this.onDictate = onDictate;
     this.number = ++wizardNumber;
     this.session = 0;
     this.destroyed = false;
@@ -452,6 +454,9 @@ export class MissionWizard {
     }
     input.id = inputId;
     input.disabled = this.busy;
+    if(input.tagName!=='SELECT'){
+      const dictate=dictationEntry(input,{onDictate:this.onDictate,isLocked:()=>this.busy,onError:message=>this.showError(message,input),className:'text-button',document:this.document});dictate.disabled=this.busy;form.appendChild(dictate);
+    }
     input.setAttribute('aria-describedby', `${inputId}-error`);
     this.input = input;
     this.error = this.element('p', 'wizard-error');

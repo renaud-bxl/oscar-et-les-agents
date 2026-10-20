@@ -1,6 +1,6 @@
 # Oscar et les Agents
 
-Version 0.6.4 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
+Version 0.6.5 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
 
 ## Installer et lancer pour une personne
 
@@ -89,3 +89,9 @@ Ne demande jamais de clé API pour cette application. N’extrais ni ne copie le
 - Zoé utilise une voie directe pour questions et lectures : réponse puis contrôle d’Oscar, une correction maximum, fichiers conservés. Les relectures d’Oscar n’héritent pas du plan de compte. Une lecture privée ne réussit que sur preuve d’un outil autorisé réellement réussi. Les questions publiques n’exigent pas de service privé ; les routines seules se programment.
 - Le runner peut fournir un reçu de lecture gelé et marqué en mémoire après succès final. Oscar reçoit seulement identité du service, outils réussis et compteurs d’appels de la tentative actuelle, jamais leurs arguments ni contenus. Aucun reçu copié, envoyé par HTTP ou provenant d’une autre tentative ne fait preuve. Cette indication technique ne certifie pas les faits, dates ou conclusions et ne force jamais une validation.
 - Le serveur expose version et empreinte de son interface. Une nouvelle version propose un rechargement explicite ; ne recharge pas automatiquement en perdant un formulaire.
+
+## Ajout de rendez-vous (0.6.5)
+
+La demande de l’utilisateur autorise désormais une voie distincte de création d’un rendez-vous ponctuel. Les restrictions de lecture des missions, routines et plans existants restent applicables. `CalendarActions` utilise uniquement le plugin Agenda canonique de Codex, après aperçu validé côté serveur et confirmation exacte expirante. Appel direct unique `create_event` via le client officiel, zéro tour de modèle d’écriture, agenda principal, sans invités/Meet/rappels/récurrence. Aucun autre outil d’écriture, modification ou suppression. Vérifier l’identité, le schéma et les autorisations avant dispatch ; ne jamais relancer une création incertaine. Reçu écrit avant appel, reprise par identifiant, jobs exposés dans state ; attendre leur fin avant mise à jour. Tests avec exécuteur simulé, aucun rendez-vous réel de test. Claude reste lecture seule pour cette fonction.
+
+La dictée partagée s’ouvre uniquement sur clic ; l’insertion nécessite relecture/validation et ne transmet aucune demande automatiquement. Ne pas insérer dans un champ retiré, verrouillé ou passé en lecture seule pendant la dictée.

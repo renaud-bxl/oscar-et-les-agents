@@ -1,5 +1,6 @@
 import {getLocale,translate,withLocaleInstruction} from './i18n.js';
 import {DraftStorage} from './draft-storage.js';
+import {dictationEntry} from './dictation-entry.js';
 
 const LOCALES={fr:'fr-BE',en:'en-GB',nl:'nl-BE'};
 const STATUS={scheduled:'Programmée',paused:'En pause',running:'Au travail',busy:'Bureau occupé',needs_connection:'Connexion nécessaire',needs_configuration:'À configurer',failed:'À vérifier',completed:'Mission terminée'};
@@ -20,8 +21,8 @@ const TEMPLATE_SLOT=/\[(?:votre|vos|your|je|jouw)\b[^\]\n]*\]/giu;
 export const routineTemplate=(template,subject,locale=getLocale())=>translate(template,locale).replace(TEMPLATE_SLOT,()=>String(subject||'').trim()||translate('le sujet indiqué ci-dessus',locale));
 
 export class AutomationsDialog {
-  constructor({request=requestJson,getState=()=>({providers:[]}),onMission=()=>{},onClose=()=>{},draftStore=new DraftStorage()}={}) {
-    Object.assign(this,{request,getState,onMission,onClose,draftStore});
+  constructor({request=requestJson,getState=()=>({providers:[]}),onMission=()=>{},onClose=()=>{},onDictate,draftStore=new DraftStorage()}={}) {
+    Object.assign(this,{request,getState,onMission,onClose,onDictate,draftStore});
     this.number=++instanceNumber;this.data={automations:[],timezone:'',requiresRunning:true};this.connections=[];this.connectionsError=false;
     this.opened=false;this.destroyed=false;this.epoch=0;this.loadSequence=0;this.timer=null;this.busy=false;this.loading=false;this.loaded=false;this.editingId=null;this.selectedPreset=null;this.pendingDelete=null;this.pendingRequest=null;this.listSignature='';
     this.previewSequence=0;this.previewSignature='';this.previewState='idle';this.previewData=null;
@@ -66,6 +67,7 @@ export class AutomationsDialog {
     this.topicHint=element('small','','Indiquez votre thème ici : Oscar l’ajoute à la mission ci-dessous.');this.topicHint.id=`automation-topic-hint-${this.number}`;this.topic.setAttribute('aria-describedby',this.topicHint.id);topic.wrapper.append(this.topicHint);
     this.topic.addEventListener('input',()=>{this.topic.setCustomValidity('');if(this.prompt.value===this.generatedPrompt){this.generatedPrompt=routineTemplate(this.templatePrompt,this.topic.value);this.prompt.value=this.generatedPrompt;}this.showError('');});
     const prompt=this.field('La mission confiée à Oscar','textarea','prompt');this.prompt=prompt.input;this.prompt.required=true;this.prompt.maxLength=16000;this.prompt.rows=5;this.prompt.placeholder='Que doit préparer l’équipe à chaque passage ? Précisez le sujet, le résultat attendu et les sources utiles.';
+    this.topicDictate=dictationEntry(this.topic,{onDictate:this.onDictate,isLocked:()=>this.busy||Boolean(this.pendingRequest),onError:message=>this.showError(message,'form'),className:'automations-refresh'});this.promptDictate=dictationEntry(this.prompt,{onDictate:this.onDictate,isLocked:()=>this.busy||Boolean(this.pendingRequest),onError:message=>this.showError(message,'form'),className:'automations-refresh'});
     const provider=this.field('Votre moteur d’IA','select','provider');this.provider=provider.input;this.providerNote=element('p','automation-field-note');this.providerNote.id=`automation-provider-note-${this.number}`;this.provider.setAttribute('aria-describedby',this.providerNote.id);provider.wrapper.append(this.providerNote);this.provider.addEventListener('change',()=>{this.updateProviderNote();this.renderConnections();this.updateForm();});
     this.draftNote=element('div','automation-draft-note');this.draftMessage=element('p','','Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.');this.draftMessage.setAttribute('role','status');this.clearDraftButton=element('button','automation-clear-draft','Effacer le brouillon');this.clearDraftButton.type='button';this.clearDraftButton.addEventListener('click',()=>this.clearDraft());this.draftNote.append(this.draftMessage,this.clearDraftButton);
     for(const input of [this.labelInput,this.prompt,this.topic])input.addEventListener('input',()=>this.saveDraft());this.provider.addEventListener('change',()=>this.saveDraft());
@@ -83,7 +85,7 @@ export class AutomationsDialog {
     this.connectorNote=element('p','automation-connector-note','Choisissez un service déjà connecté. Son accès en lecture sera vérifié au prochain horaire ; enregistrer ne consulte aucun compte.');
     const connection=this.field('Service déjà connecté','select','connector');this.connectorSelect=connection.input;this.connectorWrapper=connection.wrapper;this.connectorSelect.addEventListener('change',()=>this.updateForm());this.connectionNote=element('small','');connection.wrapper.append(this.connectionNote);this.renderConnections();
     const actions=element('div','automation-form-actions');this.submit=element('button','automation-submit','Enregistrer le rendez-vous');this.submit.type='submit';this.cancelEdit=element('button','automation-cancel-edit','Annuler les modifications');this.cancelEdit.type='button';this.cancelEdit.hidden=true;this.cancelEdit.addEventListener('click',()=>this.resetForm());actions.append(this.submit,this.cancelEdit);
-    this.form.append(label.wrapper,topic.wrapper,prompt.wrapper,this.draftNote,provider.wrapper,rhythm,this.preview,connector,this.connectorNote,connection.wrapper,actions,element('p','automation-save-note','Enregistrer prépare le prochain horaire. Cela ne lance pas une mission immédiatement.'));
+    this.form.append(label.wrapper,topic.wrapper,this.topicDictate,prompt.wrapper,this.promptDictate,this.draftNote,provider.wrapper,rhythm,this.preview,connector,this.connectorNote,connection.wrapper,actions,element('p','automation-save-note','Enregistrer prépare le prochain horaire. Cela ne lance pas une mission immédiatement.'));
     this.form.addEventListener('submit',event=>{event.preventDefault();this.save();});create.append(this.form);
 
     const schedule=element('section','automations-schedule');const scheduleHead=element('div','automations-section-heading');scheduleHead.append(element('span','automations-step','02'),element('h3','','Les prochains passages'));this.count=element('span','automations-count','0');scheduleHead.append(this.count);
@@ -113,6 +115,7 @@ export class AutomationsDialog {
   }
   updateForm() {
     const locked=this.busy||Boolean(this.pendingRequest);
+    if(this.promptDictate)this.promptDictate.disabled=locked;if(this.topicDictate){this.topicDictate.disabled=locked;this.topicDictate.hidden=typeof this.onDictate!=='function'||!this.selectedPreset&&!this.draftTopicVisible;}
     for(const field of this.form.querySelectorAll('input,select,textarea'))field.disabled=locked;
     const interval=this.frequency.value==='interval';this.timeWrapper.hidden=interval;this.dayWrapper.hidden=this.frequency.value!=='weekly';this.intervalWrapper.hidden=!interval;
     this.time.disabled=locked||interval;this.time.required=!interval;this.interval.disabled=locked||!interval;this.interval.required=interval;

@@ -1,4 +1,5 @@
 import { DraftStorage } from './draft-storage.js';
+import { dictationEntry } from './dictation-entry.js';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const FORMATS = Object.freeze({ '1:1': [1080, 1080], '4:5': [1080, 1350], A4: [2480, 3508], '16:9': [1920, 1080] });
 const PRESETS = Object.freeze({ affiche: 'Affiche', branding: 'Identité de marque', social: 'Publication pour les réseaux', illustration: 'Illustration' });
@@ -218,8 +219,8 @@ export function editStudioSvg(source, index, patch, options = {}) {
 }
 
 export class CreativeStudio {
-  constructor({ getMission = () => null, request = (...args) => fetch(...args), onCreate = async () => { throw new Error('La création avec Oscar n’est pas encore reliée à votre bureau.'); }, onClose = () => {}, draftStore = new DraftStorage() } = {}) {
-    Object.assign(this,{getMission,request,onCreate,onClose,draftStore});
+  constructor({ getMission = () => null, request = (...args) => fetch(...args), onCreate = async () => { throw new Error('La création avec Oscar n’est pas encore reliée à votre bureau.'); }, onClose = () => {}, onDictate, draftStore = new DraftStorage() } = {}) {
+    Object.assign(this,{getMission,request,onCreate,onClose,onDictate,draftStore});
     this.config={...DEFAULTS};this.urls=new Set();this.epoch=0;this.destroyed=false;this.stage='brief';
     this.dialog=node('dialog','creative-studio');this.dialog.id='creative-studio';this.dialog.setAttribute('aria-labelledby','creative-studio-title');
     this.dialog.addEventListener('close',()=>{if(!this.dialog.open)this.closed();});
@@ -250,7 +251,7 @@ export class CreativeStudio {
     this.promptPanel=node('section','creative-brief-panel');const promptLabel=node('label','creative-prompt-label');promptLabel.append(node('span','','Que voulez-vous créer ?'));
     this.description=node('textarea','creative-description');this.description.maxLength=4000;this.description.rows=5;this.description.dataset.noTranslate='';this.description.setAttribute('aria-label','Décrivez votre idée');
     this.description.placeholder='Une affiche pour l’ouverture du café Lune, chaleureuse, avec une tasse dessinée, le nom du café et la date du 12 novembre.';
-    promptLabel.append(this.description);this.promptPanel.append(promptLabel);
+    promptLabel.append(this.description);this.descriptionDictate=dictationEntry(this.description,{onDictate:this.onDictate,isLocked:()=>this.creating||Boolean(this.requestReceipt),onError:message=>this.showMessage(message,true),className:'creative-return'});this.promptPanel.append(promptLabel,this.descriptionDictate);
     const drafts=node('div','writing-draft');this.draftNote=node('p','','Votre texte est gardé 7 jours sur cet ordinateur, sans envoi automatique.');this.draftNote.setAttribute('role','status');this.clearDraft=node('button','creative-return','Effacer le brouillon');this.clearDraft.type='button';this.clearDraft.addEventListener('click',()=>{this.draftStore.remove('studio');this.description.value='';this.draftNote.textContent='Brouillon effacé.';this.description.focus();});drafts.append(this.draftNote,this.clearDraft);this.promptPanel.append(drafts);this.description.addEventListener('input',()=>this.saveDraft());
     const examples=node('div','creative-examples');examples.setAttribute('aria-label','Quelques idées pour commencer');
     for(const [label,text] of [['Un café','Une affiche pour l’ouverture du café Lune, avec une tasse dessinée, une ambiance chaleureuse et le nom du café.'],['Un événement','Une affiche pour un concert de jazz au jardin, avec un micro, une scène et une composition élégante.'],['Un livre','Une couverture de livre intitulé Les jours clairs, avec un livre ouvert et des couleurs douces.']]){
@@ -318,6 +319,7 @@ export class CreativeStudio {
     const pending=Boolean(this.requestReceipt);
     this.promptPreset.value=pending?this.submittedChoices.preset:this.config.preset;this.promptFormat.value=pending?this.submittedChoices.format:this.config.format;
     this.description.readOnly=pending;this.promptPreset.disabled=pending;this.promptFormat.disabled=pending;this.local.disabled=pending;this.clearDraft.hidden=pending;this.newRequest.hidden=!pending;
+    this.descriptionDictate.disabled=pending||Boolean(this.creating);
     for(const button of this.promptPanel.querySelectorAll('.creative-example'))button.disabled=pending;
     this.oscar.textContent=pending?'Reprendre la demande envoyée':'Créer avec Oscar et les agents';
     if(pending)this.draftNote.textContent=this.draftSaved===false?'Votre navigateur ne peut pas conserver ce brouillon. Gardez cette fenêtre ouverte.':'Demande envoyée sans confirmation. Reprenez-la pour retrouver la mission, ou vérifiez l’historique avant d’en préparer une autre.';

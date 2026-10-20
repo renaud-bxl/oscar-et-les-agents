@@ -1,9 +1,10 @@
 import interfaceMessages, {patterns as interfacePatterns} from './translations-interface.js';
 import catalogMessages, {patterns as catalogPatterns} from './translations-catalog.js';
 import guideMessages from './translations-guide.js';
+import calendarMessages from './translations-calendar.js';
 
 export const LANGUAGES=Object.freeze({fr:'Français',en:'English',nl:'Nederlands'});
-const messages={...interfaceMessages,...catalogMessages,...guideMessages};
+const messages={...interfaceMessages,...catalogMessages,...guideMessages,...calendarMessages};
 const patterns=[...interfacePatterns,...catalogPatterns].map(item=>({...item,regex:new RegExp(item.source,'u')}));
 const STORE='oscar-language-v1';
 let language='fr',started=false,observer;

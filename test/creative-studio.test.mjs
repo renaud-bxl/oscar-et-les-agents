@@ -72,16 +72,16 @@ test('les modifications de texte, couleur et position restent des données born�
 
 function pendingStudio({storage,brief='Brief exactement soumis',onCreate}={}){
  const data=new Map(),memory=storage||{getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value),removeItem:key=>data.delete(key)};
- const studio=Object.assign(Object.create(CreativeStudio.prototype),{draftStore:new DraftStorage({storage:memory}),onCreate,description:{value:'Une couverture illustrée originale',focus(){}},config:{preset:'illustration',format:'A4'},promptPanel:{querySelectorAll:()=>[]},draftNote:{},promptPreset:{},promptFormat:{},local:{},clearDraft:{},newRequest:{},oscar:{},dialog:{open:false},showMessage(text,failure){this.lastMessage={text,failure};},brief:()=>brief});
+ const studio=Object.assign(Object.create(CreativeStudio.prototype),{draftStore:new DraftStorage({storage:memory}),onCreate,description:{value:'Une couverture illustrée originale',focus(){}},descriptionDictate:{},config:{preset:'illustration',format:'A4'},promptPanel:{querySelectorAll:()=>[]},draftNote:{},promptPreset:{},promptFormat:{},local:{},clearDraft:{},newRequest:{},oscar:{},dialog:{open:false},showMessage(text,failure){this.lastMessage={text,failure};},brief:()=>brief});
  return studio;
 }
 test('un reçu est conservé avant envoi et la reprise conserve le brief exact jusqu’à confirmation',async()=>{
  const receipt={requestId:'studio_request_123',requestHash:'a'.repeat(64)},submitted=[];
  const studio=pendingStudio({brief:'  Brief exact\navec ses lignes.\n',onCreate:async input=>{submitted.push(input);if(submitted.length===1){assert.equal(input.requestReceipt,null);assert.equal(input.onRequestIdentity(receipt),true);assert.deepEqual(studio.draftStore.read('studio'),{text:studio.description.value,studioPreset:'illustration',studioFormat:'A4',studioBrief:'  Brief exact\navec ses lignes.\n',...receipt});throw new Error('Réponse perdue');}assert.deepEqual(input.requestReceipt,receipt);return{id:'mission-confirmed'};}});
- await studio.createWithOscar();assert.equal(studio.description.readOnly,true);assert.equal(studio.promptPreset.disabled,true);assert.equal(studio.newRequest.hidden,false);assert.equal(studio.oscar.textContent,'Reprendre la demande envoyée');
+ await studio.createWithOscar();assert.equal(studio.description.readOnly,true);assert.equal(studio.descriptionDictate.disabled,true);assert.equal(studio.promptPreset.disabled,true);assert.equal(studio.newRequest.hidden,false);assert.equal(studio.oscar.textContent,'Reprendre la demande envoyée');
  studio.config.preset='social';studio.config.format='1:1';studio.saveDraft();assert.equal(studio.draftStore.read('studio').studioPreset,'illustration');assert.equal(studio.draftStore.read('studio').studioFormat,'A4');
  studio.brief=()=>{throw new Error('La reprise ne doit jamais reconstruire le brief.');};
- const result=await studio.createWithOscar();assert.equal(result.id,'mission-confirmed');assert.equal(submitted[1].brief,submitted[0].brief);assert.equal(studio.requestReceipt,null);assert.equal(studio.draftStore.read('studio'),null);assert.equal(studio.description.readOnly,false);
+ const result=await studio.createWithOscar();assert.equal(result.id,'mission-confirmed');assert.equal(submitted[1].brief,submitted[0].brief);assert.equal(studio.requestReceipt,null);assert.equal(studio.draftStore.read('studio'),null);assert.equal(studio.description.readOnly,false);assert.equal(studio.descriptionDictate.disabled,false);
 });
 test('préparer une nouvelle création détache le reçu seulement par une action explicite',async()=>{
  const receipt={requestId:'studio_request_456',requestHash:'b'.repeat(64)};let calls=0;

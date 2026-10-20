@@ -2,7 +2,7 @@
 
 Donnez une mission à Oscar. Il recrute les bons spécialistes, ils arrivent dans un grand bureau illustré et animé, travaillent, rendent leurs dossiers… et prennent un café quand leur travail est validé.
 
-**Version 0.6.4** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
+**Version 0.6.5** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
 
 Cette version simplifie le choix des connecteurs et les demandes immédiates de Zoé, conserve la sélection d’export par mission et montre les fichiers exclus avant une publication. La détection d’un connecteur ne garantit pas l’autorisation de chaque action : une erreur de permission reste expliquée, sans nouvelle autorisation automatique. Les PDF se lisent directement dans le bureau avec un lecteur local passif, sans dépendre du lecteur PDF du navigateur. Les licences du moteur embarqué sont détaillées dans [PDFJS-NOTICES.md](PDFJS-NOTICES.md).
 
@@ -146,6 +146,10 @@ La machine à café ouvre quatre soutiens volontaires à Renaud via PayPal : **C
 
 **Demande libre** permet de poser une question, chercher sur le Web, comparer des options ou préparer un texte, avec votre abonnement connecté. Aucun service de messagerie n’est nécessaire. Pour une recherche « près de chez moi », vous pouvez donner une ville ou autoriser la position du navigateur ; seule une position arrondie à deux décimales est ajoutée à cette demande. Refuser la localisation laisse la saisie de ville disponible.
 
+Dans **Zoé → Agenda**, choisissez **Mon agenda demain** ou posez votre question au clavier ou à la voix. Pour une création, dites par exemple « Ajoute dans mon agenda une réunion projet mercredi à 16 h pendant 45 minutes » ou cliquez sur **Ajouter un rendez-vous**. Zoé propose des dates complètes dans votre fuseau ; le titre, les horaires, le lieu et les informations restent modifiables. Vérifiez l’aperçu et cliquez sur **Confirmer l’ajout à mon agenda**. La durée proposée par défaut est une heure, toujours visible et modifiable.
+
+L’ajout utilise uniquement l’outil `create_event` déjà exposé par la connexion Google Agenda officielle de **Codex / ChatGPT**, sans clé API, sans tour de modèle d’écriture et sans nouvel accès automatique. Il cible l’agenda principal, sans invité, invitation, visioconférence, rappel ni récurrence automatique. Claude conserve la consultation ; l’ajout depuis Claude n’est pas encore disponible. Une permission manquante est signalée par le service. Une confirmation expirée doit être préparée de nouveau. Un reçu local durable empêche un double clic ou une réponse perdue de créer deux fois le même rendez-vous. En cas de résultat incertain, contrôlez votre agenda avant une nouvelle création ; aucun réessai automatique n’est effectué. Les reçus sont conservés localement dans `Documents/Oscar et les agents/calendar-actions`.
+
 Les onglets **Mails** et **Agenda** proposent les services de lecture réellement exposés par votre moteur. **Mes services** retrouve aussi Google Drive, GitHub et les autres connexions dont le client confirme les outils de lecture. Les services sans lecture disponible restent visibles avec leur état, sans être activés artificiellement. Le panneau **Connecteurs** comprend un assistant en trois étapes, explique les fonctions et états de chaque service, puis permet d’ouvrir Zoé ou de préparer un brief.
 
 Les plugins déjà autorisés dans **ChatGPT** sont retrouvés par l’interface officielle du client Codex, et les connecteurs **Claude** exposés à Claude Code sont également recherchés. Le logiciel affiche leur origine et vérifie les accès avant chaque lecture. Un plugin visible dans un compte n’est utilisable ici que si le client local le rend disponible. Une autorisation expirée ou des permissions manquantes restent un échec explicite. Oscar ne lit ni ne copie les fichiers d’identifiants.
@@ -154,7 +158,7 @@ Pour Claude, Gmail, Google Agenda et Google Drive utilisent les métadonnées du
 
 Pour ajouter un service, ouvrez les plugins de ChatGPT ou les connecteurs Claude depuis l’assistant, autorisez-le dans le client officiel, puis cliquez sur **Retrouver mes connexions**. L’ajout d’un serveur MCP personnel reste disponible dans les options avancées ; il utilise la configuration et l’autorisation officielles, sous un nouveau nom, sans remplacer de serveur existant.
 
-Zoé n’envoie aucun e-mail, ne crée aucun brouillon Gmail et ne modifie aucun rendez-vous. Les propositions restent dans les fichiers locaux. Les lectures utilisent un seul service sélectionné, des outils explicitement autorisés en lecture seule et un accès revérifié au lancement. Les fonctions qui ne disposent pas d’outils de lecture confirmés restent accessibles par un brief à poursuivre dans le client connecté ; cela n’exécute pas leur action depuis Oscar.
+Zoé n’envoie aucun e-mail et ne crée aucun brouillon Gmail. Elle peut ajouter un rendez-vous ponctuel dans **l’agenda principal Google via Codex**, après votre confirmation dans une fenêtre séparée. Les lectures et routines restent en lecture seule ; aucun rendez-vous n’est modifié ou supprimé. Les propositions restent dans les fichiers locaux. Les lectures utilisent un seul service sélectionné, des outils explicitement autorisés en lecture seule et un accès revérifié au lancement. Les fonctions qui ne disposent pas d’outils de lecture confirmés restent accessibles par un brief à poursuivre dans le client connecté ; cela n’exécute pas leur action depuis Oscar.
 
 Dans Zoé, **Travail immédiat** est le choix par défaut : une seule demande part maintenant, sans créer de routine. Pour une exécution régulière, choisissez un rythme puis **Programmer** ; les heures quotidiennes et en semaine sont modifiables.
 
@@ -174,7 +178,7 @@ Un modèle Word natif conserve ses éléments et remplace la zone `{{CONTENU}}` 
 
 ## Dicter une demande
 
-**Dicter ma mission à Oscar** et le bouton de dictée de Zoé ouvrent un enregistrement volontaire. Autorisez le microphone, parlez, arrêtez puis réécoutez si vous le souhaitez. La transcription se fait localement ; corrigez le texte et cliquez sur **Utiliser ce texte**. Aucun enregistrement ni transcription ne lance une mission sans votre envoi.
+Les boutons **Dicter** sont disponibles dans le brief Oscar, Zoé, le formulaire de rendez-vous, le questionnaire des missions, le studio, les demandes aux connecteurs et les consignes des routines. Ils ouvrent un enregistrement volontaire. Autorisez le microphone, parlez, arrêtez puis réécoutez si vous le souhaitez. La transcription se fait localement ; corrigez le texte et cliquez sur **Utiliser ce texte**. Aucun enregistrement ni transcription ne lance une mission sans votre envoi.
 
 Le moteur facultatif [Whisper small / faster-whisper](https://github.com/SYSTRAN/faster-whisper) couvre notamment le français, l’anglais et le néerlandais. Son installation indique les tailles et nécessite une confirmation : environ **487 Mo de modèle**, avec **1,1 Go d’espace conseillé** pour le modèle et le programme isolé. Python **3.10 à 3.13** est nécessaire. Les poids, leur version et leur empreinte sont vérifiés ; aucun service vocal distant ni clé API. Les enregistrements temporaires sont effacés après transcription ou annulation. Limites : 90 secondes, 8 Mio, WAV/WebM/Ogg/MP4 reconnus. La relecture reste nécessaire, en particulier pour les noms propres.
 

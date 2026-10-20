@@ -17,6 +17,7 @@ import { DocumentLibraryDialog } from '/document-library.js';
 import { PersonalizationDialog } from '/personalization-dialog.js';
 import { CharacterLines } from '/character-lines.js';
 import { DictationDialog } from '/dictation-dialog.js';
+import { CalendarEventDialog,calendarCommand,calendarQuestion } from '/calendar-event-dialog.js';
 import { DraftStorage, draftScope } from '/draft-storage.js';
 'use strict';
 
@@ -99,7 +100,7 @@ function characterLine(role){return characterLines.next(role,{locale:getLocale()
 function acceptPersonalContext(value){personalContext=value;clearTimeout(weatherTimer);if(value.profile?.weatherEnabled){const next=Number(value.weather?.expiresAt)||Date.now()+30*60000;weatherTimer=setTimeout(refreshPersonalWeather,Math.max(30*60000,next-Date.now()+1000));}}
 async function refreshPersonalWeather(){if(!personalContext.profile?.weatherEnabled)return;if(document.hidden){weatherTimer=setTimeout(refreshPersonalWeather,30*60000);return;}try{acceptPersonalContext(await request('/api/profile/weather'));}catch{weatherTimer=setTimeout(refreshPersonalWeather,30*60000);}}
 function openSecretary(mode,spokenLine,connection){closeOfficePanel({restoreFocus:false});secretaryDialog?.open();if(mode&&['mail','calendar','free','service'].includes(mode))secretaryDialog?.choose(mode);if(connection)secretaryDialog?.selectService(connection);officeSpeech?.speak('secretaire',spokenLine||characterLine('zoe'));}
-function dictateInto(target){dictationReturnPanel=activePanel;closeOfficePanel({restoreFocus:false});dictationDialog?.open({initialText:target?.value||'',onText:text=>{if(!target)throw new Error(translate('Choisissez une demande avant de dicter.'));if(text.length>target.maxLength&&target.maxLength>0)throw new Error(translate('Le texte dicté est trop long pour cette demande.'));target.value=text;target.dispatchEvent(new Event('input',{bubbles:true}));}});}
+function dictateInto(target){dictationReturnPanel=activePanel;closeOfficePanel({restoreFocus:false});dictationDialog?.open({initialText:target?.value||'',onText:text=>{if(!target?.isConnected||target.disabled||target.readOnly)throw new Error(translate('Cette demande a changé. Copiez le texte dicté, puis rouvrez la dictée dans le champ souhaité.'));if(text.length>target.maxLength&&target.maxLength>0)throw new Error(translate('Le texte dicté est trop long pour cette demande.'));target.value=text;target.dispatchEvent(new Event('input',{bubbles:true}));}});}
 const completionStatuses = new Map(),pendingCompletions = new Map();
 let completionTimer = null;
 let lastNarrated = null;
@@ -590,6 +591,7 @@ async function launch(provider,{strict=false,teamSize=$('team-size').value,allow
   if(creating || !canRecover&&(isRunning(mission)&&!allowParallel || activeMissions().length>=4)) {if(strict)throw new Error(activeMissions().length>=4?'Quatre missions sont déjà en cours. Attendez une livraison puis réessayez : votre brief est conservé.':'Cette mission est déjà en cours. Ouvrez un autre bureau pour un nouveau projet.');return;}
   let prompt=String(promptOverride??$('mission-input').value).trim();
   const originalPrompt=prompt;
+  if(provider!=='demo'&&promptOverride===undefined&&!pendingBriefRequest&&(calendarCommand(prompt)||calendarQuestion(prompt))){openSecretary('calendar');secretaryDialog.prompt.value=prompt;secretaryDialog.drafts.calendar=prompt;secretaryDialog.requestChanged();secretaryDialog.update();if(calendarCommand(prompt))secretaryDialog.openCalendarEvent(prompt);return;}
   if(provider!=='demo' && !prompt) {if(strict)throw new Error('Ajoutez une mission avant de la confier à Oscar.');$('mission-input').reportValidity();return; }
   if(provider!=='demo') {
     const {provider:engine,pending}=connectionState(provider);
@@ -731,14 +733,15 @@ $('settings-personalization').addEventListener('click',()=>openUtility(personali
 request('/api/profile').then(value=>{acceptPersonalContext(value);if(value.profile?.weatherEnabled)return refreshPersonalWeather();}).catch(()=>{});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&personalContext.profile?.weatherEnabled&&Date.now()>Number(personalContext.weather?.expiresAt||0))refreshPersonalWeather();});
 documentLibrary.refresh();
-creativeStudio=new CreativeStudio({getMission:()=>mission,onClose:()=>returnFromUtility(creativeStudio),onCreate:async({brief,requestReceipt,onRequestIdentity})=>{const detail=await launch($('provider-select').value,{strict:true,teamSize:'auto',allowParallel:true,promptOverride:brief,studioReceipt:requestReceipt,onStudioIdentity:onRequestIdentity});if(!detail?.id)throw new Error(translate('Le bureau n’a pas confirmé cette demande.'));utilityReturns.delete(creativeStudio);return detail;}});
+creativeStudio=new CreativeStudio({onDictate:target=>dictateInto(target),getMission:()=>mission,onClose:()=>returnFromUtility(creativeStudio),onCreate:async({brief,requestReceipt,onRequestIdentity})=>{const detail=await launch($('provider-select').value,{strict:true,teamSize:'auto',allowParallel:true,promptOverride:brief,studioReceipt:requestReceipt,onStudioIdentity:onRequestIdentity});if(!detail?.id)throw new Error(translate('Le bureau n’a pas confirmé cette demande.'));utilityReturns.delete(creativeStudio);return detail;}});
 for(const id of ['open-creative-studio','settings-creative-studio','delivery-creative-studio'])$(id).addEventListener('click',()=>openUtility(creativeStudio));
-connectorsDialog=new ConnectorsDialog({request,getMission:()=>mission,onClose:()=>returnFromUtility(connectorsDialog),onSecretary:(mode,connection)=>{utilityReturns.delete(connectorsDialog);openSecretary(mode,undefined,connection);}});
-automationsDialog=new AutomationsDialog({request,getState:()=>state,onClose:()=>returnFromUtility(automationsDialog),onMission:id=>{automationsDialog.close();selectMission(id);openPanel('progress');}});
+connectorsDialog=new ConnectorsDialog({onDictate:target=>dictateInto(target),request,getMission:()=>mission,onClose:()=>returnFromUtility(connectorsDialog),onSecretary:(mode,connection)=>{utilityReturns.delete(connectorsDialog);openSecretary(mode,undefined,connection);}});
+automationsDialog=new AutomationsDialog({onDictate:target=>dictateInto(target),request,getState:()=>state,onClose:()=>returnFromUtility(automationsDialog),onMission:id=>{automationsDialog.close();selectMission(id);openPanel('progress');}});
 artifactViewer=new ArtifactViewer({request,onClose:()=>openPanel('delivery')});
 const openWorkFolder=id=>request(`/api/missions/${encodeURIComponent(id)}/open-folder`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
 completionDialog=new CompletionDialog({avatar:()=>portrait('oscar'),onFolder:openWorkFolder,onFile:(item,file)=>artifactViewer.open(item,file),onDelivery:async item=>{if(selectedId!==item.id)await selectMission(item.id);openPanel('delivery');},onNew:()=>newMission(),onImprove:item=>{newMission();$('mission-input').value=`${translate('Améliore la mission précédente :')} ${item.title||item.prompt}\n${translate('Dossier du travail précédent :')} ${item.workDirectory||item.folderName||''}\n${translate('Examine les fichiers existants, propose les améliorations utiles et vérifie le résultat. Garde les originaux et livre les nouvelles versions dans cette nouvelle mission.')}`;saveBriefDraft();},onClose:scheduleCompletion});
-secretaryDialog=new SecretaryDialog({request,getState:()=>state,getProfile:()=>personalContext.profile||{},onDictate:target=>dictateInto(target),onMission:async id=>{await selectMission(id);openPanel('progress');},onAutomations:()=>automationsDialog.open(),onConnectors:()=>connectorsDialog.open(),onActivity:activity=>pixelWorld?.setSecretaryActivity(activity.busy)});
+const calendarEventDialog=new CalendarEventDialog({request,onDictate:target=>dictateInto(target)});
+secretaryDialog=new SecretaryDialog({request,onCalendarEvent:options=>calendarEventDialog.open(options),getState:()=>state,getProfile:()=>personalContext.profile||{},onDictate:target=>dictateInto(target),onMission:async id=>{await selectMission(id);openPanel('progress');},onAutomations:()=>automationsDialog.open(),onConnectors:()=>connectorsDialog.open(),onActivity:activity=>pixelWorld?.setSecretaryActivity(activity.busy)});
 $('open-secretary').addEventListener('click',()=>openSecretary());
 $('open-work-folder').addEventListener('click',async()=>{if(!mission)return;try{await openWorkFolder(mission.id);}catch(error){showError(error.message);}});
 $('download-archive').addEventListener('click',async()=>{
@@ -763,6 +766,7 @@ $('dismiss-office-status').addEventListener('click',hideWorldStatus);
 publicationDialog=new PublicationDialog({request,getMission:()=>mission,onClose:()=>openPanel('delivery')});
 $('publish-project').addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});publicationDialog.open();});
 missionWizard = new MissionWizard($('mission-wizard-host'), {
+  onDictate:target=>dictateInto(target),
   onComplete: async (prompt) => {
     const provider = $('guided-provider').value;
     $('mission-input').value = prompt; $('provider-select').value = provider;saveBriefDraft();
