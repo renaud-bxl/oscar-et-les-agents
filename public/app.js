@@ -689,7 +689,8 @@ async function stopMission() {
 function renderMember(role,taskId) {
   const info=getRole(role);
   const selected=(mission?.tasks || []).find(t=>t.id===taskId&&roleOf(t.role)===role);
-  const signature=JSON.stringify([mission?.id,role,taskId,selected||mission?.tasks,role==='oscar'?[mission?.title,mission?.status,mission?.prompt,mission?.result]:null,openedQuip]);
+  const dependencyStates=selected?(Array.isArray(selected.dependsOn)?selected.dependsOn:[]).map(id=>{const task=mission.tasks.find(item=>item.id===id);return task?[id,task.agentName,task.role,task.title,task.status]:[id,null];}):null;
+  const signature=JSON.stringify([mission?.id,role,taskId,selected||mission?.tasks,dependencyStates,role==='oscar'?[mission?.title,mission?.status,mission?.prompt,mission?.result]:null,openedQuip]);
   if(signature===lastMemberSignature)return;lastMemberSignature=signature;
   $('member-title').textContent=selected?agentName(selected):role==='oscar'?'Oscar':`L’îlot ${info.label.toLowerCase()}`;
   $('member-role').textContent=info.label;

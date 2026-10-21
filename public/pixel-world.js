@@ -68,7 +68,7 @@ const COFFEE=[{x:188,y:628},{x:228,y:688}];
 const STROLL=[{x:430,y:510},{x:890,y:570},{x:1210,y:510},{x:230,y:570}];
 const BUSY_TASKS=new Set(['working','revising']),WAIT_TASKS=new Set(['queued','blocked']),EXIT_TASKS=new Set(['failed','cancelled']);
 const RESULT_TASKS=new Set(['reviewing','approved','needs_review','failed']);
-const REVIEW_STATES=new Set(['to_oscar','waiting_oscar','to_review_queue','review_queue','handoff','to_review_wait','waiting_review','needs_review']);
+const HANDOFF_STATES=new Set(['to_oscar','waiting_oscar','to_review_queue','review_queue','handoff']);
 const TRAVEL_STATES=new Set(['entering','to_desk','to_oscar','to_review_queue','to_review_wait','to_coffee','to_chat','to_lounge','to_stroll','to_collaboration','returning','leaving']);
 const SOCIAL_STATES=new Set(['waiting_review','needs_review','chat','lounge','strolling']);
 const LAMPS=[{x:490,y:108},{x:720,y:64},{x:950,y:108},{x:550,y:520,floor:true},{x:1240,y:520,floor:true}];
@@ -457,7 +457,7 @@ export class PixelWorld {
   }
   _waitForReview(a) {
     this._releaseReview(a);a.paper=false;a.mug=false;a.coffeePending=false;
-    this._bubble(a,a.task.status==='needs_review'?'À vérifier':'J’attends le retour.');
+    a.reviewWaitReason=this._reviewWaitLine(a);this._bubble(a,a.reviewWaitReason);
     this._travel(a,'to_review_wait',this._socialPoint(a),'waiting_review');
   }
   _coffeePlace(a) {
@@ -495,6 +495,12 @@ export class PixelWorld {
     this._travel(a,'returning',DESKS[a.slot].stand,'working');
   }
   _pendingDelivery(a){return RESULT_TASKS.has(a.task.status)&&!a.handoffAttempts.has(taskAttempt(a.task));}
+  _waitingLine(a) {
+    const tasks=a.missionId===this.missionId?this.mission?.tasks:[],dependencies=Array.isArray(a.task.dependsOn)?a.task.dependsOn:[];
+    const missing=dependencies.some(id=>tasks?.find(task=>task.id===id)?.status!=='approved');
+    return a.task.status==='blocked'||missing?'J’attends une contribution.':'J’attends une place.';
+  }
+  _reviewWaitLine(a){return a.task.status==='needs_review'?'À vérifier':WAIT_TASKS.has(a.task.status)?this._waitingLine(a):'J’attends le retour.';}
   _startReview(a) {
     a.paper=true;a.mug=false;a.reviewRequestedAt=this.time;
     if(!this._reviewOwner||this._reviewOwner===a.key) {
@@ -576,7 +582,7 @@ export class PixelWorld {
       this._event('hire',a);
     } else if(state==='working') {
       a.direction=DESKS[a.slot]?.direction||'up';a.workSince=this.time;a.paper=false;a.mug=false;
-      if(WAIT_TASKS.has(a.task.status)) this._visit(a,'waiting_task');
+      if(WAIT_TASKS.has(a.task.status)) {this._visit(a,'waiting_task');a.waitReason=this._waitingLine(a);this._bubble(a,a.waitReason,3);}
       else if(this._pendingDelivery(a))this._startReview(a);
       else this._bubble(a,a.task.status==='revising'?'Je corrige le détail.':'À moi de jouer !',2);
     } else if(state==='handoff') {
@@ -587,7 +593,7 @@ export class PixelWorld {
       this._sayStatus(a.task.status==='failed'?`${(a.name||ROLES[a.role].name)} signale le problème à Oscar. Les fichiers déjà produits sont conservés.`:`${(a.name||ROLES[a.role].name)} remet son résultat à Oscar pour validation.`);
       this._event('handoff',a);
     } else if(state==='review_queue') {a.direction=a.x<REVIEW.x?'right':'left';this._bubble(a,'Mon dossier est prêt.');}
-    else if(state==='waiting_review') {a.paper=false;a.mug=false;if(a.task.status==='needs_review')this._visit(a,'needs_review');this._socialPose(a);this._bubble(a,a.task.status==='needs_review'?'À vérifier':'J’attends le retour.');}
+    else if(state==='waiting_review') {a.paper=false;a.mug=false;if(a.task.status==='needs_review')this._visit(a,'needs_review');this._socialPose(a);a.reviewWaitReason=this._reviewWaitLine(a);this._bubble(a,a.reviewWaitReason);}
     else if(state==='coffee') {a.direction='left';a.mug=true;a.deadline=this.time+2.5+a.random()*2;this._bubble(a,'Un café bien mérité !');this._event('coffee',a);}
     else if(state==='lounge'){this._socialPose(a);a.mug=!a.coffeePending&&a.task.status==='approved'&&a.random()>.65;a.deadline=this.time+12+a.random()*8;this._bubble(a,'On se retrouve ici ?',3);}
     else if(state==='strolling'){this._socialPose(a);a.mug=false;a.deadline=this.time+3+a.random()*2;this._bubble(a,'Je fais le tour des idées.',3);}
@@ -640,7 +646,8 @@ export class PixelWorld {
     }
     if(a.state==='briefing'&&this.time>=a.deadline) {this._travel(a,'to_desk',DESKS[a.slot].stand,'working');return;}
     if(a.state==='waiting_task') {
-      if(!WAIT_TASKS.has(a.task.status)) {this._visit(a,'working');a.workSince=this.time;this._bubble(a,'C’est parti !');}
+      if(!WAIT_TASKS.has(a.task.status)) {a.waitReason=null;this._visit(a,'working');a.workSince=this.time;this._bubble(a,'C’est parti !');}
+      else {const reason=this._waitingLine(a);if(reason!==a.waitReason){a.waitReason=reason;this._bubble(a,reason,3);}}
       return;
     }
     if(a.state==='working') {
@@ -671,6 +678,7 @@ export class PixelWorld {
       else if(needsWork) this._returnToDesk(a);
       else if(attempt>a.handoffAttempt) this._startReview(a);
       else if(a.task.status==='needs_review'&&a.state!=='needs_review') {this._visit(a,'needs_review');this._bubble(a,'À vérifier');}
+      else if(this._reviewWaitLine(a)!==a.reviewWaitReason){a.reviewWaitReason=this._reviewWaitLine(a);this._bubble(a,a.reviewWaitReason);}
       else if(this.time>=a.nextSocialAt){const other=this._socialPose(a);if(other&&!this.reducedMotion&&a.random()>.5)this._bubble(a,'On regarde ça ensemble ?',2.8);}
       return;
     }
@@ -749,19 +757,20 @@ export class PixelWorld {
     const status=this.mission?.status,active=['planning','running','reviewing','assembling'].includes(status);
     const calls=this.mission?.performance?.calls;
     const managerCall=active&&Array.isArray(calls)&&calls.some(call=>call?.agent==='Oscar'&&['review','assembly','final-review'].includes(call.stage)&&call.status==='running'&&call.durationMs==null);
-    const review=!!this._reviewOwner||visible.some(a=>this._pendingDelivery(a)||REVIEW_STATES.has(a.state)&&!BUSY_TASKS.has(a.task.status))||this.mission?.tasks?.some(t=>t.status==='reviewing');
+    const receiving=!!this._reviewOwner||visible.some(a=>this._pendingDelivery(a)||HANDOFF_STATES.has(a.state)&&!BUSY_TASKS.has(a.task.status));
     // A terminal mission may still contain a historical pending measurement or
     // a colleague waiting for attention. Keep Oscar available at his desk,
     // without pretending that a completed/rejected delivery is still running.
     if(status==='completed')this.oscarState=this.time<this._oscarBubbleUntil?'celebrating':'idle';
     else if(status==='needs_review')this.oscarState='idle';
-    else if(review||managerCall||['reviewing','assembling'].includes(status)) this.oscarState='reviewing';
+    else if(managerCall||['reviewing','assembling'].includes(status)) this.oscarState='reviewing';
+    else if(receiving)this.oscarState='receiving';
     else if(status==='planning') this.oscarState='planning';
     else if(active) this.oscarState='coordinating';
     else this.oscarState='idle';
     const a=this.oscar;
-    const busy=active||review;
-    const deskRequired=review||managerCall||['planning','reviewing','assembling','completed','needs_review'].includes(status);
+    const busy=active||receiving;
+    const deskRequired=receiving||managerCall||['planning','reviewing','assembling','completed','needs_review'].includes(status);
     if(deskRequired)this._oscarRoute('desk',OSCAR_HOME);
     else if(!this.mission)this._oscarRoute('welcome',OSCAR_WELCOME);
     else if(busy&&a.place==='desk'&&this.time>=a.nextVisitAt){const workers=live.filter(x=>BUSY_TASKS.has(x.task.status)&&x.state==='working');if(workers.length){const role=workers[a.visits%workers.length].role;this._oscarRoute('visit',OSCAR_VISITS[role]);}else a.nextVisitAt=this.time+2;}
@@ -809,15 +818,14 @@ export class PixelWorld {
     else if(a.state==='to_oscar')text='Mon résultat pour Oscar.';
     else if(['to_review_queue','review_queue','waiting_oscar'].includes(a.state))text='Mon dossier est prêt.';
     else if(a.state==='handoff')text=a.task?.status==='failed'?'Un problème à te signaler.':'À toi de vérifier !';
-    else if(['to_review_wait','waiting_review'].includes(a.state))text='J’attends le retour.';
+    else if(['to_review_wait','waiting_review'].includes(a.state))text=this._reviewWaitLine(a);
     else if(a.state==='needs_review')text='À vérifier';
     else if(a.state==='to_collaboration')text='Je retrouve mon collègue.';
     else if(a.state==='collaboration')text='On regarde ça ensemble ?';
     else if(['to_lounge','lounge'].includes(a.state))text='On se retrouve ici ?';
     else if(['to_stroll','strolling'].includes(a.state))text='Je fais le tour des idées.';
     else if(a.state==='coffee')text='Un café bien mérité !';
-    else if(a.task?.status==='blocked')text='J’attends une contribution.';
-    else if(a.task?.status==='queued')text=a.task.dependsOn?.length?'J’attends une contribution.':'J’attends mon tour.';
+    else if(WAIT_TASKS.has(a.task?.status))text=this._waitingLine(a);
     else if(a.task?.status==='reviewing') text='J’attends le retour.';
     else if(['revising','needs_review'].includes(a.task?.status)) text='Je corrige. Le café attendra.';
     else if(a.task?.status==='approved') text=['Validé ! Mon café aussi.','Mission validée. Sourire aussi.','Le vrai livrable ? L’équipe.'][n%3];
@@ -1266,7 +1274,7 @@ export class PixelWorld {
     this._drawClock(c);this._drawCoffeeSteam(c);this._drawSecretary(c);
     const live=[...this.agents.values()].filter(a=>a.visible);
     for(const a of live)if(a.slot>=0)this._screen(c,DESKS[a.slot],a.state==='working');
-    const oscar={...this.oscar,state:this.oscar.path.length?'entering':this.oscarState,paper:this.oscarState==='reviewing',mug:this.oscarState==='idle'&&Math.floor(this.time/13)%3===1,roleIndex:0};
+    const oscar={...this.oscar,state:this.oscar.path.length?'entering':this.oscar.place==='visit'?'visiting':this.oscarState,paper:['reviewing','receiving'].includes(this.oscarState),mug:this.oscarState==='idle'&&Math.floor(this.time/13)%3===1,roleIndex:0};
     if(this.oscar.y<290)this._sprite(c,oscar,true);this._oscarDesk(c,true);
     const ordered=[...live,...(this.oscar.y>=290?[oscar]:[])].sort((a,b)=>a.y-b.y||a.x-b.x);for(const a of ordered)this._sprite(c,a,a.role==='oscar');
     for(const a of live) {

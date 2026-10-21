@@ -36,7 +36,8 @@ function setup(t, options = {}) {
       const folder = path.basename(input.cwd), task = mission.tasks.find(item => `${item.id}-${item.role}` === folder);
       if (input.schema?.properties.tasks) assert.fail('A clear local game should receive the real built-in team plan, not a simulated model plan.');
       if (input.schema?.properties.reviews) {
-        const reviewing = mission.tasks.filter(item => item.status === 'reviewing');
+        const requested = JSON.parse(input.prompt.match(/TÂCHES À CONTRÔLER :\n([^\n]+)/u)[1]);
+        const reviewing = requested.map(row => mission.tasks.find(item => item.id === row.taskId));
         assert.ok(reviewing.length, 'A batch review must inspect actual submitted contributions.');
         trace.push({ missionId: mission.id, kind: 'batch-review', ids: reviewing.map(item => item.id) });
         options.beforeBatchReview?.({mission,input,app,reviewing});
@@ -105,14 +106,15 @@ test('independent recruitment check: all game trades contribute before dependent
   assert.ok(!fixture.trace.some(item => item.kind === 'assembly'));
   assert.equal(done.finalReview?.approved,true);
   assert.equal(done.performance.calls.at(-1)?.stage,'final-review');
-  assert.equal(done.performance.calls.length,done.tasks.length+3,'Normal progress needs the creations, two grouped reviews and the final game review.');
+  assert.ok(done.performance.calls.length >= done.tasks.length + 2 && done.performance.calls.length <= done.tasks.length * 2, 'Available submissions are reviewed without waiting for a slow colleague.');
 });
 
 test('independent recruitment check: rejected research cannot silently feed code or become a completed game', async t => {
   const fixture = setup(t, { rejectResearch: true }), started = fixture.app.start({ prompt: brief }), done = await fixture.app.wait(started.id);
   assert.equal(done.status, 'needs_review', done.error);
   assert.ok(done.tasks.some(item => item.role === 'recherche' && item.status !== 'approved'));
-  assert.ok(!fixture.trace.some(item => item.kind === 'creation' && item.role === 'code'));
+  assert.ok(fixture.trace.some(item => item.kind === 'creation' && item.role === 'code'));
+  assert.ok(!fixture.trace.some(item => item.kind === 'creation' && item.taskId === done.coordination.entryTaskId));
   assert.ok(!fixture.trace.some(item => item.kind === 'assembly')); assert.ok(!done.events.some(item => item.kind === 'success'));
   assert.ok(done.files.length > 0, 'The submitted contributions must remain available.');
 });
@@ -143,7 +145,7 @@ test('independent recruitment check: cancelling a game stops its queued dependen
 test('independent recruitment check: changed input copies never become an approved contribution', async t => {
   let attacked;
   const fixture=setup(t,{afterOutputs:({task,input,mission,app})=>{
-    if(attacked||task.role!=='design'||!task.inputContributions?.length)return;
+    if(attacked||task.id!==mission.coordination.entryTaskId||!task.inputContributions?.length)return;
     const inputFile=task.inputContributions[0].files[0],copy=path.join(input.cwd,inputFile.path);
     const sourceTask=mission.tasks.find(item=>item.id===task.inputContributions[0].taskId);
     const relative=inputFile.path.slice(`Contributions/${sourceTask.id}-${sourceTask.role}/`.length);
@@ -166,7 +168,7 @@ test('independent recruitment check: a linked Contributions parent cannot redire
   let attacked;
   const fixture=setup(t,{beforeBatchReview:({mission,app})=>{
     if(attacked)return;
-    const task=mission.tasks.find(item=>item.role==='design'&&item.dependsOn.length);
+    const task=mission.tasks.find(item=>item.id===mission.coordination.entryTaskId);
     const folder=path.join(app.workDir(mission.id),`${task.id}-${task.role}`);mkdirSync(folder);
     symlinkSync(outside,path.join(folder,'Contributions'));attacked=task.id;
   }});

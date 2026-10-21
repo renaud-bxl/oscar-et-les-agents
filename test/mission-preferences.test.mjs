@@ -8,7 +8,9 @@ test('requested team adds real task limits without changing the original idea',(
   assert.ok(brief.startsWith('Un jeu de puzzle.\n\n'));
   assert.match(brief,/recrute 15 spécialistes distincts/);
   assert.match(brief,/quatre agents par métier/);
-  assert.match(brief,/Quatre|quatre spécialistes travaillent simultanément/);
+  assert.match(brief,/vingt spécialistes peuvent travailler simultanément dans l’ensemble des missions/);
+  assert.match(brief,/tâches indépendantes démarrent depuis le même brief commun/);
+  assert.match(brief,/seules les dépendances nécessaires attendent leur contribution/);
 });
 test('invalid sizes and oversized enriched briefs fail before submission',()=>{
   assert.throws(()=>withTeamPreference('Une idée','30'),/effectif/);

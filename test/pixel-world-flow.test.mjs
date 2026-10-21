@@ -209,6 +209,46 @@ test('queued and blocked contributions wait without fake keyboard work or valida
   s.world._clickCounts=new Map();s.world.onInteract=()=>{};s.world.onSelect=()=>{};s.world._selectActor(s.world.agents.get('isolated-flow:blocked'));assert.equal(s.world.agents.get('isolated-flow:blocked').bubble,'J’attends une contribution.');clearTimeout(s.world._selectionTimer);
 });
 
+test('queued colleagues explain the actual missing contribution or available-slot wait without fake work',()=>{
+  const tasks=[{id:'art',role:'design',status:'working'},{id:'code',role:'code',status:'queued',dependsOn:['art']},{id:'writer',role:'redaction',status:'queued'},{id:'blocked',role:'analyse',status:'blocked',dependsOn:['art']}],s=scene(tasks);s.advance(35);
+  const code=s.world.agents.get('isolated-flow:code'),writer=s.world.agents.get('isolated-flow:writer'),blocked=s.world.agents.get('isolated-flow:blocked');
+  assert.equal(code.waitReason,'J’attends une contribution.');assert.equal(writer.waitReason,'J’attends une place.');
+  tasks[0].status='approved';s.world.update(s.mission);s.advance(.2);
+  assert.equal(code.state,'waiting_task');assert.equal(code.waitReason,'J’attends une place.');assert.equal(code.bubble,'J’attends une place.');
+  assert.equal(blocked.waitReason,'J’attends une contribution.','an explicitly blocked task stays blocked even if the visible upstream status changed');
+  tasks[1].dependsOn=['missing'];s.world.update(s.mission);s.advance(.2);assert.equal(code.waitReason,'J’attends une contribution.');
+  s.world._clickCounts=new Map();s.world.onInteract=()=>{};s.world.onSelect=()=>{};
+  for(const actor of[code,writer]){s.world._selectActor(actor);assert.equal(actor.bubble,actor.waitReason);clearTimeout(s.world._selectionTimer);s.world._selectionTimer=null;}
+  assert.ok([code,writer,blocked].every(actor=>actor.state==='waiting_task'&&!actor.mug&&!actor.paper));
+  assert.equal(s.events.some(event=>event.id!=='art'&&['handoff','approved','coffee'].includes(event.kind)),false);
+});
+
+test('nine genuinely active colleagues start working without an animation concurrency limit',()=>{
+  const roles=['recherche','analyse','design','redaction','code','design','code','design','recherche'];
+  const s=scene(roles.map((role,i)=>({id:`worker-${i}`,role,status:'working'}))),before=JSON.stringify(s.mission);s.advance(40);
+  assert.equal(s.world.agents.size,9);assert.ok([...s.world.agents.values()].every(actor=>actor.visible&&actor.state==='working'));
+  assert.equal(new Set([...s.world.agents.values()].map(actor=>actor.slot)).size,9);assert.equal(JSON.stringify(s.mission),before);assert.equal(s.events.some(event=>['handoff','approved'].includes(event.kind)),false);
+});
+
+test('a rejected colleague queued for a free slot waits honestly before the real correction starts',()=>{
+  const task={id:'art',role:'design',status:'reviewing',attempt:1},s=scene([task]);s.advance(40);const actor=s.world.agents.get('isolated-flow:art');assert.equal(actor.state,'waiting_review');
+  task.status='queued';task.review={approved:false,feedback:'Reprendre le texte.'};s.world.update(s.mission);s.advance(.1);assert.equal(actor.state,'waiting_review');assert.equal(actor.bubble,'J’attends une place.');assert.equal(actor.mug,false);assert.equal(s.events.filter(event=>event.kind==='handoff').length,1);
+  task.status='revising';task.attempt=2;s.world.update(s.mission);s.advance(.1);assert.equal(actor.state,'returning');s.advance(25);assert.equal(actor.state,'working');assert.equal(s.events.filter(event=>event.kind==='handoff').length,1,'a correction only hands over a new folder when its new result arrives');
+});
+
+test('Oscar coordinates actual workers while a submitted colleague waits, but real review calls recall him',()=>{
+  const tasks=[{id:'art',role:'design',status:'working'},{id:'code',role:'code',status:'working'},{id:'writer',role:'redaction',status:'working'}],s=scene(tasks);s.mission.performance={calls:[]};s.advance(40);
+  tasks[0].status='reviewing';s.world.update(s.mission);assert.equal(s.world.oscarState,'receiving','receiving a folder is distinct from a measured engine review');s.advance(40);
+  assert.equal(s.world.agents.get('isolated-flow:art').state,'waiting_review');const afterHandoff=s.world.oscar.visits;s.advance(90);
+  assert.ok(s.world.oscar.visits>afterHandoff,'a lounge wait alone does not hold Oscar at his desk');assert.equal(s.world.oscarState,'coordinating');assert.equal(s.events.filter(event=>event.id==='art'&&event.kind==='handoff').length,1);
+  for(const stage of['review','assembly','final-review']){
+    s.mission.performance.calls=[{agent:'Oscar',stage,status:'running',startedAt:1000,durationMs:null}];s.world.update(s.mission);assert.equal(s.world.oscar.destination,'desk');s.advance(30);const held=s.world.oscar.visits;
+    s.advance(60);assert.equal(s.world.oscar.place,'desk');assert.equal(s.world.oscarState,'reviewing');assert.equal(s.world.oscar.visits,held);
+    s.mission.performance.calls[0].status='completed';s.mission.performance.calls[0].durationMs=2000;s.world.update(s.mission);s.advance(45);assert.ok(s.world.oscar.visits>held);
+  }
+  assert.equal(s.events.filter(event=>event.id==='art'&&event.kind==='handoff').length,1);assert.equal(s.events.some(event=>event.id==='art'&&['approved','coffee'].includes(event.kind)),false);
+});
+
 test('a designer and a developer with a real dependency have a bounded lounge exchange then return',()=>{
   const tasks=[{id:'art',role:'design',status:'approved',agentName:'Alma'},{id:'integration',role:'code',status:'working',agentName:'Alex',dependsOn:['art']}],s=scene(tasks);s.mission.executionMode='local-game-team';s.world.update(s.mission);const before=JSON.stringify(s.mission);
   for(let i=0;i<1200&&!s.world._collaboration?.until;i++)s.advance(.1);
@@ -249,9 +289,9 @@ test('reduced motion disables optional collaboration excursions while preserving
 });
 
 test('sprite depth keeps rear-aisle walkers behind seated colleagues and foreground walkers in front',()=>{
-  const s=scene([{id:'seated',role:'recherche',status:'working'}]);s.advance(20);const a=s.world.agents.get('isolated-flow:seated'),drawn=[];
-  Object.assign(s.world,{ctx:{setTransform(){},clearRect(){},translate(){},scale(){},drawImage(){}},canvas:{width:1440,height:850},viewport:{dpr:1,scale:1,offsetX:0,offsetY:0},_doorOpen:0,props:{},_sprite:(c,actor)=>drawn.push(actor.id)});
+  const s=scene([{id:'seated',role:'recherche',status:'working'}]);s.advance(20);const a=s.world.agents.get('isolated-flow:seated'),drawn=[],oscarStates=[];
+  Object.assign(s.world,{ctx:{setTransform(){},clearRect(){},translate(){},scale(){},drawImage(){}},canvas:{width:1440,height:850},viewport:{dpr:1,scale:1,offsetX:0,offsetY:0},_doorOpen:0,props:{},_sprite:(c,actor)=>{drawn.push(actor.id);if(actor.role==='oscar')oscarStates.push(actor.state);}});
   for(const name of ['_drawViewportBackdrop','_drawWindows','_drawSunShadows','_drawAtmosphere','_drawClock','_drawCoffeeSteam','_drawSecretary','_screen','_oscarDesk','_drawLamps','_drawPropFeedback','_drawBubbles','_round','_ellipse','_text'])s.world[name]=()=>{};
-  Object.assign(s.world.oscar,{x:a.x,y:a.y-62,path:[]});PixelWorld.prototype._draw.call(s.world);assert.ok(drawn.indexOf('oscar')<drawn.indexOf(a.id));
+  Object.assign(s.world.oscar,{x:a.x,y:a.y-62,path:[],place:'visit'});s.world.oscarState='coordinating';PixelWorld.prototype._draw.call(s.world);assert.ok(drawn.indexOf('oscar')<drawn.indexOf(a.id));assert.equal(oscarStates.at(-1),'visiting','Oscar greets a colleague without a floating work keyboard');
   drawn.length=0;Object.assign(s.world.oscar,{x:a.x,y:a.y+72});PixelWorld.prototype._draw.call(s.world);assert.ok(drawn.indexOf('oscar')>drawn.indexOf(a.id));
 });

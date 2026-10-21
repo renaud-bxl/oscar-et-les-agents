@@ -2,7 +2,7 @@
 
 Donnez une mission à Oscar. Il recrute les bons spécialistes, ils arrivent dans un grand bureau illustré et animé, travaillent, rendent leurs dossiers… et prennent un café quand leur travail est validé.
 
-**Version 0.6.10** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
+**Version 0.6.11** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
 
 Pour un jeu navigateur au brief clair, Oscar recrute désormais une équipe de sept ou huit spécialistes : recherche, analyse, deux ou trois designers, rédaction et deux développeurs. Les collègues se transmettent leurs contributions validées ; le moteur, l’interface, les dessins et les textes sont réunis dans un seul jeu. Le panneau Équipe montre les métiers et les tâches en attente. Les déplacements contournent les postes et les collègues qui collaborent peuvent échanger au lounge. La détection d’un connecteur ne garantit pas l’autorisation de chaque action : une erreur de permission reste expliquée, sans nouvelle autorisation automatique. Les PDF se lisent directement dans le bureau avec un lecteur local passif, sans dépendre du lecteur PDF du navigateur. Les licences du moteur embarqué sont détaillées dans [PDFJS-NOTICES.md](PDFJS-NOTICES.md).
 
@@ -87,7 +87,7 @@ Choisissez une carte, répondez aux questions, ajustez le résumé, puis confiez
 
 Une illustration simple utilise une création par Alma et une vérification par Oscar, puis une copie locale des fichiers approuvés dans Livraison/. Un petit outil local clairement défini peut être confié directement à Sam. Les jeux font travailler une équipe complémentaire : recherche, règles et équilibrage, direction de l’interface, illustrations, textes et développement. Plusieurs designers ou développeurs peuvent intervenir quand leurs contributions sont distinctes. Oscar garde le rôle de chef, de contrôleur et d’assembleur final.
 
-Pour les petits jeux de navigateur reconnus, un contrat commun définit les fichiers, la palette et l’interface du moteur. Les collègues reçoivent les contributions nécessaires après validation d’Oscar ; l’intégration reprend les modules et les dessins approuvés. Les projets complexes, les équipes explicitement demandées et les missions avec références gardent le plan complet adapté au brief. L’effectif n’est pas une promesse de rapidité : les étapes dépendantes attendent leurs prérequis et **quatre spécialistes au maximum travaillent en parallèle**. Si une contribution nécessaire reste refusée, les tâches qui en dépendent restent bloquées et la mission demande votre attention. Aucun appel en cours n’est interrompu par une mise à jour ; créer et vérifier un résultat peut toujours prendre plusieurs minutes.
+Pour les petits jeux de navigateur reconnus, un brief et un contrat commun définissent les fichiers, la palette et l’interface du moteur. Les contributions indépendantes démarrent dès qu’une place est libre, sans attendre une chaîne systématique recherche, analyse, design puis code. L’intégration reprend les modules et les dessins approuvés ; les étapes qui ont réellement besoin d’un résultat attendent sa validation. Les projets complexes, les équipes explicitement demandées et les missions avec références gardent le plan adapté au brief. Si une contribution nécessaire reste refusée, les tâches qui en dépendent restent bloquées et la mission demande votre attention. Aucun appel en cours n’est interrompu par une mise à jour ; créer et vérifier un résultat peut toujours prendre plusieurs minutes.
 
 À partir de la relecture, un encart de suivi reste visible dans le bureau : il indique l’étape réelle, les contributions remises et validées, les durées mesurées et la dernière activité reçue. Vous pouvez suivre les contrôles d’Oscar et l’assemblage jusqu’à la livraison ou à une demande de correction. Oscar reste à son bureau pendant la relecture et l’assemblage, puis pour présenter le résultat ou expliquer ce qui reste à reprendre. L’encart ne promet aucun pourcentage ni heure de fin.
 
@@ -103,7 +103,9 @@ Pendant une mission, **Créer une autre mission** ouvre une nouvelle fenêtre av
 
 Dans le brief ou le questionnaire, **Effectif souhaité** propose **automatique, 4, 8, 12, 15 ou 20 agents**. Oscar organise les contributions selon la demande, avec au maximum **quatre spécialistes par métier**. Alma, Maya, Jade et Rose peuvent par exemple proposer quatre contributions de design. Chaque agent garde son prénom, sa tâche et son dossier.
 
-**Quatre spécialistes au maximum travaillent réellement en parallèle dans une mission**, même avec une équipe de vingt. Le choix d’un grand effectif multiplie les contributions et utilise davantage votre abonnement. Les quatre missions simultanées et les effectifs souhaités restent soumis aux quotas et limites de vos abonnements.
+**Jusqu’à vingt spécialistes travaillent en parallèle dans l’ensemble de vos bureaux.** Cette capacité est partagée entre les quatre missions : une mission peut recruter jusqu’à vingt personnes, avec quatre spécialistes par métier au maximum, et les autres attendent une place disponible. Une place libérée permet à la prochaine contribution indépendante de démarrer ; l’intégration, les tests et les relectures conservent leurs dépendances réelles.
+
+Un grand effectif multiplie les contributions et utilise davantage votre abonnement. Il ne garantit pas une accélération proportionnelle : les quotas du fournisseur, les tâches dépendantes et les contrôles finaux continuent de s’appliquer.
 
 ## Tout retrouver dans Documents
 

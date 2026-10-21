@@ -29,7 +29,8 @@ function gameRunner(options = {}) {
     const m = [...app.missions.values()].find(item => input.cwd === app.workDir(item.id) || input.cwd.startsWith(app.workDir(item.id) + path.sep));
     const task = m.tasks.find(item => path.basename(input.cwd) === `${item.id}-${item.role}`);
     if (input.schema?.properties.reviews) {
-      const reviewing = m.tasks.filter(item => item.status === 'reviewing');
+      const requested = JSON.parse(input.prompt.match(/TÂCHES À CONTRÔLER :\n([^\n]+)/u)[1]);
+      const reviewing = requested.map(row => m.tasks.find(item => item.id === row.taskId));
       if (reviewing.some(item => item.id === m.coordination.entryTaskId)) for (const source of m.tasks.filter(item => item.status === 'approved')) {
         assert.ok(input.prompt.includes(originalReport(source)), 'Le contrôle final confronte chaque rapport amont.');
         assert.ok(input.prompt.includes(source.criteria), 'Le contrôle final conserve les critères de chaque métier.');
@@ -101,17 +102,17 @@ test('les dépendances refusent identifiants inconnus, répétitions, auto-dépe
     const copy = structuredClone(plan); copy.tasks[0].dependsOn = invalid;
     assert.throws(() => validatePlan(JSON.stringify(copy)), /dépendance/);
   }
-  const cycle = structuredClone(plan); cycle.tasks[0].dependsOn = ['t4'];
+  const cycle = structuredClone(plan); cycle.tasks[0].dependsOn = ['t4']; cycle.tasks[3].dependsOn = ['t1'];
   assert.throws(() => validatePlan(JSON.stringify(cycle)), /cycle/);
 });
 
-test('sept créations et trois contrôles suffisent avec des copies vérifiées et un contrôle final complet', async t => {
+test('les créations indépendantes et leurs contrôles produisent des copies vérifiées et un contrôle final complet', async t => {
   const runner = gameRunner(), app = setup(t, runner.run);
   const started = app.start({ prompt: brief }), done = await app.wait(started.id);
   assert.equal(done.status, 'completed', done.error); assert.equal(done.executionMode, 'local-game-team');
   assert.deepEqual(done.tasks.map(item => item.agentName), ['Lina', 'Jules', 'Alma', 'Maya', 'Noé', 'Sam', 'Alex']);
-  assert.equal(runner.calls.length, 10); assert.equal(runner.calls.filter(item => item.schema?.properties.reviews).length, 3);
-  assert.deepEqual(done.performance.calls.map(item => item.stage), ['creation', 'creation', 'creation', 'review', 'creation', 'creation', 'creation', 'review', 'creation', 'final-review']);
+  assert.equal(runner.calls.length, 9); assert.equal(runner.calls.filter(item => item.schema?.properties.reviews).length, 2);
+  assert.deepEqual(done.performance.calls.map(item => item.stage), ['creation', 'creation', 'creation', 'creation', 'creation', 'creation', 'review', 'creation', 'final-review']);
   assert.equal(done.finalReview.approved, true); assert.ok(done.tasks.every(item => item.status === 'approved'));
   const entry = done.tasks.at(-1), root = app.workDir(started.id);
   for (const file of done.coordination.files) assert.deepEqual(readFileSync(path.join(root, 'Livraison', file)), readFileSync(path.join(root, `${entry.id}-${entry.role}`, file)));
@@ -123,7 +124,7 @@ test('un refus groupé ne refait que la contribution concernée avant de libére
   const runner = gameRunner({ review: ({ reviews, counts }) => reviews.map(item => item.taskId === 't1' && counts.get('t1') === 1 ? { ...item, approved: false, feedback: 'Préciser la source avant toute transmission.' } : item) });
   const app = setup(t, runner.run), started = app.start({ prompt: brief }), done = await app.wait(started.id);
   assert.equal(done.status, 'completed', done.error); assert.equal(runner.counts.get('t1'), 2);
-  assert.ok([...runner.counts].filter(([id]) => id !== 't1').every(([, count]) => count === 1)); assert.equal(runner.calls.length, 12);
+  assert.ok([...runner.counts].filter(([id]) => id !== 't1').every(([, count]) => count === 1)); assert.equal(runner.calls.length, 11);
 });
 
 test('les revues reçoivent des extraits bornés et conservent les rapports complets sur disque', async t => {
@@ -146,7 +147,7 @@ test('chaque contrôle groupé exige exactement un avis par tâche réellement s
     const runner = gameRunner({ review: ({ reviews }) => malformed === 'missing' ? reviews.slice(1) : malformed === 'duplicate' ? [reviews[0], reviews[0], ...reviews.slice(2)] : [{ ...reviews[0], taskId: 't20' }, ...reviews.slice(1)] });
     const app = setup(t, runner.run), started = app.start({ prompt: brief }), done = await app.wait(started.id);
     assert.equal(done.status, 'failed'); assert.match(done.error, /validation distincte/);
-    assert.equal([...runner.counts.values()].reduce((sum, n) => sum + n, 0), 3); assert.ok(!done.tasks.some(item => item.status === 'approved'));
+    assert.equal([...runner.counts.values()].reduce((sum, n) => sum + n, 0), 6); assert.ok(!done.tasks.some(item => item.status === 'approved'));
     assert.ok(!existsSync(path.join(app.workDir(started.id), 'Livraison')));
   });
 });
@@ -179,6 +180,6 @@ test('une panne du premier travail ne relance aucun modèle et conserve les fich
   let calls = 0;
   const app = setup(t, async ({ cwd }) => { calls++; writeFileSync(path.join(cwd, 'partiel.md'), 'Travail partiel à conserver.'); throw new Error('Délai du moteur dépassé.'); });
   const started = app.start({ prompt: brief }), done = await app.wait(started.id);
-  assert.equal(done.status, 'failed'); assert.match(done.error, /Délai/); assert.equal(calls, 3); assert.ok(done.files.some(file => file.path.endsWith('/partiel.md')));
+  assert.equal(done.status, 'failed'); assert.match(done.error, /Délai/); assert.equal(calls, 6); assert.ok(done.files.some(file => file.path.endsWith('/partiel.md')));
   assert.ok(!done.events.some(event => event.kind === 'success'));
 });

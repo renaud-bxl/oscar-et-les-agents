@@ -63,8 +63,9 @@ test('une affiche et son invitation écrite recrutent les deux métiers et prés
     { role: 'design', title: 'Créer l’affiche', instruction: 'Dessiner l’affiche pour le café.', criteria: 'Une affiche SVG.', deliverables: ['affiche.svg'] },
     { role: 'redaction', title: 'Écrire le mail', instruction: 'Rédiger l’invitation des clients.', criteria: 'Un mail prêt à relire.', deliverables: ['invitation.md'] },
   ] };
-  const app = setup(t, async ({ schema, cwd }) => {
+  const app = setup(t, async ({ schema, cwd, prompt }) => {
     if (schema?.properties.tasks) { plans++; return { text: JSON.stringify(plan) }; }
+    if (schema?.properties.reviews) return { text: JSON.stringify({reviews:JSON.parse(prompt.match(/TÂCHES À CONTRÔLER :\n([^\n]+)/u)[1]).map(row=>({taskId:row.taskId,approved:true,feedback:'Contribution inspectée.'}))}) };
     if (schema?.properties.approved) return approval(true);
     if (path.basename(cwd) === 't1-design') { writeFileSync(path.join(cwd, 'affiche.svg'), SVG); return { text: 'L’affiche est créée dans affiche.svg.' }; }
     if (path.basename(cwd) === 't2-redaction') { writeFileSync(path.join(cwd, 'invitation.md'), 'Chers clients, nous vous invitons au café.'); return { text: 'Le mail proposé est dans invitation.md, sans envoi.' }; }

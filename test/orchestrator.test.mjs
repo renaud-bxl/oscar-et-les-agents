@@ -86,11 +86,12 @@ test('quatre designers distincts travaillent vraiment en parallèle dans leurs d
   const fourStarted = new Promise(resolve => { notifyFour = resolve; });
   const app = setup(t, ({schema,prompt,cwd,signal,onActivity}) => {
     if (schema?.properties.tasks) return Promise.resolve({ text: JSON.stringify(designPlan) });
+    if (schema?.properties.reviews) return Promise.resolve({ text: JSON.stringify({ reviews: JSON.parse(prompt.match(/TÂCHES À CONTRÔLER :\n([^\n]+)/u)[1]).map(row=>({taskId:row.taskId,approved:true,feedback:'Le dessin est présent.'})) }) });
     if (schema?.properties.approved) return Promise.resolve({ text: JSON.stringify({ approved: true, feedback: 'Le fichier de cette contribution est présent et lisible.' }) });
     if (prompt.startsWith(ROLES.design.prompt)) {
       const name = prompt.match(/Ton nom dans l’équipe est ([^.]+)\./)?.[1];
       active++; peak = Math.max(peak, active);
-      writeFileSync(path.join(cwd,'proposition.svg'), `<svg xmlns="http://www.w3.org/2000/svg"><title>${name}</title></svg>`);
+      writeFileSync(path.join(cwd,'proposition.svg'), `<svg xmlns="http://www.w3.org/2000/svg"><title>${name}</title><rect width="10" height="10"/></svg>`);
       onActivity(`Contribution de ${name} en cours`);
       return new Promise((resolve,reject) => {
         let settled = false;
@@ -113,7 +114,7 @@ test('quatre designers distincts travaillent vraiment en parallèle dans leurs d
   try {
     await Promise.race([fourStarted,new Promise((_,reject) => { timeout = setTimeout(() => reject(new Error('Les quatre designers ne se sont pas mis au travail ensemble.')),1500); })]);
   } finally { clearTimeout(timeout); }
-  assert.equal(app.concurrency,4);
+  assert.equal(app.concurrency,20);
   assert.equal(active,4); assert.equal(peak,4);
   assert.deepEqual(waiting.map(item=>item.name),ROLES.design.names);
   assert.equal(new Set(waiting.map(item=>item.cwd)).size,4);
@@ -168,7 +169,7 @@ test('un ancien spécialiste sans agentName conserve son identité dans les appe
   assert.ok(readFileSync(path.join(app.workDir(mission.id),'Rapports','t1-redaction.md'),'utf8').includes('Spécialiste : Noé'));
 });
 
-test('la démo montre quatre designers simultanés, respecte quatre agents actifs et conserve la correction', async t => {
+test('la démo montre les huit spécialistes simultanés et conserve la correction', async t => {
   const app = setup(t,()=>{throw new Error('Aucun moteur ne doit être appelé dans la démonstration.');});
   let peak = 0, fourDesigners = false;
   app.on('change',state=>{
@@ -180,7 +181,7 @@ test('la démo montre quatre designers simultanés, respecte quatre agents actif
   });
   const mission = app.start({prompt:'Découvrir une équipe élargie',provider:'demo'});
   const done = await app.wait(mission.id);
-  assert.equal(peak,4); assert.equal(fourDesigners,true);
+  assert.equal(peak,8); assert.equal(fourDesigners,true);
   assert.equal(done.tasks.length,8); assert.equal(new Set(done.tasks.map(task=>task.agentName)).size,8);
   assert.equal(done.tasks.find(task=>task.agentName==='Alma').attempt,2);
   assert.equal(done.tasks.filter(task=>task.attempt===2).length,1);
@@ -312,6 +313,7 @@ test('un fichier temporaire modifié par un collègue ne fait échouer ni son é
   const editing = new Promise(resolve => { ready = resolve; });
   const app = setup(t, async ({ schema, cwd, signal, prompt }) => {
     if (schema?.properties.tasks) return { text: JSON.stringify(prompt.includes('Mission témoin') ? plan : concurrentPlan) };
+    if (schema?.properties.reviews) return { text: JSON.stringify({ reviews: JSON.parse(prompt.match(/TÂCHES À CONTRÔLER :\n([^\n]+)/u)[1]).map(row=>({taskId:row.taskId,approved:true,feedback:'Contribution inspectée.'})) }) };
     if (schema?.properties.approved) return { text: JSON.stringify({ approved: true, feedback: 'Les fichiers et rapports sont présents.' }) };
     if (!/^t\d+-/.test(path.basename(cwd))) return { text: 'Les contributions sont conservées.' };
     if (path.basename(cwd) === 't1-redaction') return { text: 'Réponse de la mission témoin.' };

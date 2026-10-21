@@ -19,6 +19,29 @@ test('the guide explains free assistance, documents and dictation in all support
   }
 });
 
+test('staffing hints describe the shared specialist capacity in each supported language',async()=>{
+  const index=await readFile(new URL('../public/index.html',import.meta.url),'utf8');
+  const hints=[
+    ...index.matchAll(/<small>(Jusqu’à 4 par métier et 20 au travail simultanément[^<]+)<\/small>/gu),
+    ...index.matchAll(/id="team-flow-note">([^<]+)</gu)
+  ].map(match=>match[1]);
+  assert.equal(hints.length,3);
+  for(const hint of hints){
+    assert.match(hint,/l’ensemble de vos (?:missions|bureaux)/u);
+    for(const language of ['en','nl'])assert.notEqual(translate(hint,language),hint,`${language}: ${hint}`);
+  }
+  const staffing=WELCOME_STEPS.find(step=>step.label==='Les agents').paragraphs.join(' ');
+  assert.match(staffing,/vingt agents travaillent en parallèle dans l’ensemble de vos missions/u);
+  assert.match(staffing,/quatre agents par métier/u);
+  assert.match(staffing,/davantage votre abonnement/u);
+  const offices=WELCOME_STEPS.find(step=>step.label==='Plusieurs bureaux');
+  assert.match(offices.subtitle,/quatre missions/u);
+  const orchestrator=await readFile(new URL('../lib/orchestrator.mjs',import.meta.url),'utf8');
+  const demo=orchestrator.match(/this\.event\(m, 'Oscar', '(Je recrute huit spécialistes[^']+)'\);/u)?.[1];
+  assert.ok(demo);
+  for(const text of [demo,'Les spécialistes poursuivent leurs contributions','Le brief commun de l’équipe n’est pas valide.'])for(const language of ['en','nl'])assert.notEqual(translate(text,language),text,`${language}: ${text}`);
+});
+
 test('routine subjects are inserted literally and do not rewrite document citations',()=>{
   const subject='Commerce $& et [étude 2026]';
   const prompt='Prépare une veille sur [votre sujet]. Conserve [étude 2026] comme référence.';
