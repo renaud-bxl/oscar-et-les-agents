@@ -6,9 +6,11 @@ import voiceMessages from './translations-voices.js';
 import themeMessages from './translations-theme.js';
 import performanceMessages, {patterns as performancePatterns} from './translations-performance.js';
 import teamMessages from './translations-team.js';
+import deliveryProgressMessages from './translations-delivery-progress.js';
+import deliveryPreviewMessages from './translations-delivery-preview.js';
 
 export const LANGUAGES=Object.freeze({fr:'Français',en:'English',nl:'Nederlands'});
-const messages={...interfaceMessages,...catalogMessages,...guideMessages,...calendarMessages,...themeMessages,...performanceMessages,...voiceMessages,...teamMessages};
+const messages={...interfaceMessages,...catalogMessages,...guideMessages,...calendarMessages,...themeMessages,...performanceMessages,...voiceMessages,...teamMessages,...deliveryProgressMessages,...deliveryPreviewMessages};
 const patterns=[...interfacePatterns,...catalogPatterns,...performancePatterns].map(item=>({...item,regex:new RegExp(item.source,'u')}));
 const STORE='oscar-language-v1';
 let language='fr',started=false,observer;

@@ -2,7 +2,7 @@
 
 Donnez une mission à Oscar. Il recrute les bons spécialistes, ils arrivent dans un grand bureau illustré et animé, travaillent, rendent leurs dossiers… et prennent un café quand leur travail est validé.
 
-**Version 0.6.7** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
+**Version 0.6.8** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
 
 Pour un jeu navigateur au brief clair, Oscar recrute désormais une équipe de sept ou huit spécialistes : recherche, analyse, deux ou trois designers, rédaction et deux développeurs. Les collègues se transmettent leurs contributions validées ; le moteur, l’interface, les dessins et les textes sont réunis dans un seul jeu. Le panneau Équipe montre les métiers et les tâches en attente. Les déplacements contournent les postes et les collègues qui collaborent peuvent échanger au lounge. La détection d’un connecteur ne garantit pas l’autorisation de chaque action : une erreur de permission reste expliquée, sans nouvelle autorisation automatique. Les PDF se lisent directement dans le bureau avec un lecteur local passif, sans dépendre du lecteur PDF du navigateur. Les licences du moteur embarqué sont détaillées dans [PDFJS-NOTICES.md](PDFJS-NOTICES.md).
 
@@ -89,9 +89,11 @@ Une illustration simple utilise une création par Alma et une vérification par 
 
 Pour les petits jeux de navigateur reconnus, un contrat commun définit les fichiers, la palette et l’interface du moteur. Les collègues reçoivent les contributions nécessaires après validation d’Oscar ; l’intégration reprend les modules et les dessins approuvés. Les projets complexes, les équipes explicitement demandées et les missions avec références gardent le plan complet adapté au brief. L’effectif n’est pas une promesse de rapidité : les étapes dépendantes attendent leurs prérequis et **quatre spécialistes au maximum travaillent en parallèle**. Si une contribution nécessaire reste refusée, les tâches qui en dépendent restent bloquées et la mission demande votre attention. Aucun appel en cours n’est interrompu par une mise à jour ; créer et vérifier un résultat peut toujours prendre plusieurs minutes.
 
-**Suivi** affiche la durée réelle et les appels du moteur enregistrés pour les nouvelles missions. Les anciennes missions indiquent quand cette mesure n’existe pas ; aucune estimation de fin n’est inventée.
+À partir de la relecture, un encart de suivi reste visible dans le bureau : il indique l’étape réelle, les contributions remises et validées, les durées mesurées et la dernière activité reçue. Vous pouvez suivre les contrôles d’Oscar et l’assemblage jusqu’à la livraison ou à une demande de correction. Oscar reste à son bureau pendant la relecture et l’assemblage, puis pour présenter le résultat ou expliquer ce qui reste à reprendre. L’encart ne promet aucun pourcentage ni heure de fin.
 
-Le bouton soleil/lune du haut propose **Clair**, **Sombre** et **Automatique**. Le thème automatique devient sombre de 20 h à 8 h, selon l’ordinateur. La palette du bureau et les menus changent sans voile gris et sans altérer les couleurs des livrables. Après remise et validation du travail, les agents vont au café, au lounge ou se promènent. Oscar attend au bureau pour recevoir les dossiers et emprunte les allées pour contourner les sièges et les claviers.
+**Suivi** détaille la durée réelle et les appels du moteur enregistrés pour les nouvelles missions. Les anciennes missions indiquent quand cette mesure n’existe pas ; aucune estimation de fin n’est inventée.
+
+Le bouton soleil/lune du haut propose **Clair**, **Sombre** et **Automatique**. Le thème automatique devient sombre de 20 h à 8 h, selon l’ordinateur. La palette du bureau et les menus changent sans voile gris et sans altérer les couleurs des livrables. Chaque agent remet son dossier à Oscar, puis rejoint le lounge pour attendre son avis avec ses collègues. Une correction demandée le ramène au travail. Après validation, il peut prendre un café, discuter au lounge ou se promener. Oscar attend au bureau pour recevoir les dossiers et emprunte les allées pour contourner les sièges et les claviers. Ces déplacements accompagnent les états réels sans retarder la relecture.
 
 Dans une équipe de jeu, un designer et un développeur dont les tâches sont liées peuvent se retrouver brièvement au lounge puis revenir à leur poste. Cet échange visuel est décoratif : il ne suspend pas les appels, ne valide rien et ne crée aucune fausse progression. La remise d’un nouveau résultat à Oscar reste prioritaire. Le mouvement réduit désactive ces sorties supplémentaires.
 
@@ -217,6 +219,8 @@ Les réglages **Mon prénom et ma région** personnalisent les salutations d’O
 La météo est facultative et demande votre consentement. Une prévision récente de [MET Norway](https://www.met.no/en/free-meteorological-data) peut enrichir les répliques ; le logiciel n’invente pas le temps observé et ignore une prévision expirée. Les coordonnées sont arrondies avant requête et la source est indiquée. Le décor jour/nuit continue de suivre l’heure de l’ordinateur indépendamment de cette option.
 
 ## Publier après vérification
+
+Le bilan permet d’abord de **voir le résultat** : une image s’affiche directement, et un jeu ou site statique compatible peut être essayé dans un aperçu local isolé, avec un lien pour l’ouvrir dans le navigateur. Dans la liste des fichiers, cliquer sur **index.html** ouvre également cet aperçu isolé. Les ressources externes ne sont pas chargées dans cet aperçu ; un projet nécessitant un serveur ou des services distants demande sa propre installation. Le titre de la mission et le dossier de tous ses fichiers restent accessibles. Un aperçu d’un travail interrompu ou à revoir est signalé comme partiel et ne permet pas sa publication.
 
 Une fois la mission terminée, **Livraison → Publier** propose GitHub ou un hébergement FTP/FTPS. Choisissez le dossier du projet, vérifiez la liste des fichiers et la destination dans l’aperçu, puis cliquez sur **Confirmer et publier**. Si les fichiers ou la destination changent, un nouvel aperçu est nécessaire. L’envoi est limité à 500 fichiers, 15 Mo par fichier et 50 Mo au total.
 

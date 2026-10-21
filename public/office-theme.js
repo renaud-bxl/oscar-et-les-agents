@@ -12,7 +12,7 @@ export function savedOfficeTheme(storage){try{const value=storage?.getItem(OFFIC
 
 /** Only appearance changes: forms, missions and their DOM nodes stay intact. */
 export class OfficeTheme{
-  constructor({document=globalThis.document,window=globalThis.window,storage=browserStorage(),now=()=>new Date(),setIntervalImpl=setInterval,clearIntervalImpl=clearInterval}={}){
+  constructor({document=globalThis.document,window=globalThis.window,storage=browserStorage(),now=()=>new Date(),setIntervalImpl=(callback,delay)=>globalThis.setInterval(callback,delay),clearIntervalImpl=timer=>globalThis.clearInterval(timer)}={}){
     Object.assign(this,{document,window,storage,now,clearIntervalImpl});this.mode=savedOfficeTheme(storage);this.theme=null;this.destroyed=false;
     this.onClick=event=>{const button=event.target?.closest?.('[data-office-theme-mode]');if(button){this.setMode(button.dataset.officeThemeMode);const details=button.closest('details');if(details)details.open=false;}else for(const details of this.document.querySelectorAll('.hud-theme[open]'))if(!details.contains(event.target))details.open=false;};
     this.onKey=event=>{if(event.key==='Escape')for(const details of this.document.querySelectorAll('.hud-theme[open]')){details.open=false;details.querySelector('summary')?.focus();}};
@@ -36,5 +36,5 @@ export class OfficeTheme{
     for(const summary of this.document.querySelectorAll('[data-office-theme-summary]')){summary.setAttribute('aria-label',label);summary.setAttribute('title',label);}
     for(const icon of this.document.querySelectorAll('[data-office-theme-icon]'))icon.textContent=this.theme==='dark'?'☾':'☀';
   }
-  destroy(){if(this.destroyed)return;this.destroyed=true;this.clearIntervalImpl(this.timer);this.document?.removeEventListener('click',this.onClick);this.document?.removeEventListener('keydown',this.onKey);this.document?.removeEventListener('oscar:language',this.onLanguage);this.document?.removeEventListener('visibilitychange',this.onVisible);this.window?.removeEventListener('storage',this.onStorage);}
+  destroy(){if(this.destroyed)return;this.destroyed=true;this.clearIntervalImpl(this.timer);this.timer=null;this.document?.removeEventListener('click',this.onClick);this.document?.removeEventListener('keydown',this.onKey);this.document?.removeEventListener('oscar:language',this.onLanguage);this.document?.removeEventListener('visibilitychange',this.onVisible);this.window?.removeEventListener('storage',this.onStorage);}
 }

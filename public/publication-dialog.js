@@ -47,9 +47,9 @@ export class PublicationDialog {
     this.status=node('p','publication-job-status');this.status.setAttribute('role','status');this.result=node('a','publication-result');this.result.target='_blank';this.result.rel='noopener noreferrer';this.result.hidden=true;
     const body=node('div','publication-body');body.append(intro,tabs,this.github,this.ftp,entry.wrapper,this.inspect,this.error,this.review,this.status,this.result);this.dialog.append(header,body);
   }
-  async open(){
+  async open({entry}={}){
     const mission=this.getMission();if(!mission)return;
-    this.missionId=mission.id;this.preview=null;this.review.hidden=true;this.error.hidden=true;this.status.textContent='';this.result.hidden=true;this.repo.value=String(mission.title||'mon-projet').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-|-$/g,'').slice(0,80)||'mon-projet';
+    this.entry.value=typeof entry==='string'?entry:'';this.missionId=mission.id;this.preview=null;this.review.hidden=true;this.error.hidden=true;this.status.textContent='';this.result.hidden=true;this.repo.value=String(mission.title||'mon-projet').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-|-$/g,'').slice(0,80)||'mon-projet';
     this.password.value='';this.busy=false;this.dialog.showModal();this.updateControls();const epoch=++this.epoch;await this.refresh(epoch);this.poll(epoch);
   }
   choose(kind){if(this.busy)return;this.kind=kind;this.github.hidden=kind!=='github';this.ftp.hidden=kind!=='ftp';for(const [id,tab]of Object.entries(this.tabs))tab.setAttribute('aria-pressed',String(id===kind));this.invalidate();this.updateControls();}

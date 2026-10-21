@@ -16,24 +16,28 @@ function summary(mission) {
 }
 
 export class CompletionDialog {
-  constructor({ onDelivery = () => {}, onFolder, onFile, onImprove = () => {}, onNew = () => {}, onClose = () => {}, avatar } = {}) {
-    Object.assign(this, { onDelivery, onFolder, onFile, onImprove, onNew, onClose, avatar }); this.epoch = 0;
+  constructor({ onDelivery = () => {}, onFolder, onFile, onImprove = () => {}, onNew = () => {}, onView, onPublish, createPreview, onClose = () => {}, avatar } = {}) {
+    Object.assign(this, { onDelivery, onFolder, onFile, onImprove, onNew, onView, onPublish, createPreview, onClose, avatar }); this.epoch = 0;
     this.dialog = node('dialog', 'completion-dialog'); this.dialog.id = 'completion-dialog'; this.dialog.setAttribute('aria-labelledby', 'completion-title');
     this.dialog.addEventListener('close', () => { if (!this.dialog.open) this.closed(); }); document.body.append(this.dialog);
   }
   button(label, className, action) { const button = node('button', className, label); button.type = 'button'; button.addEventListener('click', action); return button; }
   render() {
-    const mission = this.mission, validated = mission.status === 'completed', demo = mission.provider === 'demo';
+    this.preview?.destroy();this.preview=null;
+    const mission = this.mission, validated = mission.status === 'completed', failed = mission.status === 'failed', cancelled = mission.status === 'cancelled', demo = mission.provider === 'demo';
     const header = node('header', 'completion-header'); const lead = node('div', 'completion-lead');
     const image = node('div', 'completion-portrait'); let supplied;
     try { supplied = typeof this.avatar === 'function' ? this.avatar(mission) : this.avatar; } catch { /* Use Oscar's local portrait. */ }
     image.append(supplied?.nodeType ? supplied.cloneNode(true) : portrait());
     const speaker = node('div', 'completion-speaker'); speaker.append(node('strong', '', 'Oscar'), node('span', '', 'Votre chef de projet')); lead.append(image, speaker);
     const close = this.button('×', 'completion-close', () => this.close()); close.setAttribute('aria-label', 'Fermer le bilan de la mission'); header.append(lead, close);
-    const body = node('div', 'completion-body'); const badge = node('span', `completion-badge${validated ? '' : ' completion-badge-review'}`, demo ? 'Visite simulée · aucun appel à un modèle' : validated ? 'Livraison validée par Oscar' : 'Livraison à vérifier'); body.append(badge);
-    const title = node('h2', '', validated ? 'Mission terminée' : 'Un point reste à revoir'); title.id = 'completion-title'; title.tabIndex = -1;
-    const intro = node('p', 'completion-intro', demo ? 'Cette visite présente des créations et une validation simulées.' : validated ? 'L’équipe a terminé son travail. Oscar a relu et assemblé votre livraison.' : 'Oscar a gardé les résultats et précisé les points qui demandent une reprise.');
+    const body = node('div', 'completion-body'); const badge = node('span', `completion-badge${validated ? '' : ' completion-badge-review'}`, demo ? 'Visite simulée · aucun appel à un modèle' : validated ? 'Livraison validée par Oscar' : failed || cancelled ? 'Travaux conservés' : 'Livraison à vérifier'); body.append(badge);
+    const title = node('h2', '', validated ? 'Bravo, c’est prêt !' : failed ? 'Mission interrompue' : cancelled ? 'Mission arrêtée' : 'Un point reste à revoir'); title.id = 'completion-title'; title.tabIndex = -1;
+    const intro = node('p', 'completion-intro', demo ? 'Cette visite présente des créations et une validation simulées.' : validated ? 'L’équipe a terminé son travail. Oscar a relu et assemblé votre livraison.' : failed ? 'Le travail n’est pas terminé. Les fichiers déjà créés sont conservés.' : cancelled ? 'La mission a été arrêtée. Les fichiers déjà créés restent disponibles.' : 'Oscar a gardé les résultats et précisé les points qui demandent une reprise.');
     const project = node('p', 'completion-project', safeText(mission.title || mission.prompt || 'Votre projet', 160)); project.setAttribute('data-no-translate', ''); body.append(title, intro, project);
+    const assignment=node('details','completion-assignment');assignment.append(node('summary','',validated?'Tâche terminée':'Travaux conservés'));const prompt=node('p','',safeText(mission.prompt,16000));prompt.setAttribute('data-no-translate','');assignment.append(prompt);body.append(assignment);
+    if(mission.error){const issue=node('p','completion-problem',safeText(mission.error,2000));issue.setAttribute('data-no-translate','');body.append(issue);}
+    if(typeof this.createPreview==='function')this.preview=this.createPreview(body,mission);
     const tasks = Array.isArray(mission.tasks) ? mission.tasks : [], files = Array.isArray(mission.files) ? mission.files : [];
     const corrections = tasks.reduce((count, task) => count + (Number.isFinite(task.attempt) ? Math.max(0, Math.min(20, task.attempt - 1)) : 0), 0);
     const stats = node('div', 'completion-stats');
@@ -56,20 +60,22 @@ export class CompletionDialog {
       }
       section.append(links); body.append(section);
     }
-    const folder = node('section', 'completion-folder'); folder.append(node('span', 'completion-folder-icon', '⌁')); const folderCopy = node('div'); folderCopy.append(node('h3', '', 'Votre dossier sur cet ordinateur'));
+    const folder = node('section', 'completion-folder'); folder.append(node('span', 'completion-folder-icon', '⌁')); const folderCopy = node('div'); folderCopy.append(node('h3', '', 'Votre mission et son dossier'));
     if (mission.folderName) { const name = node('strong', '', safeText(mission.folderName, 250)); name.setAttribute('data-no-translate', ''); folderCopy.append(name); }
     if (mission.workDirectory) { const full = node('p', 'completion-folder-path', safeText(mission.workDirectory, 1500)); full.setAttribute('data-no-translate', ''); folderCopy.append(full); }
     else folderCopy.append(node('p', 'completion-folder-path', 'Le chemin exact sera disponible en rouvrant cette mission.'));
-    folder.append(folderCopy); body.append(folder);
+    this.folderButton = this.button('Ouvrir le dossier de tous les fichiers ↗', 'completion-action completion-folder-open', () => this.openFolder()); this.folderButton.disabled=typeof this.onFolder!=='function';folderCopy.append(this.folderButton);folder.append(folderCopy); body.append(folder);
     this.error = node('p', 'completion-error'); this.error.hidden = true; this.error.setAttribute('role', 'alert'); body.append(this.error);
-    const actions = node('footer', 'completion-actions'); actions.append(this.button('Voir la livraison ↗', 'completion-action completion-action-primary', () => this.act('onDelivery')));
-    this.folderButton = this.button('Ouvrir le dossier ↗', 'completion-action', () => this.openFolder()); this.folderButton.disabled = typeof this.onFolder !== 'function'; actions.append(this.folderButton, this.button('Améliorer avec Oscar', 'completion-action', () => this.act('onImprove')), this.button('Une nouvelle mission', 'completion-action completion-action-new', () => this.act('onNew')));
+    const actions = node('footer', 'completion-actions'); actions.append(this.button(validated?'Voir le résultat ↗':'Voir les fichiers conservés ↗', 'completion-action completion-action-primary', () => this.act(validated&&typeof this.onView==='function'?'onView':'onDelivery')));
+    if(validated&&!demo&&typeof this.onPublish==='function')actions.append(this.button('Publier le projet ↗','completion-action',()=>this.act('onPublish')));
+    actions.append(this.button('Ouvrir le dossier de tous les fichiers ↗','completion-action',()=>this.openFolder()));
+    const secondary=node('div','completion-secondary-actions');secondary.append(this.button('Améliorer avec Oscar','completion-action completion-action-new',()=>this.act('onImprove')),this.button('Une nouvelle mission','completion-action completion-action-new',()=>this.act('onNew')));body.append(secondary);
     this.dialog.replaceChildren(header, body, actions); this.dialog.classList.toggle('completion-needs-review', !validated);
   }
   async openFolder() {
     if (this.folderBusy || typeof this.onFolder !== 'function') return;
     const epoch = this.epoch; this.folderBusy = true; this.folderButton.disabled = true; this.error.hidden = true;
-    try { await this.onFolder(this.mission.id); }
+    try { await this.onFolder(this.mission.id); if(epoch===this.epoch&&this.dialog.open){this.error.textContent='Le dossier a été ouvert sur votre ordinateur.';this.error.hidden=false;} }
     catch { if (epoch === this.epoch && this.dialog.open) { this.error.textContent = 'Le dossier n’a pas pu être ouvert. Vos fichiers restent accessibles dans la livraison.'; this.error.hidden = false; } }
     finally { this.folderBusy = false; if (epoch === this.epoch) this.folderButton.disabled = false; }
   }
@@ -79,14 +85,14 @@ export class CompletionDialog {
     catch { this.open(mission); this.error.textContent = 'Cette action n’a pas abouti. Votre mission et ses fichiers sont conservés.'; this.error.hidden = false; }
   }
   open(mission) {
-    if (this.destroyed || !mission || !['completed', 'needs_review'].includes(mission.status)) return;
+    if (this.destroyed || !mission || !['completed', 'needs_review', 'failed', 'cancelled'].includes(mission.status)) return;
     const signature = `${mission.id}:${mission.status}:${mission.updatedAt || ''}`;
     if (this.dialog.open && this.signature === signature) return;
     if (!this.dialog.open) this.returnFocus = document.activeElement;
     this.signature = signature; this.mission = mission; this.epoch++; this.notified = false; this.render();
     if (!this.dialog.open) this.dialog.showModal(); this.dialog.querySelector('#completion-title').focus({ preventScroll: true });
   }
-  closed() { if (this.notified) return; this.notified = true; this.epoch++; if (!this.destroyed) { if (this.returnFocus?.isConnected) this.returnFocus.focus({ preventScroll: true }); this.onClose(); } }
+  closed() { this.preview?.destroy();this.preview=null;if (this.notified) return; this.notified = true; this.epoch++; if (!this.destroyed) { if (this.returnFocus?.isConnected) this.returnFocus.focus({ preventScroll: true }); this.onClose(); } }
   close() { if (this.dialog.open) { this.dialog.close(); this.closed(); } }
-  destroy() { this.destroyed = true; if (this.dialog.open) this.dialog.close(); this.dialog.remove(); }
+  destroy() { this.preview?.destroy();this.preview=null;this.destroyed = true; if (this.dialog.open) this.dialog.close(); this.dialog.remove(); }
 }

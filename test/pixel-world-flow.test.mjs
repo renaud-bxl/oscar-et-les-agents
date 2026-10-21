@@ -26,6 +26,30 @@ test('Oscar reaches his desk and visits working agents using the real routes',()
   assert.equal(s.world.agents.get('isolated-flow:designer').state,'working');
 });
 
+test('Oscar returns to his own desk throughout assembly and keeps the delivered mission there',()=>{
+  const s=scene([]);Object.assign(s.world.oscar,{x:1010,y:370,path:[],place:'visit',destination:'visit',visitUntil:999,nextVisitAt:0});
+  s.mission.status='reviewing';s.mission.phase='Oscar assemble la livraison';s.world.update(s.mission);assert.equal(s.world.oscar.destination,'desk');s.advance(30);assert.equal(s.world.oscar.place,'desk');assert.equal(s.world.oscarState,'reviewing');
+  s.mission.phase='Oscar prépare les formats de votre livraison';s.world.update(s.mission);s.advance(90);assert.equal(s.world.oscar.place,'desk');assert.equal(s.world.oscar.visits,0);
+  s.mission.status='completed';s.mission.files=[{path:'Livraison/index.html',size:124}];s.world.update(s.mission);const original=JSON.stringify(s.mission);s.advance(240);assert.equal(s.world.oscar.place,'desk');assert.equal(s.world.oscar.destination,'desk');assert.equal(s.world.oscarState,'idle');assert.equal(JSON.stringify(s.mission),original);
+  s.world.update(null);s.advance(30);assert.equal(s.world.oscar.place,'welcome','a deliberate new office can return Oscar to the entrance');
+});
+
+test('measured assembly keeps Oscar at his desk, while terminal records cannot fake active checking',()=>{
+  for(const stage of ['assembly','final-review']){
+    const s=scene([]);s.mission.performance={calls:[{agent:'Oscar',stage,status:'running',durationMs:null,startedAt:Date.now()}]};Object.assign(s.world.oscar,{x:155,y:285,place:'welcome',destination:'welcome',path:[]});s.world.update(s.mission);assert.equal(s.world.oscar.destination,'desk');s.advance(80);assert.equal(s.world.oscar.place,'desk');assert.equal(s.world.oscarState,'reviewing');
+    for(const status of ['completed','needs_review']){s.mission.status=status;s.world.update(s.mission);s.advance(90);assert.equal(s.world.oscar.place,'desk');assert.equal(s.world.oscarState,'idle','a stale running call does not override the real terminal status');}
+  }
+  const s=scene([]);s.mission.status='assembling';s.world.update(s.mission);s.advance(80);assert.equal(s.world.oscar.place,'desk');assert.equal(s.world.oscarState,'reviewing');
+});
+
+test('a terminal mission reopened from the entrance stays available at Oscar’s desk without fake work',()=>{
+  for(const status of ['completed','needs_review']){
+    const s=scene([{id:'approved',role:'design',status:'approved'}]);s.mission.status=status;s.mission.phase='L’équipe m’a rendu ses dossiers. Je vérifie les résultats et je prépare votre livraison.';s.world.update(s.mission);const original=JSON.stringify(s.mission);s.advance(240);
+    assert.equal(s.world.oscar.place,'desk');assert.equal(s.world.oscar.destination,'desk');assert.equal(s.world.oscarState,'idle');assert.equal(JSON.stringify(s.mission),original);
+    assert.ok(s.world.agents.get('isolated-flow:approved').leisureStep>0,'the new office anchor does not interrupt the colleagues’ lounge life');
+  }
+});
+
 test('approved and failed workers hand their folders to Oscar before coffee or departure',()=>{
   const tasks=[{id:'approved',role:'design',status:'working'},{id:'failed',role:'code',status:'working'}];
   const s=scene(tasks);s.advance(28);
@@ -148,11 +172,11 @@ test('the furniture cache rebuilds once per real theme change instead of on each
 
 test('an already completed mission stays alive socially without replaying delivery or approval on every refresh',()=>{
   const task={id:'alma',role:'design',status:'approved',attempt:1},s=scene([task]);s.mission.status='completed';s.world.update(s.mission);const original=JSON.stringify(s.mission);
-  for(let i=0;i<480;i++){s.advance(.5);s.world.update(structuredClone(s.mission));}
+  let socialSamples=0;for(let i=0;i<480;i++){s.advance(.5);s.world.update(structuredClone(s.mission));if(i>=80&&['chat','lounge','strolling'].includes(s.world.agents.get('isolated-flow:alma')?.state))socialSamples++;}
   const a=s.world.agents.get('isolated-flow:alma'),states=s.transitions.filter(event=>event.id===task.id).map(event=>event.state);
-  for(const state of ['handoff','coffee','lounge','strolling','resting'])assert.ok(states.includes(state),state);
+  for(const state of ['handoff','coffee','lounge','strolling'])assert.ok(states.includes(state),state);
   assert.ok(states.filter(state=>state==='coffee').length>=2,'the terminal agent continues its breaks');assert.ok(a.leisureStep>=4);assert.equal(s.events.filter(event=>event.kind==='handoff').length,1);assert.equal(s.events.filter(event=>event.kind==='approved').length,1);assert.equal(JSON.stringify(s.mission),original);
-  const rests=s.transitions.filter(event=>event.id===task.id&&event.state==='resting');for(const rest of rests){const next=s.transitions.find(event=>event.id===task.id&&event.time>rest.time&&event.state!=='resting');if(next)assert.ok(next.time-rest.time<8,'desk rests stay short in normal motion');}
+  assert.equal(states.includes('resting'),false,'validated colleagues do not cycle back into sitting at their desks');assert.ok(socialSamples>200,'most of the completed colleague’s time is spent with the lounge, not walking or sitting');
 });
 
 test('working then approved then completed frees colleagues for coffee, chat and walks without overbooking their desks',()=>{
@@ -191,7 +215,26 @@ test('a designer and a developer with a real dependency have a bounded lounge ex
   const meeting=s.world._collaboration;assert.ok(meeting?.until,'linked colleagues meet only after both arrive');const pair=meeting.keys.map(key=>s.world.agents.get(key));
   assert.ok(pair.every(a=>a.state==='collaboration'));assert.equal(pair[0].direction,'right');assert.equal(pair[1].direction,'left');assert.ok(Math.hypot(pair[0].x-pair[1].x,pair[0].y-pair[1].y)<=85);
   assert.equal(s.events.filter(event=>event.id==='art'&&event.kind==='handoff').length,1,'the designer delivers before the meeting');assert.equal(tasks[1].status,'working');assert.equal(JSON.stringify(s.mission),before);
-  s.advance(35);assert.equal(s.world._collaboration,null);assert.equal(s.world.agents.get('isolated-flow:integration').state,'working');assert.ok(s.transitions.some(event=>event.id==='art'&&event.state==='resting'));assert.equal(JSON.stringify(s.mission),before);
+  s.advance(35);assert.equal(s.world._collaboration,null);assert.equal(s.world.agents.get('isolated-flow:integration').state,'working');assert.ok(s.transitions.some(event=>event.id==='art'&&event.state==='to_lounge'&&event.time>=meeting.until),'the approved designer returns to the lounge while the developer resumes work');assert.equal(JSON.stringify(s.mission),before);
+});
+
+test('reviewing colleagues wait face to face with quiet gestures and corrections recall them immediately',()=>{
+  const tasks=Array.from({length:4},(_,i)=>({id:`review-${i}`,role:'design',status:'working',attempt:1})),s=scene(tasks);s.advance(25);for(const task of tasks)task.status='reviewing';s.world.update(s.mission);s.advance(80);
+  const agents=[...s.world.agents.values()],before=JSON.stringify(s.mission);
+  assert.ok(agents.every(a=>a.state==='waiting_review'&&!a.paper&&!a.mug));assert.equal(new Set(agents.map(a=>`${a.x},${a.y}`)).size,4);assert.ok(agents.every(a=>a.y>600&&['left','right'].includes(a.direction)));
+  for(const a of agents){const other=s.world._socialPartner(a);assert.ok(other);assert.equal(a.direction,other.x>a.x?'right':'left');}
+  let gestures=0;for(let i=0;i<150;i++){s.advance(.1);gestures+=agents.filter(a=>a.socialGestureUntil>s.world.time).length;}
+  assert.ok(gestures>0);assert.equal(s.events.some(event=>['coffee','approved'].includes(event.kind)),false);assert.equal(JSON.stringify(s.mission),before);
+  tasks[0].status='revising';tasks[0].attempt=2;s.world.update(s.mission);s.advance(.1);assert.equal(agents[0].state,'returning');assert.equal(agents[0].mug,false);s.advance(20);assert.equal(agents[0].state,'working');
+  tasks[0].status='reviewing';s.world.update(s.mission);s.advance(35);assert.deepEqual([...agents[0].handoffAttempts],[1,2]);assert.equal(agents[0].state,'waiting_review');
+});
+
+test('approval during the lounge trip goes to coffee, and invalidation removes the mug without a second handoff',()=>{
+  const task={id:'alma',role:'design',status:'reviewing',attempt:1},s=scene([task]);
+  for(let i=0;i<1000&&s.world.agents.get('isolated-flow:alma').state!=='to_review_wait';i++)s.advance(.1);
+  const a=s.world.agents.get('isolated-flow:alma');assert.equal(a.state,'to_review_wait');task.status='approved';s.world.update(s.mission);s.advance(.1);assert.equal(a.state,'to_coffee');
+  for(let i=0;i<1000&&a.state!=='coffee';i++)s.advance(.1);assert.equal(a.state,'coffee');assert.equal(a.mug,true);
+  task.status='needs_review';s.world.update(s.mission);s.advance(.1);assert.equal(a.state,'to_review_wait');assert.equal(a.mug,false);s.advance(40);assert.equal(a.state,'needs_review');assert.equal(a.mug,false);assert.equal(s.events.filter(event=>event.kind==='handoff').length,1);
 });
 
 test('lounge exchanges never involve unrelated roles or postpone a new result for Oscar',()=>{

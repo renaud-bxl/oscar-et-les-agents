@@ -6,6 +6,7 @@ import { constants, realpathSync, lstatSync } from 'node:fs';
 import { open, readFile, readdir } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { BrowserPreviews } from './lib/browser-preview.mjs';
 import { Atelier } from './lib/orchestrator.mjs';
 import { detectProviders, runAgent, findBinary } from './lib/providers.mjs';
 import { BrowserLogin } from './lib/auth.mjs';
@@ -25,7 +26,7 @@ import { parseCalendarIntent } from './lib/calendar-intent.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.wav': 'audio/wav', '.ttf': 'font/ttf', '.pfb': 'application/octet-stream', '.bcmap': 'application/octet-stream' };
-const CSP = "default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+const CSP = "default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src blob: http://127.0.0.1:*; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 const PDF_VENDOR='vendor/pdfjs/6.4.299/';
 const PDF_RUNTIME_PATH=/^(?:build\/pdf(?:\.worker)?\.min\.mjs|cmaps\/[A-Za-z0-9_-]+\.bcmap|standard_fonts\/[A-Za-z0-9_-]+\.(?:pfb|ttf)|wasm\/(?:jbig2|openjpeg)_nowasm_fallback\.js)$/u;
 async function verifiedPdfAssets(){
@@ -257,6 +258,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
     engine.emit('change', engine.state());
   } });
   const publishing = publishingFactory({ getMission: id => engine.get(id), workDir: id => engine.workDir(id), isActive: id => engine.runs.has(id), onChange: () => engine.emit('change', engine.state()) });
+  const browserPreviews=new BrowserPreviews({getMission:id=>engine.get(id),workDir:id=>checkedMissionDirectory(engine.workDir(id)),isActive:id=>engine.runs.has(id)});
   const archives = new MissionArchives({ openFile: (directory, relative) => openMissionDownload(checkedMissionDirectory(directory), relative) });
   const archiveTasks = new Set();
   let activeArchive = null;
@@ -513,6 +515,11 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
             json(res, 200, result); return;
           } finally { req.off('aborted', abort); res.off('close', abort); }
         }
+        const browserPreview=pathname.match(/^\/api\/missions\/([^/]+)\/browser-preview$/);
+        if(browserPreview){
+          if(Object.keys(body).some(key=>key!=='entry')||body.entry!==undefined&&typeof body.entry!=='string')throw fileError('Choisissez un fichier index.html présent dans la livraison.','BROWSER_PREVIEW_INVALID');
+          json(res,200,await browserPreviews.prepare(browserPreview[1],body));return;
+        }
         const openMissionFolder = pathname.match(/^\/api\/missions\/([^/]+)\/open-folder$/);
         if (openMissionFolder) {
           const id = openMissionFolder[1];
@@ -570,11 +577,12 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
       if (!['GET', 'HEAD'].includes(req.method)) { json(res, 405, { error: 'Méthode non prise en charge.' }); return; }
       const staticName = pathname === '/' ? 'index.html' : pathname.replace(/^\//, '');
       if(pdfVendor.assets.has(staticName)){res.writeHead(200,{'Content-Type':MIME[path.extname(staticName)],'Content-Security-Policy':CSP,'Cache-Control':'public, max-age=31536000, immutable'});res.end(req.method==='HEAD'?undefined:pdfVendor.assets.get(staticName));return;}
-      if (!['index.html', 'style.css', 'immersive.css', 'app.js', 'pixel-world.js', 'pixel-scene.css', 'mission-catalog.js', 'mission-catalog.css', 'mission-extras.js', 'coffee-dialog.js', 'coffee-dialog.css', 'ambience.js', 'welcome-guide.js', 'welcome-guide.css', 'i18n.js', 'translations-catalog.js', 'translations-interface.js', 'translations-guide.js', 'publication-dialog.js', 'publication-dialog.css', 'office-speech.js', 'clock-dialog.js', 'clock-dialog.css', 'creative-studio.js', 'creative-studio.css', 'automations-dialog.js', 'automations-dialog.css', 'connectors-dialog.js', 'connectors-dialog.css', 'completion-dialog.js', 'completion-dialog.css', 'artifact-viewer.js', 'artifact-viewer.css', 'pdf-preview.js', 'secretary-dialog.js', 'secretary-dialog.css', 'voice-dialog.js', 'voice-preview-oscar-paul-v2-fr.wav', 'voice-preview-oscar-paul-v2-en.wav', 'voice-preview-oscar-paul-v2-nl.wav', 'voice-preview-zoe-vera-v2-fr.wav', 'voice-preview-zoe-vera-v2-en.wav', 'voice-preview-zoe-vera-v2-nl.wav', 'voice-preview-zoe-fr.wav', 'voice-preview-zoe-en.wav', 'voice-preview-zoe-nl.wav', 'voice-dialog.css', 'voice-preview-oscar-2-fr.wav', 'voice-preview-oscar-2-en.wav', 'voice-preview-oscar-2-nl.wav', 'personalization-dialog.js', 'personalization-dialog.css', 'character-lines.js', 'document-library.js', 'document-library.css', 'dictation-dialog.js', 'dictation-dialog.css', 'office-theme.js', 'office-theme-init.js', 'office-theme.css', 'translations-theme.js', 'mission-timing.js', 'mission-timing.css', 'translations-performance.js', 'translations-team.js', 'translations-voices.js', 'dictation-entry.js', 'calendar-event-dialog.js', 'calendar-event-dialog.css', 'translations-calendar.js', 'draft-storage.js'].includes(staticName)) { res.writeHead(404); res.end('Introuvable'); return; }
+      if (!['index.html', 'style.css', 'immersive.css', 'app.js', 'pixel-world.js', 'pixel-scene.css', 'mission-catalog.js', 'mission-catalog.css', 'mission-extras.js', 'coffee-dialog.js', 'coffee-dialog.css', 'ambience.js', 'welcome-guide.js', 'welcome-guide.css', 'i18n.js', 'translations-catalog.js', 'translations-interface.js', 'translations-guide.js', 'publication-dialog.js', 'publication-dialog.css', 'office-speech.js', 'clock-dialog.js', 'clock-dialog.css', 'creative-studio.js', 'creative-studio.css', 'automations-dialog.js', 'automations-dialog.css', 'connectors-dialog.js', 'connectors-dialog.css', 'completion-dialog.js', 'completion-dialog.css', 'artifact-viewer.js', 'artifact-viewer.css', 'pdf-preview.js', 'secretary-dialog.js', 'secretary-dialog.css', 'voice-dialog.js', 'voice-preview-oscar-paul-v2-fr.wav', 'voice-preview-oscar-paul-v2-en.wav', 'voice-preview-oscar-paul-v2-nl.wav', 'voice-preview-zoe-vera-v2-fr.wav', 'voice-preview-zoe-vera-v2-en.wav', 'voice-preview-zoe-vera-v2-nl.wav', 'voice-preview-zoe-fr.wav', 'voice-preview-zoe-en.wav', 'voice-preview-zoe-nl.wav', 'voice-dialog.css', 'voice-preview-oscar-2-fr.wav', 'voice-preview-oscar-2-en.wav', 'voice-preview-oscar-2-nl.wav', 'personalization-dialog.js', 'personalization-dialog.css', 'character-lines.js', 'document-library.js', 'document-library.css', 'dictation-dialog.js', 'dictation-dialog.css', 'office-theme.js', 'office-theme-init.js', 'office-theme.css', 'translations-theme.js', 'mission-timing.js', 'mission-timing.css', 'translations-performance.js', 'translations-team.js', 'translations-voices.js', 'dictation-entry.js', 'calendar-event-dialog.js', 'calendar-event-dialog.css', 'translations-calendar.js', 'draft-storage.js','delivery-progress.js','translations-delivery-progress.js','delivery-preview.js','translations-delivery-preview.js','delivery-experience.css'].includes(staticName)) { res.writeHead(404); res.end('Introuvable'); return; }
       const content = await readFile(path.join(ROOT, 'public', staticName));
       res.writeHead(200, { 'Content-Type': MIME[path.extname(staticName)], 'Content-Security-Policy': CSP, 'Cache-Control': 'no-cache' }); res.end(req.method === 'HEAD' ? undefined : content);
     } catch (error) {
       if (res.destroyed) return;
+      if (!res.headersSent&&error.code?.startsWith('BROWSER_PREVIEW_')) {json(res,error.status||400,{error:error.message?.slice(0,2000),code:error.code,...(Array.isArray(error.entries)?{entries:error.entries}:{})});return;}
       if (!res.headersSent) json(res, ['PUBLICATION_NOT_FOUND', 'AUTOMATION_NOT_FOUND', 'MISSION_FILE_NOT_FOUND', 'VOICE_AUDIO_NOT_FOUND', 'CALENDAR_NOT_FOUND'].includes(error.code) ? 404 : ['MISSION_FILE_FORBIDDEN', 'ARCHIVE_FORBIDDEN'].includes(error.code) ? 403 : ['SERVER_CLOSING', 'MISSION_CAPACITY', 'PUBLICATION_BUSY', 'PUBLICATION_CHANGED', 'CONNECTOR_BUSY', 'AUTOMATION_BUSY', 'AUTOMATION_REQUEST_CHANGED', 'AUTOMATION_REQUEST_DELETED', 'VOICE_BUSY', 'DICTATION_BUSY', 'DOCUMENT_BUSY', 'SECRETARY_REQUEST_CHANGED', 'SECRETARY_RETRY', 'ARCHIVE_BUSY', 'ARCHIVE_CHANGED', 'MISSION_REQUEST_CHANGED', 'MISSION_REQUEST_RETRY', 'CALENDAR_BUSY', 'CALENDAR_CHANGED', 'CALENDAR_UNCERTAIN'].includes(error.code) ? 409 : 400, { error: error.message?.slice(0, 2000) ?? 'La demande a échoué.', ...(/^(?:DICTATION|DOCUMENT|CALENDAR)_[A-Z_]{1,50}$/u.test(error.code||'') ? {code:error.code} : {}) });
       else res.destroy();
     }
@@ -598,6 +606,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
     await calendar.close();
     await connectors.close();
     await login.close();
+    await browserPreviews.close();
     await publishing.close();
     await Promise.all([...engine.runs.keys()].map(id => engine.wait(id)));
     stateStream.close();
@@ -607,7 +616,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
     })();
     return closePromise;
   };
-  return { server, engine, publishing, connectors, automations, voice, personalization, documents, dictation, archives, calendar, close };
+  return { server, engine, publishing, connectors, automations, voice, personalization, documents, dictation, archives, calendar, browserPreviews, close };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

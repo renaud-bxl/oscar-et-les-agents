@@ -53,14 +53,24 @@ const DESKS=ISLANDS.flatMap((island,islandIndex)=>Array.from({length:4},(_,i)=>(
 const DOOR={x:110,y:190},RECEPTION={x:130,y:270},REVIEW={x:730,y:330};
 const OSCAR_HOME={x:720,y:237},OSCAR_WELCOME={x:155,y:285},OSCAR_GATE={x:570,y:310};
 const OSCAR_VISITS={recherche:{x:430,y:370},redaction:{x:1010,y:370},code:{x:890,y:470},design:{x:530,y:640},analyse:{x:1210,y:640}};
-const REVIEW_WAIT=[...Array.from({length:18},(_,i)=>({x:(i%6<3?450:890)+(i%3)*50,y:350+Math.floor(i/6)*50})),{x:570,y:350},{x:870,y:350}];
-const COFFEE=Array.from({length:20},(_,i)=>({x:190+(i%4)*20,y:650+Math.floor(i/4)*40}));
-const CHAT=[{x:610,y:650},{x:850,y:650},{x:610,y:690},{x:850,y:690},{x:610,y:730},{x:850,y:730},{x:610,y:770},{x:850,y:770},{x:610,y:810},{x:650,y:810},{x:690,y:810},{x:730,y:810},{x:770,y:810},{x:810,y:810},{x:850,y:810},{x:650,y:650},{x:690,y:650},{x:730,y:650},{x:770,y:650},{x:810,y:650}];
+// Paired conversation places, with room for the full team. All points are on
+// real aisle cells: path snapping cannot collapse neighbours into one place.
+// The first eight places surround the lounge; larger teams use the open side
+// aisles too, rather than forming a dense row at Oscar's desk.
+const SOCIAL=[
+  {x:528,y:668},{x:608,y:628},{x:688,y:628},{x:748,y:628},{x:828,y:628},{x:888,y:628},
+  {x:628,y:688},{x:828,y:688},{x:628,y:748},{x:828,y:748},
+  {x:188,y:528},{x:268,y:528},{x:448,y:508},{x:528,y:528},
+  {x:908,y:528},{x:988,y:508},{x:1208,y:528},{x:1288,y:528},
+  {x:188,y:788},{x:268,y:788}
+];
+const COFFEE=[{x:188,y:628},{x:228,y:688}];
 const STROLL=[{x:430,y:510},{x:890,y:570},{x:1210,y:510},{x:230,y:570}];
 const BUSY_TASKS=new Set(['working','revising']),WAIT_TASKS=new Set(['queued','blocked']),EXIT_TASKS=new Set(['failed','cancelled']);
 const RESULT_TASKS=new Set(['reviewing','approved','needs_review','failed']);
 const REVIEW_STATES=new Set(['to_oscar','waiting_oscar','to_review_queue','review_queue','handoff','to_review_wait','waiting_review','needs_review']);
 const TRAVEL_STATES=new Set(['entering','to_desk','to_oscar','to_review_queue','to_review_wait','to_coffee','to_chat','to_lounge','to_stroll','to_collaboration','returning','leaving']);
+const SOCIAL_STATES=new Set(['waiting_review','needs_review','chat','lounge','strolling']);
 const LAMPS=[{x:490,y:108},{x:720,y:64},{x:950,y:108},{x:550,y:520,floor:true},{x:1240,y:520,floor:true}];
 const HOTSPOTS=[
   {kind:'coffee',label:'Machine à café',x:57,y:565,w:123,h:173},
@@ -348,7 +358,7 @@ export class PixelWorld {
         target:a.target?{...a.target}:null,desk:a.slot,visible:a.visible,
         taskStatus:a.task.status,attempt:taskAttempt(a.task),handoffAttempt:a.handoffAttempt,
         retiring:!!a.retiring,reactivations:a.reactivations||0,
-        leisureStep:a.leisureStep||0,
+        leisureStep:a.leisureStep||0,socialPlace:a.socialSlot??null,
         paper:a.paper,mug:a.mug,direction:a.direction,visited:[...a.visited],
         reaction:this._reactions.get(a.key)?.until>this.time?this._reactions.get(a.key).kind:null,
         pathLength:a.path.length,bubble:this.time<a.bubbleUntil?a.bubble:null
@@ -410,7 +420,7 @@ export class PixelWorld {
   }
   _bubble(a,text,seconds=2.4) {a.bubble=clipped(text);a.bubbleUntil=this.time+seconds;}
   _sayStatus(text) {if(text!==this._statusMemo) {this._statusMemo=text;this.onStatus(text);}}
-  _event(kind,a) {this.onEvent(kind,{id:a?.id,role:a?.role,missionId:this.missionId});}
+  _event(kind,a) {this.onEvent(kind,{id:a?.id,role:a?.role,missionId:a?.missionId??this.missionId});}
   _claimDesk(a) {
     const occupied=new Set([...this.agents.values()].filter(x=>x!==a&&x.visible&&x.slot>=0).map(x=>x.slot));
     const free=DESKS.find(d=>d.role===a.role&&!occupied.has(d.id));
@@ -422,6 +432,42 @@ export class PixelWorld {
     if(!a.path.length&&distance(a,target)<2) this._arrived(a);
   }
   _releaseReview(a) {if(this._reviewOwner===a.key) this._reviewOwner=null;}
+  _socialPoint(a) {
+    const occupied=new Set([...this.agents.values()].filter(b=>b!==a&&!b.retiring&&b.missionId===a.missionId&&Number.isInteger(b.socialSlot)).map(b=>b.socialSlot));
+    if(this._collaboration&&!this._collaboration.keys.includes(a.key))for(const slot of this._collaboration.slots||[])occupied.add(slot);
+    if(!Number.isInteger(a.socialSlot)||occupied.has(a.socialSlot)) {
+      const first=(a.index||0)%SOCIAL.length;
+      a.socialSlot=Array.from({length:SOCIAL.length},(_,i)=>(first+i)%SOCIAL.length).find(i=>!occupied.has(i))??first;
+    }
+    return SOCIAL[a.socialSlot];
+  }
+  _socialPartner(a) {
+    this._socialPoint(a);
+    return [...this.agents.values()].find(b=>b!==a&&b.visible&&!b.retiring&&b.missionId===a.missionId&&b.socialSlot===(a.socialSlot^1)&&SOCIAL_STATES.has(b.state)&&distance(a,b)<225)||null;
+  }
+  _socialPose(a) {
+    const other=this._socialPartner(a);
+    a.direction=other?(other.x>a.x?'right':'left'):(a.socialSlot%2===0?'right':'left');
+    // Quiet face-to-face gestures are independent from task progress. A
+    // pending review can be sociable without a mug, approval, or fake typing.
+    a.socialGestureUntil=this.reducedMotion||!other?0:this.time+2.4;
+    a.nextSocialAt=this.time+7+a.random()*6;
+    if(other){other.direction=a.x>other.x?'right':'left';other.socialGestureUntil=this.reducedMotion?0:this.time+2.4;}
+    return other;
+  }
+  _waitForReview(a) {
+    this._releaseReview(a);a.paper=false;a.mug=false;a.coffeePending=false;
+    this._bubble(a,a.task.status==='needs_review'?'À vérifier':'J’attends le retour.');
+    this._travel(a,'to_review_wait',this._socialPoint(a),'waiting_review');
+  }
+  _coffeePlace(a) {
+    const occupied=new Set([...this.agents.values()].filter(b=>b!==a&&b.visible&&['to_coffee','coffee'].includes(b.state)).map(b=>b.coffeeSlot));
+    return COFFEE.findIndex((_,i)=>!occupied.has(i));
+  }
+  _goLounge(a,state='lounge') {
+    const point=this._socialPoint(a);
+    this._travel(a,state==='chat'?'to_chat':'to_lounge',point,state);
+  }
   _reactivate(a) {
     a.retiring=false;a.reactivations=(a.reactivations||0)+1;
     this._releaseReview(a);a.path=[];a.target=null;a.afterTravel=null;a.paper=false;a.mug=false;
@@ -433,7 +479,7 @@ export class PixelWorld {
     if(a.task.status==='approved'&&wasHandedOff) {
       this._startCoffee(a);
     } else if(a.task.status==='reviewing'&&wasHandedOff) {
-      this._travel(a,'to_review_wait',REVIEW_WAIT[a.slot%REVIEW_WAIT.length],'waiting_review');
+      this._waitForReview(a);
     } else if(a.task.status==='reviewing') {
       this._startReview(a);
     } else {
@@ -444,7 +490,7 @@ export class PixelWorld {
     }
   }
   _returnToDesk(a) {
-    this._releaseReview(a);a.paper=false;a.mug=false;
+    this._releaseReview(a);a.paper=false;a.mug=false;a.coffeePending=false;a.socialGestureUntil=0;
     this._bubble(a,a.task.status==='needs_review'?'Je reprends ce point.':'On améliore ça !');
     this._travel(a,'returning',DESKS[a.slot].stand,'working');
   }
@@ -455,24 +501,32 @@ export class PixelWorld {
       this._reviewOwner=a.key;
       this._bubble(a,'Mon résultat pour Oscar.');
       this._travel(a,'to_oscar',REVIEW,'handoff');
-    } else this._travel(a,'to_review_queue',REVIEW_WAIT[a.slot%REVIEW_WAIT.length],'review_queue');
+    } else this._travel(a,'to_review_queue',this._socialPoint(a),'review_queue');
   }
   _startCoffee(a) {
     const attempt=taskAttempt(a.task);if(a.task.status!=='approved'||!a.handoffAttempts.has(attempt)) return;
     this._releaseReview(a);a.paper=false;a.mug=false;
     this._bubble(a,'Validé ! Pause café.');
     a.approvedAttempts??=new Set();if(!a.approvedAttempts.has(attempt)){a.approvedAttempts.add(attempt);this._event('approved',a);}
-    this._travel(a,'to_coffee',COFFEE[a.slot%COFFEE.length],'coffee');
+    const slot=this._coffeePlace(a);
+    if(slot<0){a.coffeePending=true;this._goLounge(a);return;}
+    a.coffeePending=false;a.coffeeSlot=slot;
+    this._travel(a,'to_coffee',COFFEE[slot],'coffee');
   }
   _startSocial(a) {
     if(a.task.status!=='approved'||!a.handoffAttempts.has(taskAttempt(a.task)))return;
-    if(this.reducedMotion){if(a.state==='lounge')a.deadline=this.time+30;else this._travel(a,'to_lounge',CHAT[a.slot%CHAT.length],'lounge');return;}
+    if(a.coffeePending&&this._coffeePlace(a)>=0){this._startCoffee(a);return;}
+    if(this.reducedMotion){if(a.state==='lounge')a.deadline=this.time+30;else this._goLounge(a);return;}
     const step=a.leisureStep||0;a.leisureStep=step+1;
-    const others=[...this.agents.values()].filter(b=>b!==a&&b.visible&&!b.retiring&&b.task.status==='approved'&&['coffee','to_chat','chat','to_lounge','lounge','strolling','resting','returning'].includes(b.state));
-    if(step%4===0)this._travel(a,others.length?'to_chat':'to_lounge',CHAT[a.slot%CHAT.length],others.length?'chat':'lounge');
-    else if(step%4===1)this._travel(a,'to_stroll',STROLL[(a.slot+Math.floor(step/4))%STROLL.length],'strolling');
-    else if(step%4===2)this._travel(a,'returning',DESKS[a.slot].stand,'resting');
-    else this._startCoffee(a);
+    if(step>0&&step%8===0){this._startCoffee(a);return;}
+    if(step%5===3&&!a.coffeePending) {
+      // Walk a short circuit and return to the personal place; do not make
+      // the whole team stop on one of four identical strolling points.
+      const point=this._socialPoint(a),via=STROLL[(a.slot+Math.floor(step/5))%STROLL.length];
+      this._travel(a,'to_stroll',via,'strolling');
+      const end=a.path.at(-1)||a;a.path.push(...this._path(end,point,{actor:a}));a.target={...point};return;
+    }
+    this._goLounge(a,this._socialPartner(a)?'chat':'lounge');
   }
   _finishCollaboration(meeting){
     if(this._collaboration===meeting)this._collaboration=null;
@@ -482,8 +536,9 @@ export class PixelWorld {
       a.collaboration=null;
       if(!['to_collaboration','collaboration'].includes(a.state)||a.retiring||EXIT_TASKS.has(a.task.status))continue;
       if(this._pendingDelivery(a)){this._startReview(a);continue;}
+      if(a.task.status==='approved'){this._goLounge(a);continue;}
       this._bubble(a,'Je retrouve mon bureau.',2);
-      this._travel(a,'returning',DESKS[a.slot].stand,a.task.status==='approved'?'resting':'working');
+      this._travel(a,'returning',DESKS[a.slot].stand,'working');
     }
   }
   _updateCollaborations(){
@@ -502,10 +557,13 @@ export class PixelWorld {
     const code=live.find(a=>a.role==='code'&&['working','waiting_task'].includes(a.state)&&(BUSY_TASKS.has(a.task.status)||a.task.status==='queued')&&Array.isArray(a.task.dependsOn)&&live.some(b=>b.role==='design'&&a.task.dependsOn.includes(b.id)&&b.task.status==='approved'&&b.handoffAttempts.has(taskAttempt(b.task))&&['coffee','chat','lounge','strolling','resting'].includes(b.state)));
     if(!code)return;
     const designer=live.find(a=>a.role==='design'&&code.task.dependsOn.includes(a.id)&&a.task.status==='approved'&&a.handoffAttempts.has(taskAttempt(a.task))&&['coffee','chat','lounge','strolling','resting'].includes(a.state));
+    const occupied=new Set(live.filter(a=>a!==code&&a!==designer&&Number.isInteger(a.socialSlot)).map(a=>a.socialSlot));
+    const first=SOCIAL.findIndex((_,i)=>i%2===0&&!occupied.has(i)&&!occupied.has(i+1)&&distance(SOCIAL[i],SOCIAL[i+1])<85);
+    if(first<0)return;
     // A decorative exchange between genuinely linked contributions. It never
     // pauses an engine, approves a result, or changes the mission's task data.
-    const session={keys:[code.key,designer.key],attempts:[taskAttempt(code.task),taskAttempt(designer.task)],startedAt:this.time,until:null};this._collaboration=session;
-    [code,designer].forEach((a,i)=>{a.collaboration=session;a.paper=false;a.mug=false;this._bubble(a,'Je retrouve mon collègue.',2.5);this._travel(a,'to_collaboration',{x:650+i*80,y:650},'collaboration');});
+    const session={keys:[code.key,designer.key],slots:[first,first+1],attempts:[taskAttempt(code.task),taskAttempt(designer.task)],startedAt:this.time,until:null};this._collaboration=session;
+    [code,designer].forEach((a,i)=>{a.collaboration=session;a.paper=false;a.mug=false;this._bubble(a,'Je retrouve mon collègue.',2.5);this._travel(a,'to_collaboration',SOCIAL[first+i],'collaboration');});
   }
   _arrived(a) {
     a.path=[];a.target=null;const state=a.afterTravel;a.afterTravel=null;
@@ -529,17 +587,16 @@ export class PixelWorld {
       this._sayStatus(a.task.status==='failed'?`${(a.name||ROLES[a.role].name)} signale le problème à Oscar. Les fichiers déjà produits sont conservés.`:`${(a.name||ROLES[a.role].name)} remet son résultat à Oscar pour validation.`);
       this._event('handoff',a);
     } else if(state==='review_queue') {a.direction=a.x<REVIEW.x?'right':'left';this._bubble(a,'Mon dossier est prêt.');}
-    else if(state==='waiting_review') {a.direction='up';a.paper=false;if(a.task.status==='needs_review')this._visit(a,'needs_review');this._bubble(a,a.task.status==='needs_review'?'À vérifier':'J’attends le retour.');}
+    else if(state==='waiting_review') {a.paper=false;a.mug=false;if(a.task.status==='needs_review')this._visit(a,'needs_review');this._socialPose(a);this._bubble(a,a.task.status==='needs_review'?'À vérifier':'J’attends le retour.');}
     else if(state==='coffee') {a.direction='left';a.mug=true;a.deadline=this.time+2.5+a.random()*2;this._bubble(a,'Un café bien mérité !');this._event('coffee',a);}
-    else if(state==='lounge'){a.direction=a.x<730?'right':'left';a.mug=false;a.deadline=this.time+4+a.random()*3;this._bubble(a,'On se retrouve ici ?',3);}
-    else if(state==='strolling'){a.direction='down';a.mug=false;a.deadline=this.time+1.5+a.random()*2;this._bubble(a,'Je fais le tour des idées.',3);}
+    else if(state==='lounge'){this._socialPose(a);a.mug=!a.coffeePending&&a.task.status==='approved'&&a.random()>.65;a.deadline=this.time+12+a.random()*8;this._bubble(a,'On se retrouve ici ?',3);}
+    else if(state==='strolling'){this._socialPose(a);a.mug=false;a.deadline=this.time+3+a.random()*2;this._bubble(a,'Je fais le tour des idées.',3);}
     else if(state==='collaboration'){a.direction=a.collaboration?.keys[0]===a.key?'right':'left';a.paper=false;a.mug=false;}
     else if(state==='chat') {
-      a.direction=a.x<730?'right':'left';a.mug=a.random()>.45;a.deadline=this.time+3+a.random()*3;
-      const other=[...this.agents.values()].find(b=>b!==a&&b.state==='chat'&&b.task.status==='approved');
-      this._bubble(a,other?['Joli travail !','Et ta prochaine idée ?','Bien joué, l’équipe !'][Math.floor(a.random()*3)]:'On se retrouve ici ?',3.6);
-      if(other) this._bubble(other,['Merci !','On forme une belle équipe.','Je suis partant !'][Math.floor(a.random()*3)],3.2);
-      this._event('chat',a);
+      const other=this._socialPose(a);a.mug=!a.coffeePending&&a.random()>.45;a.deadline=this.time+12+a.random()*8;
+      const bothApproved=other?.task.status==='approved'&&a.task.status==='approved';
+      this._bubble(a,other?(bothApproved?['Joli travail !','Et ta prochaine idée ?','Bien joué, l’équipe !'][Math.floor(a.random()*3)]:'On regarde ça ensemble ?'):'On se retrouve ici ?',3.6);
+      if(other){this._bubble(other,bothApproved?['Merci !','On forme une belle équipe.','Je suis partant !'][Math.floor(a.random()*3)]:'J’ai une idée à te montrer.',3.2);this._event('chat',a);}
     } else if(state==='resting') {a.direction='down';a.mug=false;a.nextIdleAt=this.time+3+a.random()*4;}
     else if(state==='gone') {a.visible=false;this._releaseReview(a);this.agents.delete(a.key);this._event('exit',a);}
   }
@@ -562,9 +619,12 @@ export class PixelWorld {
     if(!a.visible) return;
     const attempt=taskAttempt(a.task);
     const needsWork=BUSY_TASKS.has(a.task.status);
-    const awayFromWork=['to_oscar','waiting_oscar','to_review_queue','review_queue','handoff','to_review_wait','waiting_review','needs_review','to_coffee','coffee','to_chat','chat','to_lounge','lounge','to_stroll','strolling','resting'].includes(a.state);
-    if(needsWork&&awayFromWork&&(attempt>a.handoffAttempt||a.task.status==='revising')) this._returnToDesk(a);
+    const sameMeetingAttempt=['to_collaboration','collaboration'].includes(a.state)&&a.collaboration?.attempts[a.collaboration.keys.indexOf(a.key)]===attempt&&a.task.status!=='revising';
+    const awayFromWork=['to_oscar','waiting_oscar','to_review_queue','review_queue','handoff','to_review_wait','waiting_review','needs_review','to_coffee','coffee','to_chat','chat','to_lounge','lounge','to_stroll','strolling','resting','to_collaboration','collaboration'].includes(a.state);
+    if(needsWork&&awayFromWork&&!sameMeetingAttempt&&(attempt>a.handoffAttempt||a.task.status==='revising')) this._returnToDesk(a);
     else if(pendingHandoff&&['to_coffee','coffee','to_chat','chat','to_lounge','lounge','to_stroll','strolling','resting','to_collaboration','collaboration'].includes(a.state))this._startReview(a);
+    else if(['reviewing','needs_review'].includes(a.task.status)&&a.handoffAttempts.has(attempt)&&['to_coffee','coffee','to_chat','chat','to_lounge','lounge','to_stroll','strolling','resting'].includes(a.state))this._waitForReview(a);
+    else if(a.task.status==='approved'&&a.handoffAttempts.has(attempt)&&(a.state==='to_review_wait'||a.coffeePending&&SOCIAL_STATES.has(a.state)&&this._coffeePlace(a)>=0))this._startCoffee(a);
     a.lastAttempt=attempt;
     if(TRAVEL_STATES.has(a.state)) {
       let remaining=a.speed*dt;
@@ -588,7 +648,7 @@ export class PixelWorld {
       if(['reviewing','approved','needs_review','failed'].includes(a.task.status)&&this.time-a.workSince>.65) {
         if(!a.handoffAttempts.has(attempt)) this._startReview(a);
         else if(a.task.status==='approved') this._startCoffee(a);
-        else this._travel(a,'to_review_wait',REVIEW_WAIT[a.slot%REVIEW_WAIT.length],'waiting_review');
+        else this._waitForReview(a);
       } else if(a.task.activity&&this.time>a.bubbleUntil+5&&a.random()<.015) this._bubble(a,clipped(a.task.activity));
       return;
     }
@@ -603,7 +663,7 @@ export class PixelWorld {
       if(a.task.status==='failed'){a.paper=false;this._bubble(a,'Oscar a le point à vérifier.');this._travel(a,'leaving',DOOR,'gone');}
       else if(a.task.status==='approved') this._startCoffee(a);
       else if(needsWork) this._returnToDesk(a);
-      else this._travel(a,'to_review_wait',REVIEW_WAIT[a.slot%REVIEW_WAIT.length],'waiting_review');
+      else this._waitForReview(a);
       return;
     }
     if(a.state==='waiting_review'||a.state==='needs_review') {
@@ -611,8 +671,10 @@ export class PixelWorld {
       else if(needsWork) this._returnToDesk(a);
       else if(attempt>a.handoffAttempt) this._startReview(a);
       else if(a.task.status==='needs_review'&&a.state!=='needs_review') {this._visit(a,'needs_review');this._bubble(a,'À vérifier');}
+      else if(this.time>=a.nextSocialAt){const other=this._socialPose(a);if(other&&!this.reducedMotion&&a.random()>.5)this._bubble(a,'On regarde ça ensemble ?',2.8);}
       return;
     }
+    if(['chat','lounge'].includes(a.state)&&this.time>=a.nextSocialAt)this._socialPose(a);
     if(a.state==='coffee'&&this.time>=a.deadline) {a.mug=false;this._startSocial(a);return;}
     if(['chat','lounge','strolling'].includes(a.state)&&this.time>=a.deadline) {a.mug=false;this._startSocial(a);return;}
     if(a.state==='resting'&&a.task.status==='approved'&&this.time>=a.nextIdleAt) {
@@ -684,17 +746,24 @@ export class PixelWorld {
   _updateOscar(dt=0) {
     this._updateCollaborations();
     const visible=[...this.agents.values()].filter(a=>a.visible),live=visible.filter(a=>!a.retiring);
+    const status=this.mission?.status,active=['planning','running','reviewing','assembling'].includes(status);
+    const calls=this.mission?.performance?.calls;
+    const managerCall=active&&Array.isArray(calls)&&calls.some(call=>call?.agent==='Oscar'&&['review','assembly','final-review'].includes(call.stage)&&call.status==='running'&&call.durationMs==null);
     const review=!!this._reviewOwner||visible.some(a=>this._pendingDelivery(a)||REVIEW_STATES.has(a.state)&&!BUSY_TASKS.has(a.task.status))||this.mission?.tasks?.some(t=>t.status==='reviewing');
-    if(review) this.oscarState='reviewing';
-    else if(this.mission?.status==='planning') this.oscarState='planning';
-    else if(this.mission?.status==='completed'&&this.time<this._oscarBubbleUntil) this.oscarState='celebrating';
-    else if(['running','reviewing'].includes(this.mission?.status)) this.oscarState='coordinating';
+    // A terminal mission may still contain a historical pending measurement or
+    // a colleague waiting for attention. Keep Oscar available at his desk,
+    // without pretending that a completed/rejected delivery is still running.
+    if(status==='completed')this.oscarState=this.time<this._oscarBubbleUntil?'celebrating':'idle';
+    else if(status==='needs_review')this.oscarState='idle';
+    else if(review||managerCall||['reviewing','assembling'].includes(status)) this.oscarState='reviewing';
+    else if(status==='planning') this.oscarState='planning';
+    else if(active) this.oscarState='coordinating';
     else this.oscarState='idle';
     const a=this.oscar;
-    const busy=['planning','running','reviewing'].includes(this.mission?.status)||review;
-    if(review)this._oscarRoute('desk',OSCAR_HOME);
+    const busy=active||review;
+    const deskRequired=review||managerCall||['planning','reviewing','assembling','completed','needs_review'].includes(status);
+    if(deskRequired)this._oscarRoute('desk',OSCAR_HOME);
     else if(!this.mission)this._oscarRoute('welcome',OSCAR_WELCOME);
-    else if(['planning','reviewing'].includes(this.mission.status))this._oscarRoute('desk',OSCAR_HOME);
     else if(busy&&a.place==='desk'&&this.time>=a.nextVisitAt){const workers=live.filter(x=>BUSY_TASKS.has(x.task.status)&&x.state==='working');if(workers.length){const role=workers[a.visits%workers.length].role;this._oscarRoute('visit',OSCAR_VISITS[role]);}else a.nextVisitAt=this.time+2;}
     else if(a.place==='visit'&&this.time>=a.visitUntil)this._oscarRoute('desk',OSCAR_HOME);
     else if(busy&&a.place==='welcome')this._oscarRoute('desk',OSCAR_HOME);
@@ -719,7 +788,7 @@ export class PixelWorld {
     this.ctx.imageSmoothingEnabled=true;if(this._background)this._draw();
   }
   _hit(p) {
-    const agents=[...this.agents.values()].filter(a=>a.visible).sort((a,b)=>b.y-a.y);
+    const agents=[...this.agents.values()].filter(a=>a.visible&&!a.retiring&&a.missionId===this.missionId).sort((a,b)=>b.y-a.y);
     for(const a of agents) if(Math.abs(p.x-a.x)<27&&p.y>a.y-82&&p.y<a.y+32) return a;
     if(Math.abs(p.x-1160)<30&&p.y>=174&&p.y<=267||p.x>=1078&&p.x<=1253&&p.y>=255&&p.y<=313)return {role:'secretaire',name:'Zoé',id:null,type:'secretary'};
     if(Math.abs(p.x-this.oscar.x)<34&&p.y>this.oscar.y-90&&p.y<this.oscar.y+25)return {role:'oscar',id:null};
@@ -749,7 +818,7 @@ export class PixelWorld {
     else if(a.state==='coffee')text='Un café bien mérité !';
     else if(a.task?.status==='blocked')text='J’attends une contribution.';
     else if(a.task?.status==='queued')text=a.task.dependsOn?.length?'J’attends une contribution.':'J’attends mon tour.';
-    else if(a.task?.status==='reviewing') text='Oscar lit. Je retiens ma tasse.';
+    else if(a.task?.status==='reviewing') text='J’attends le retour.';
     else if(['revising','needs_review'].includes(a.task?.status)) text='Je corrige. Le café attendra.';
     else if(a.task?.status==='approved') text=['Validé ! Mon café aussi.','Mission validée. Sourire aussi.','Le vrai livrable ? L’équipe.'][n%3];
     else text={recherche:'Je cherche, pas la cafetière.',redaction:'Les mots sont bien alignés.',code:'Ça compile dans ma tête.',design:'Un dernier détail, promis.',analyse:'J’ai même compté les sourires.'}[a.role]||'Toujours sur la mission !';
@@ -764,7 +833,7 @@ export class PixelWorld {
     if(this._selectionTimer!==null) clearTimeout(this._selectionTimer);
     this._selectionTimer=setTimeout(()=>{
       this._selectionTimer=null;
-      if(!this._destroyed&&(a.role==='oscar'||this.agents.has(key))) this.onSelect(a.role,a.id,a.role==='oscar'?text:null);
+      if(!this._destroyed&&(a.role==='oscar'||this.agents.has(key)&&!a.retiring&&a.missionId===this.missionId)) this.onSelect(a.role,a.id,a.role==='oscar'?text:null);
     },this.reducedMotion?80:180);
   }
   _select(event) {
@@ -1078,6 +1147,7 @@ export class PixelWorld {
   _sprite(c,actor,oscar=false) {
     const info=ROLES[actor.role]||ROLES.recherche,reaction=this._reactions.get(actor.key||'oscar'),reacting=!!reaction&&reaction.until>this.time;
     const moving=TRAVEL_STATES.has(actor.state),working=['working','planning','coordinating','reviewing'].includes(actor.state);
+    const conversing=!this.reducedMotion&&(actor.state==='collaboration'||SOCIAL_STATES.has(actor.state)&&this.time<actor.socialGestureUntil);
     const variant=actor.roleIndex||0,walk=moving&&!this.reducedMotion?Math.sin(this.time*9+variant):0;
     const jump=reacting&&reaction.kind==='jump'&&!this.reducedMotion?Math.max(0,Math.sin((this.time-reaction.start)*Math.PI*3))*8:0;
     const phase=(hash(actor.id||'oscar')%100)/13;
@@ -1114,7 +1184,7 @@ export class PixelWorld {
         else {this._ellipse(c,sx+dx,-52,2.1,2.7,'#314d3d');this._ellipse(c,sx+dx-.4,-52.8,.65,.8,'#fffaf0');}
       }
       this._ellipse(c,-9+dx,-47,3,1.6,'#d9957e50');this._ellipse(c,9+dx,-47,3,1.6,'#d9957e50');
-      if(this.speakingRole===actor.role&&!this.reducedMotion){this._ellipse(c,dx,-42,3.4,1.8+Math.abs(Math.sin(this.time*13))*2,'#98634f');}
+      if((this.speakingRole===actor.role||conversing)&&!this.reducedMotion){this._ellipse(c,dx,-42,conversing?2.5:3.4,1.2+Math.abs(Math.sin(this.time*(conversing?7:13)+phase))*1.7,'#98634f');}
       else{c.beginPath();c.moveTo(-3+dx,-43);c.quadraticCurveTo(dx,working?-41.5:-39.7,4+dx,-43);c.strokeStyle='#98634f';c.lineWidth=1.5;c.lineCap='round';c.stroke();}
       if((variant%4===0||actor.role==='secretaire')&&!oscar){for(const sx of [-6,6]){c.beginPath();c.ellipse(sx+dx,-52,5,4,0,0,Math.PI*2);c.strokeStyle='#60776a';c.lineWidth=1.65;c.stroke();}this._line(c,-1+dx,-52,1+dx,-52,'#60776a',1.5);}
       if(variant%4===2&&!oscar){c.beginPath();c.moveTo(-11,-44);c.quadraticCurveTo(0,-31,11,-44);c.quadraticCurveTo(0,-38,-11,-44);c.fillStyle=`${hair}85`;c.fill();}
@@ -1125,7 +1195,7 @@ export class PixelWorld {
     if(actor.paper){c.save();c.translate(left?-24:20,-26);c.rotate(left?-.15:.12);this._shadow(c,()=>this._round(c,-7,-12,16,24,3,'#fff8ea'),3,1);this._line(c,-3,-6,5,-6,'#a2b7a0',1.4);this._line(c,-3,-1,4,-1,'#bbc9b0',1.4);c.restore();}
     if(actor.mug){const mx=left?-23:21;this._round(c,mx-6,-26,12,14,5,oscar?'#d5b187':info.shirt);this._ellipse(c,mx,-26,5,2,'#f5e8d3');c.beginPath();c.arc(mx+6,-20,4,-Math.PI/2,Math.PI/2);c.strokeStyle=info.shirt;c.lineWidth=3;c.stroke();}
     if(reacting&&reaction.kind==='wave'){const wave=this.reducedMotion?0:Math.sin((this.time-reaction.start)*13)*2;this._line(c,12,-31,23,-45,info.shirt,6);this._line(c,23,-45,22+wave,-55,skin,5);this._ellipse(c,22+wave,-57,3.5,4,skin);}
-    if(actor.state==='collaboration'&&!this.reducedMotion){const side=left?-1:1,talk=Math.sin(this.time*3+variant)*2;this._line(c,side*13,-31,side*25,-33+talk,skin,5);this._ellipse(c,side*26,-33+talk,3.3,3,skin);}
+    if(conversing){const side=left?-1:1,talk=Math.sin(this.time*3+variant)*2;this._line(c,side*13,-31,side*25,-33+talk,skin,5);this._ellipse(c,side*26,-33+talk,3.3,3,skin);}
     if(actor.state==='chat'&&!this.reducedMotion&&Math.floor(this.time*2+variant)%8===0)this._heart(c,27,-68,P.coral);
     if(actor.state==='coffee'&&!this.reducedMotion){c.beginPath();c.moveTo(22,-31);c.bezierCurveTo(15,-37,28,-39,22,-44);c.strokeStyle='#fff9ea90';c.lineWidth=1.7;c.stroke();}
     c.restore();

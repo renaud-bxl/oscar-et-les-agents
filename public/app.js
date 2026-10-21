@@ -19,6 +19,8 @@ import { CharacterLines } from '/character-lines.js';
 import { DictationDialog } from '/dictation-dialog.js';
 import { OfficeTheme } from '/office-theme.js';
 import { MissionTiming } from '/mission-timing.js';
+import { DeliveryProgress } from '/delivery-progress.js';
+import { DeliveryPreview, ResultPreviewDialog, deliveryPreviewCandidate } from '/delivery-preview.js';
 import { CalendarEventDialog,calendarCommand,calendarQuestion } from '/calendar-event-dialog.js';
 import { DraftStorage, draftScope } from '/draft-storage.js';
 'use strict';
@@ -71,6 +73,7 @@ let missionWizard = null;
 let coffeeDialog = null;
 let welcomeGuide = null;
 let publicationDialog = null;
+let resultPreviewDialog=null,deliveryPanelPreview=null;
 let officeSpeech = null;
 let clockDialog = null;
 let creativeStudio = null;
@@ -110,6 +113,7 @@ let lastNarrated = null;
 let statusTimer = null;
 let activePanel = null;
 const missionTiming = new MissionTiming({container:$('mission-timing'),isVisible:()=>activePanel==='progress'});
+const deliveryProgress = new DeliveryProgress({container:$('delivery-progress-host'),isVisible:()=>!document.querySelector('dialog[open]'),onOpen:panel=>openPanel(panel)});
 let panelReturnFocus = null;
 let memberReturnPanel = null;
 let memberReturnFocus = null;
@@ -358,7 +362,7 @@ function renderScene() {
   $('pixel-mode').textContent = mission?.provider === 'demo' ? 'VISITE SIMULÉE' : busy ? 'EN MISSION' : 'BUREAU OUVERT';
   const pill = $('scene-live');
   pill.classList.toggle('busy',busy);
-  pill.lastChild.textContent = busy ? ' Au travail' : mission?.status === 'completed' ? ' Mission livrée' : ' Prêt à recruter';
+  pill.lastChild.textContent = busy ? ' Au travail' : mission?.status === 'completed' ? ' Mission livrée' : mission?.status === 'failed' ? ' Mission interrompue' : mission?.status === 'cancelled' ? ' Mission arrêtée' : mission?.status === 'needs_review' ? ' Livraison à vérifier' : ' Prêt à recruter';
   $('scene-caption').textContent = busy ? mission.phase || missionStatus[mission.status] : mission?.status === 'completed' ? 'Les rapports sont rendus. Une pause café bien méritée.' : 'Oscar attend votre mission pour faire venir les bons spécialistes.';
 }
 
@@ -454,16 +458,20 @@ function renderEvents() {
   if(nearBottom) list.scrollTop=list.scrollHeight;
 }
 function renderDeliveries() {
+  $('delivery-folder-card').hidden=!mission;
+  $('delivery-folder-path').textContent=mission?.workDirectory||mission?.folderName||'';
+  const previewCandidate=deliveryPreviewCandidate(mission);$('delivery-view-result').hidden=!previewCandidate||isRunning(mission);$('delivery-view-result').textContent=previewCandidate?.kind==='browser'?'Lancer le jeu ou le site ↗':'Voir le résultat ↗';
   const files=mission?.files || [];
   const reports=(mission?.tasks || []).filter(t=>t.report);
   const result=mission?.result;
   $('open-work-folder').hidden=!mission;
-  $('review-completion').hidden=!mission||!['completed','needs_review'].includes(mission.status);
+  $('review-completion').hidden=!mission||!['completed','needs_review','failed','cancelled'].includes(mission.status);
   $('reuse-mission').hidden=!mission||mission.assistant===true;
   $('download-archive').hidden=!mission||isRunning(mission);
   $('download-archive').disabled=Boolean(archiveDownload);
   const signature=JSON.stringify([mission?.id,mission?.status,mission?.provider,mission?.error,files,result,reports.map(t=>[t.id,t.title,t.agentName,t.report,t.review])]);
   if($('file-list').dataset.signature===signature)return;$('file-list').dataset.signature=signature;
+  if(deliveryPanelPreview){if(!isRunning(mission)&&deliveryPreviewCandidate(mission)?.kind==='image')deliveryPanelPreview.open(mission);else{deliveryPanelPreview.cleanup();deliveryPanelPreview.root.hidden=true;}}
   $('delivery-empty').hidden=!!(result || files.length || reports.length || mission?.error);
   $('result-summary').hidden=!result;
   $('result-content').textContent=typeof result === 'string' ? result : result ? JSON.stringify(result,null,2) : '';
@@ -476,7 +484,7 @@ function renderDeliveries() {
     const link=node('a','file-link');
     link.href=`/api/missions/${encodeURIComponent(mission.id)}/files/${file.path.split('/').map(encodeURIComponent).join('/')}`;
     const deliveredMission=mission;
-    link.addEventListener('click',event=>{event.preventDefault();closeOfficePanel({restoreFocus:false});artifactViewer?.open(deliveredMission,file);});
+    link.addEventListener('click',event=>{event.preventDefault();closeOfficePanel({restoreFocus:false});if(/(?:^|\/)index\.html$/u.test(file.path)&&!isRunning(deliveredMission))resultPreviewDialog.open(deliveredMission,{entry:file.path});else artifactViewer?.open(deliveredMission,file);});
     link.append(node('i','','▤'));
     const text=node('span');
     const fileName=node('strong','',file.path);fileName.setAttribute('data-no-translate','');text.append(fileName,node('small','',Number.isFinite(file.size) ? file.size < 1024 ? `${file.size} octets` : `${Math.round(file.size/1024)} Ko` : 'Fichier de la mission'));
@@ -497,8 +505,8 @@ function renderDeliveries() {
   }
 }
 function renderMission() {
-  missionTiming.update(mission);
-  $('publish-project').hidden=!mission;
+  missionTiming.update(mission);deliveryProgress.update(mission);
+  $('publish-project').hidden=!mission||mission.status!=='completed'||mission.provider==='demo';
   $('publish-project').disabled=!mission||isRunning(mission);
   $('demo-banner').hidden=mission?.provider !== 'demo';
   $('mission-placeholder').hidden=!!mission;
@@ -518,7 +526,7 @@ function completionKey(item){return `${item.id}:${item.status}`;}
 function observeCompletion(){
   if(!mission)return;
   const previous=completionStatuses.get(mission.id);completionStatuses.set(mission.id,mission.status);
-  if(previous&&['planning','running','reviewing'].includes(previous)&&['completed','needs_review'].includes(mission.status)){
+  if((!previous||['planning','running','reviewing'].includes(previous))&&['completed','needs_review','failed','cancelled'].includes(mission.status)){
     let seen=false;try{seen=localStorage.getItem(`oscar-delivery:${completionKey(mission)}`)==='seen';}catch{}
     if(!seen){pendingCompletions.set(mission.id,mission);scheduleCompletion();}
   }
@@ -529,7 +537,8 @@ function scheduleCompletion(){clearTimeout(completionTimer);completionTimer=setT
   pendingCompletions.delete(item.id);try{localStorage.setItem(`oscar-delivery:${completionKey(item)}`,'seen');}catch{}
   completionDialog.open(item);
 },100);}
-document.addEventListener('close',scheduleCompletion,true);
+document.addEventListener('close',()=>{scheduleCompletion();deliveryProgress.refresh();},true);
+const progressVisibilityObserver=new MutationObserver(()=>deliveryProgress.refresh());progressVisibilityObserver.observe(document.body,{subtree:true,attributes:true,attributeFilter:['open']});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleCompletion();});
 function narrateMission(){
   if(!mission){lastNarrated=null;return;}
@@ -538,6 +547,7 @@ function narrateMission(){
   if(!previous||previous.id!==next.id||!officeSpeech)return;
   if(next.status!==previous.status&&next.status==='completed')officeSpeech.speak('oscar','La mission est livrée ! J’ai assemblé les résultats de l’équipe. Vous pouvez ouvrir les fichiers dans Livraison.',{automatic:true});
   else if(next.status!==previous.status&&next.status==='needs_review')officeSpeech.speak('oscar','Un point demande votre attention. Ouvrez le suivi : je vous explique ce qui reste à vérifier.',{automatic:true});
+  else if(next.status!==previous.status&&['failed','cancelled'].includes(next.status))officeSpeech.speak('oscar',next.status==='failed'?'La mission a rencontré un problème. Les fichiers sont conservés ; ouvrez le bilan pour voir ce qui manque.':'La mission a été arrêtée. Les fichiers déjà produits restent disponibles dans son dossier.',{automatic:true});
   else if(next.tasks>previous.tasks){const roles=[...new Set((mission.tasks||[]).map(t=>translate(getRole(t.role).label)))].join(', ');officeSpeech.speak('oscar',`${translate('Je recrute l’équipe :')} ${roles}. ${translate('Chaque spécialiste reçoit une tâche. Je relirai leurs résultats avant la livraison.')}`,{automatic:true,interrupt:false});}
   else if(next.status!==previous.status&&next.status==='reviewing')officeSpeech.speak('oscar','L’équipe m’a rendu ses dossiers. Je vérifie les résultats et je prépare votre livraison.',{automatic:true});
   else if(next.approved>previous.approved)officeSpeech.speak('oscar','De nouvelles contributions sont validées. L’équipe avance ; vous pouvez suivre les détails dans le suivi.',{automatic:true,interrupt:false});
@@ -749,7 +759,7 @@ $('pixel-fullscreen').addEventListener('click',async()=>{try{if(document.fullscr
 document.querySelectorAll('[data-prompt]').forEach(button=>button.addEventListener('click',()=>{$('mission-input').value=translate(button.dataset.prompt);saveBriefDraft();$('mission-input').focus();}));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshState();});
 window.addEventListener('online',refreshState);
-window.addEventListener('beforeunload',()=>{officeTheme.destroy();missionTiming.destroy();archiveDownload?.abort();clearTimeout(statusTimer);clearTimeout(completionTimer);clearTimeout(weatherTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();dictationDialog?.destroy();documentLibrary?.destroy();personalizationDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
+window.addEventListener('beforeunload',()=>{officeTheme.destroy();missionTiming.destroy();deliveryProgress.destroy();progressVisibilityObserver.disconnect();resultPreviewDialog?.destroy();deliveryPanelPreview?.destroy();archiveDownload?.abort();clearTimeout(statusTimer);clearTimeout(completionTimer);clearTimeout(weatherTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();dictationDialog?.destroy();documentLibrary?.destroy();personalizationDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
 
 coffeeDialog = new CoffeeDialog({recipient:'renaud2005@gmail.com'});
 clockDialog=new ClockDialog({onClose:()=>returnFromUtility(clockDialog)});
@@ -768,10 +778,14 @@ connectorsDialog=new ConnectorsDialog({onDictate:target=>dictateInto(target),req
 automationsDialog=new AutomationsDialog({onDictate:target=>dictateInto(target),request,getState:()=>state,onClose:()=>returnFromUtility(automationsDialog),onMission:id=>{automationsDialog.close();selectMission(id);openPanel('progress');}});
 artifactViewer=new ArtifactViewer({request,onClose:()=>openPanel('delivery')});
 const openWorkFolder=id=>request(`/api/missions/${encodeURIComponent(id)}/open-folder`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-completionDialog=new CompletionDialog({avatar:()=>portrait('oscar'),onFolder:openWorkFolder,onFile:(item,file)=>artifactViewer.open(item,file),onDelivery:async item=>{if(selectedId!==item.id)await selectMission(item.id);openPanel('delivery');},onNew:()=>newMission(),onImprove:item=>{newMission();$('mission-input').value=`${translate('Améliore la mission précédente :')} ${item.title||item.prompt}\n${translate('Dossier du travail précédent :')} ${item.workDirectory||item.folderName||''}\n${translate('Examine les fichiers existants, propose les améliorations utiles et vérifie le résultat. Garde les originaux et livre les nouvelles versions dans cette nouvelle mission.')}`;saveBriefDraft();},onClose:scheduleCompletion});
+deliveryPanelPreview=new DeliveryPreview({container:$('delivery-panel-preview'),request});deliveryPanelPreview.root.hidden=true;
+resultPreviewDialog=new ResultPreviewDialog({request,onFolder:openWorkFolder,onPublish:publishResult,onClose:scheduleCompletion});
+completionDialog=new CompletionDialog({onView:viewResult,onPublish:publishResult,createPreview:(container,item)=>{const preview=new DeliveryPreview({container,request});preview.open(item);return preview;},avatar:()=>portrait('oscar'),onFolder:openWorkFolder,onFile:(item,file)=>/(?:^|\/)index\.html$/u.test(file.path)?resultPreviewDialog.open(item,{entry:file.path}):artifactViewer.open(item,file),onDelivery:async item=>{if(selectedId!==item.id)await selectMission(item.id);openPanel('delivery');},onNew:()=>newMission(),onImprove:item=>{newMission();$('mission-input').value=`${translate('Améliore la mission précédente :')} ${item.title||item.prompt}\n${translate('Dossier du travail précédent :')} ${item.workDirectory||item.folderName||''}\n${translate('Examine les fichiers existants, propose les améliorations utiles et vérifie le résultat. Garde les originaux et livre les nouvelles versions dans cette nouvelle mission.')}`;saveBriefDraft();},onClose:scheduleCompletion});
 const calendarEventDialog=new CalendarEventDialog({request,onDictate:target=>dictateInto(target)});
 secretaryDialog=new SecretaryDialog({request,onCalendarEvent:options=>calendarEventDialog.open(options),getState:()=>state,getProfile:()=>personalContext.profile||{},onDictate:target=>dictateInto(target),onMission:async id=>{await selectMission(id);openPanel('progress');},onAutomations:()=>automationsDialog.open(),onConnectors:()=>connectorsDialog.open(),onActivity:activity=>pixelWorld?.setSecretaryActivity(activity.busy)});
 $('open-secretary').addEventListener('click',()=>openSecretary());
+$('delivery-folder-open').addEventListener('click',async()=>{if(!mission)return;try{await openWorkFolder(mission.id);}catch(error){showError(error.message);}});
+$('delivery-view-result').addEventListener('click',()=>{if(mission)viewResult(mission);});
 $('open-work-folder').addEventListener('click',async()=>{if(!mission)return;try{await openWorkFolder(mission.id);}catch(error){showError(error.message);}});
 $('download-archive').addEventListener('click',async()=>{
   if(!mission||isRunning(mission)||archiveDownload)return;
@@ -792,8 +806,21 @@ $('reuse-mission').addEventListener('click',()=>{if(!mission||mission.assistant)
 for(const id of ['open-connectors','settings-connectors'])$(id).addEventListener('click',()=>openUtility(connectorsDialog));
 for(const id of ['open-automations','settings-automations'])$(id).addEventListener('click',()=>openUtility(automationsDialog));
 $('dismiss-office-status').addEventListener('click',hideWorldStatus);
+async function viewResult(item){
+  closeOfficePanel({restoreFocus:false});
+  const candidate=deliveryPreviewCandidate(item);
+  if(candidate?.kind==='browser')return resultPreviewDialog.open(item);
+  if(candidate)return artifactViewer.open(item,candidate.file);
+  if(selectedId!==item.id)await selectMission(item.id);openPanel('delivery');
+}
+async function publishResult(item,entry){
+  if(item.status!=='completed')return;
+  if(selectedId!==item.id)await selectMission(item.id);
+  const candidate=deliveryPreviewCandidate(item),automatic=candidate?.kind==='browser'?candidate.file.path.split('/').slice(0,-1).join('/')||'.':undefined;
+  closeOfficePanel({restoreFocus:false});return publicationDialog.open({entry:entry??automatic});
+}
 publicationDialog=new PublicationDialog({request,getMission:()=>mission,onClose:()=>openPanel('delivery')});
-$('publish-project').addEventListener('click',()=>{closeOfficePanel({restoreFocus:false});publicationDialog.open();});
+$('publish-project').addEventListener('click',()=>{if(mission)publishResult(mission);});
 missionWizard = new MissionWizard($('mission-wizard-host'), {
   onDictate:target=>dictateInto(target),
   onComplete: async (prompt) => {

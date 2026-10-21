@@ -38,6 +38,17 @@ test('another office tab can update the preference without creating a write loop
   f.window.dispatchEvent(Object.assign(new Event('storage'),{key:OFFICE_THEME_STORE,newValue:null}));assert.equal(f.theme.mode,'auto');assert.equal(f.theme.theme,'light');f.theme.destroy();const count=f.events.length;f.window.dispatchEvent(event);assert.equal(f.events.length,count);
 });
 
+test('navigation cleanup calls browser timers with their global receiver and detaches listeners once',t=>{
+  const f=fixture();f.theme.destroy();const originalSet=globalThis.setInterval,originalClear=globalThis.clearInterval,cleared=[];let tick;
+  t.after(()=>{globalThis.setInterval=originalSet;globalThis.clearInterval=originalClear;});
+  globalThis.setInterval=function(callback,delay){assert.equal(this,globalThis,'browser timer requires its Window receiver');assert.equal(delay,60000);tick=callback;return 73;};
+  globalThis.clearInterval=function(id){assert.equal(this,globalThis,'native clearInterval must not receive the OfficeTheme instance');cleared.push(id);};
+  const theme=new OfficeTheme({document:f.document,window:f.window,storage:{getItem:()=> 'light'},now:()=>at(12)});
+  assert.doesNotThrow(()=>theme.destroy());assert.doesNotThrow(()=>theme.destroy());assert.deepEqual(cleared,[73]);assert.equal(theme.timer,null);
+  const eventCount=f.events.length;f.window.dispatchEvent(Object.assign(new Event('storage'),{key:OFFICE_THEME_STORE,newValue:'dark'}));f.document.dispatchEvent(new Event('visibilitychange'));tick();
+  assert.equal(theme.mode,'light');assert.equal(f.events.length,eventCount,'closed themes cannot react to stale timers or window events');
+});
+
 test('the first-paint bootstrap agrees with the live theme and never needs storage permission',async()=>{
   const script=await readFile(new URL('../public/office-theme-init.js',import.meta.url),'utf8');
   for(const mode of ['auto','light','dark','invalid'])for(const hour of [0,7,8,19,20,23]){
