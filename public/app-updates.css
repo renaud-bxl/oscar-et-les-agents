@@ -1,0 +1,35 @@
+.app-updates-notice[hidden],.app-updates-card [hidden],.app-updates-dialog [hidden]{display:none!important}
+.app-updates-notice{position:fixed;z-index:27;left:50%;top:116px;transform:translateX(-50%);box-sizing:border-box;display:flex;align-items:center;gap:12px;width:max-content;max-width:min(610px,calc(100vw - 36px));padding:12px 14px 12px 18px;border:1px solid #bdd3c3;border-radius:14px;background:#fffff7f5;color:#3e5e49;box-shadow:0 8px 24px #29483118;font-size:12px;line-height:1.5}
+.app-updates-notice-copy{min-width:0;overflow-wrap:anywhere}
+.app-updates-notice button{flex:0 0 auto;min-height:34px;padding:7px 10px;border:1px solid #b5cfbc;border-radius:8px;background:#e9f2e9;color:#355a41;font:inherit;cursor:pointer;line-height:1.4}
+.app-updates-notice .app-updates-dismiss{font-size:21px;padding:0 7px;min-height:30px;background:transparent;border-color:transparent;color:#68816c}
+.app-updates-card{box-sizing:border-box;margin:0 0 25px;padding:22px;border:1px solid #d4dfd2;border-radius:16px;background:linear-gradient(145deg,#f8faf2,#fffffc);color:#35553e;min-width:0}
+.app-updates-card h3{font-size:17px;margin:0 0 9px;line-height:1.4;letter-spacing:-.4px}
+.app-updates-status{font-size:13px;line-height:1.65;margin:0 0 18px;color:#52715a;overflow-wrap:anywhere}
+.app-updates-metadata{display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:12px;margin:0 0 19px;padding:14px 0;border-block:1px solid #dde6d8}
+.app-updates-metadata>div{display:flex;flex-direction:column;gap:6px;min-width:0}.app-updates-metadata dt{font-size:10px;color:#72826c;line-height:1.5}.app-updates-metadata dd{font-size:12px;line-height:1.5;font-weight:600;margin:0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.app-updates-source,.app-updates-preserve{font-size:11px;line-height:1.7;color:#6d7e66;margin:11px 0;overflow-wrap:anywhere}
+.app-updates-link{display:inline-block;min-height:25px;font-size:11px;line-height:1.65;color:#4a7591;margin:3px 0;text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}
+.app-updates-busy,.app-updates-warning{font-size:12px;line-height:1.7;background:#fff5d9;color:#806524;border:1px solid #ead9a4;border-radius:9px;padding:11px 14px;margin:14px 0;overflow-wrap:anywhere}.app-updates-busy{padding-left:29px}
+.app-updates-error{font-size:12px;line-height:1.7;color:#925736;background:#fff0e6;border:1px solid #e3c1a9;border-radius:9px;padding:11px 13px;overflow-wrap:anywhere;margin:13px 0}
+.app-updates-notes{padding:13px 0;margin:11px 0;border-top:1px solid #dde6d8}.app-updates-notes summary{font-size:12px;font-weight:600;cursor:pointer;line-height:1.6}.app-updates-notes pre{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:11px;line-height:1.75;color:#5f735a;padding:12px;border-radius:9px;background:#eff4eb;margin:12px 0 9px}
+.app-updates-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:17px}
+.app-updates-actions button{display:inline-flex;justify-content:center;align-items:center;gap:7px;flex:1 1 160px;min-height:43px;padding:11px 15px;border:1px solid #b5cdb6;border-radius:10px;background:#f5f8ef;color:#49664a;font:inherit;font-size:12px;line-height:1.5;cursor:pointer}
+.app-updates-actions .app-updates-install,.app-updates-actions .app-updates-reload{color:#fff;background:#52795b;border-color:#52795b;font-weight:600}
+:is(.app-updates-notice,.app-updates-card,.app-updates-dialog) button:disabled{opacity:.55;cursor:default}
+:is(.app-updates-notice,.app-updates-card,.app-updates-dialog) :is(button,a,summary):focus-visible{outline:3px solid #4d839e;outline-offset:4px}
+.app-updates-dialog{box-sizing:border-box;width:min(550px,calc(100vw - 30px));max-height:calc(100dvh - 36px);padding:28px;border:1px solid #c7d8c5;border-radius:22px;background:#fbfdf6;color:#35533c;box-shadow:0 20px 75px #203c3e40;overflow:auto}
+.app-updates-dialog::backdrop{background:#1a303da8}
+.app-updates-dialog h2{font-size:25px;letter-spacing:-.6px;line-height:1.35;margin:0 0 10px}.app-updates-confirm-version{display:inline-flex;font-size:13px;color:#507353;border:1px solid #c4d7be;background:#eff5e8;padding:6px 10px;border-radius:9px;margin-bottom:8px}
+.app-updates-dialog>p:not(.app-updates-warning):not(.app-updates-error){font-size:13px;line-height:1.75;color:#61765b;margin:10px 0}
+:root[data-office-theme="dark"] :is(.app-updates-notice,.app-updates-card,.app-updates-dialog){background:var(--night-panel,#172531);color:var(--night-ink,#e8f0f5);border-color:var(--night-line,#405766)}
+:root[data-office-theme="dark"] :is(.app-updates-status,.app-updates-source,.app-updates-preserve,.app-updates-dialog>p:not(.app-updates-warning):not(.app-updates-error)){color:var(--night-muted,#b0c2ce)}
+:root[data-office-theme="dark"] .app-updates-metadata,:root[data-office-theme="dark"] .app-updates-notes{border-color:var(--night-line,#405766)}
+:root[data-office-theme="dark"] .app-updates-metadata dt{color:var(--night-muted,#b0c2ce)}
+:root[data-office-theme="dark"] .app-updates-notes pre{background:var(--night-surface,#20323f);color:var(--night-ink,#e8f0f5)}
+:root[data-office-theme="dark"] .app-updates-link{color:#a9d4ef}
+:root[data-office-theme="dark"] .app-updates-confirm-version{background:#2c463b;color:#d0e8c8;border-color:#658168}
+:root[data-office-theme="dark"] .app-updates-actions button,:root[data-office-theme="dark"] .app-updates-notice button{background:var(--night-raised,#31566c);color:var(--night-ink,#e8f0f5);border-color:var(--night-line,#405766)}
+:root[data-office-theme="dark"] .app-updates-actions .app-updates-install,:root[data-office-theme="dark"] .app-updates-actions .app-updates-reload{background:#3c6d53;border-color:#7b9b80;color:#fff}
+@media(max-width:600px){.app-updates-notice{top:108px;gap:7px;max-width:calc(100vw - 24px);padding:11px 10px 11px 13px;font-size:11px}.app-updates-notice button{font-size:10px;padding:7px;max-width:105px}.app-updates-card{padding:17px}.app-updates-metadata{grid-template-columns:1fr 1fr;gap:15px}.app-updates-metadata>div:last-child{grid-column:1/-1}.app-updates-dialog{padding:22px}.app-updates-dialog h2{font-size:23px}}
+@media(prefers-reduced-motion:reduce){.app-updates-notice,.app-updates-dialog{animation:none;transition:none}}

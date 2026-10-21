@@ -171,7 +171,8 @@ if [ -f "$0" ]; then
   oscar_script_dir=$(CDPATH= cd -P "$(dirname "$0")" && pwd)
   if oscar_valid_source "$oscar_script_dir"; then oscar_source=$oscar_script_dir; fi
 fi
-if [ -z "$oscar_source" ] && oscar_valid_source "$PWD"; then oscar_source=$PWD; fi
+# A piped online installer always downloads the current source. Reusing PWD
+# here would silently reinstall an old version when run from its own folder.
 if [ -z "$oscar_source" ]; then
   printf '\n%s\n' 'Téléchargement de Oscar et les agents…'
   oscar_download 'https://codeload.github.com/renaud-bxl/oscar-et-les-agents/tar.gz/refs/heads/main' "$oscar_temp/source.tar.gz"
@@ -179,6 +180,27 @@ if [ -z "$oscar_source" ]; then
   tar -xzf "$oscar_temp/source.tar.gz" -C "$oscar_temp/source" --strip-components=1 || oscar_fail 'Impossible de décompresser le logiciel.'
   oscar_source="$oscar_temp/source"
   oscar_valid_source "$oscar_source" || oscar_fail 'Le téléchargement ne contient pas une installation valide.'
+fi
+
+# Older releases do not have the in-app update handshake. A manual reinstall
+# must never overwrite their live modules, even when no mission is running.
+if oscar_valid_source "$oscar_dir"; then
+  "$oscar_node" --input-type=module - "${PORT:-4850}" <<'CHECK_RUNNING'
+const port=Number(process.argv[2]);
+if(!Number.isInteger(port)||port<1||port>65535)throw new Error('Le port choisi est invalide.');
+const {createConnection}=await import('node:net');
+const listening=await new Promise((resolve,reject)=>{
+  const socket=createConnection({host:'127.0.0.1',port});
+  socket.setTimeout(1500);
+  socket.once('connect',()=>{socket.destroy();resolve(true);});
+  socket.once('error',error=>{socket.destroy();if(error.code==='ECONNREFUSED')resolve(false);else reject(error);});
+  socket.once('timeout',()=>{socket.destroy();reject(new Error('Impossible de vérifier si le bureau est fermé. Aucun fichier n’a été remplacé.'));});
+});
+if(listening){
+  console.error('Un bureau ou un service est encore ouvert sur ce port. Utilisez la mise à jour dans les réglages d’Oscar, ou terminez les missions puis fermez son serveur avant de relancer cette installation. Aucun fichier du logiciel n’a été remplacé.');
+  process.exit(1);
+}
+CHECK_RUNNING
 fi
 
 printf '\n%s\n' 'Mise en place du bureau ; vos missions existantes sont conservées…'

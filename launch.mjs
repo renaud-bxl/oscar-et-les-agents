@@ -3,6 +3,8 @@ import { openSync, closeSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import os from 'node:os';
+import { assertUpdateStartup } from './lib/update-startup.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
 process.env.PATH=[path.join(root,'.runtime','bin'),path.join(root,'.tools','node_modules','.bin'),process.env.PATH || ''].join(path.delimiter);
 const port=Number(process.env.PORT ?? 4850);
@@ -11,6 +13,8 @@ async function ready() {
   try { const r=await fetch(url+'/api/state',{signal:AbortSignal.timeout(800)}); const data=await r.json();return r.ok && data.app==='oscar-et-les-agents'; } catch {return false;}
 }
 if(!await ready()) {
+  try{assertUpdateStartup({dataDir:path.resolve(process.env.OSCAR_DATA_DIR||process.env.ATELIER_DATA_DIR||path.join(os.homedir(),'Documents','Oscar et les agents'))});}
+  catch(error){console.error(error.message);process.exit(1);}
   const log=openSync(path.join(root,'atelier.log'),'a',0o600);
   const server=spawn(process.execPath,[path.join(root,'server.mjs')],{cwd:root,detached:true,stdio:['ignore',log,log]});
   server.on('error',()=>{console.error('Impossible de démarrer Oscar et les agents. Consultez atelier.log.');process.exitCode=1;});

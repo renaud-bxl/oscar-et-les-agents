@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import net from 'node:net';
 import { parseArgs, supportsNode, compatibleClaude, compatibleCodex, binaryCandidates, findBinary, hasSubscription, subscriptionEnvironment, resolveInstallerDataDirectory, runInstaller } from '../scripts/install.mjs';
 
 const exec = promisify(execFile);
@@ -356,7 +357,8 @@ test('a real source reinstall with spaces preserves preferences, missions and co
   await writeFile(path.join(documents, 'preferences.json'), JSON.stringify(preferences));
   const sentinels = ['missions/existing.txt', 'connectors.json', 'automations.json'];
   for (const file of sentinels) await writeFile(path.join(documents, file), `KEEP ${file}\n`);
-  const env = { ...process.env, PATH: `${path.dirname(process.execPath)}:${process.env.PATH}`, OSCAR_DATA_DIR: documents };
+  const portProbe=net.createServer();await new Promise(resolve=>portProbe.listen(0,'127.0.0.1',resolve));const port=portProbe.address().port;await new Promise(resolve=>portProbe.close(resolve));
+  const env = { ...process.env, PATH: `${path.dirname(process.execPath)}:${process.env.PATH}`, OSCAR_DATA_DIR: documents, PORT:String(port) };
   for (let pass = 0; pass < 2; pass++) {
     const result = await exec('/bin/sh', [path.join(source, 'install.sh'), '--engine', 'both', '--dir', destination, '--skip-login', '--no-open'], { cwd: source, env });
     assert.match(result.stdout, /Installation terminée/);

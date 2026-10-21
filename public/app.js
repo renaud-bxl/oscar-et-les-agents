@@ -20,6 +20,7 @@ import { DictationDialog } from '/dictation-dialog.js';
 import { OfficeTheme } from '/office-theme.js';
 import { MissionTiming } from '/mission-timing.js';
 import { DeliveryLibrary } from '/delivery-library.js';
+import { AppUpdates } from '/app-updates.js';
 import { DeliveryNavigation } from '/delivery-navigation.js';
 import { DeliveryProgress } from '/delivery-progress.js';
 import { DeliveryPreview, ResultPreviewDialog, deliveryPreviewCandidate } from '/delivery-preview.js';
@@ -50,6 +51,7 @@ const ROLE_DETAILS={
 };
 const runningStatuses = new Set(['planning','running','reviewing']);
 let state = {providers:[], missions:[], active:null};
+const applicationUpdates = new AppUpdates({hosts:{notice:$('application-update-notice'),settings:$('application-update-settings')},request,getState:()=>state});
 let initialBuildId = null;
 const routeParams = new URLSearchParams(location.search);
 let selectedId = /^[a-zA-Z0-9-]+$/.test(routeParams.get('mission') || '') ? routeParams.get('mission') : null;
@@ -599,6 +601,8 @@ async function acceptState(next) {
   if(next.buildId){if(!initialBuildId)initialBuildId=next.buildId;else if(initialBuildId!==next.buildId)$('update-notice').hidden=false;}
   if(next.version)$('app-version').textContent=`${translate('Version')} ${next.version}`;
   state=next;fetchErrorCount=0;
+  applicationUpdates.update(next.updates);
+  if(applicationUpdates.view?.reloadRequired)$('update-notice').hidden=true;
   const active=activeMissions();
   if(!selectedId && !browsingNew && active.length) selectedId=active[0].id;
   const selectedActive=active.find(m=>m.id===selectedId);
@@ -787,7 +791,7 @@ $('pixel-fullscreen').addEventListener('click',async()=>{try{if(document.fullscr
 document.querySelectorAll('[data-prompt]').forEach(button=>button.addEventListener('click',()=>{$('mission-input').value=translate(button.dataset.prompt);saveBriefDraft();$('mission-input').focus();}));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshState();});
 window.addEventListener('online',refreshState);
-window.addEventListener('beforeunload',()=>{officeTheme.destroy();deliveryNavigation?.destroy();deliveryLibrary?.destroy();missionTiming.destroy();deliveryProgress.destroy();progressVisibilityObserver.disconnect();resultPreviewDialog?.destroy();deliveryPanelPreview?.destroy();archiveDownload?.abort();clearTimeout(statusTimer);clearTimeout(completionTimer);clearTimeout(weatherTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();dictationDialog?.destroy();documentLibrary?.destroy();personalizationDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
+window.addEventListener('beforeunload',()=>{applicationUpdates.destroy();officeTheme.destroy();deliveryNavigation?.destroy();deliveryLibrary?.destroy();missionTiming.destroy();deliveryProgress.destroy();progressVisibilityObserver.disconnect();resultPreviewDialog?.destroy();deliveryPanelPreview?.destroy();archiveDownload?.abort();clearTimeout(statusTimer);clearTimeout(completionTimer);clearTimeout(weatherTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();dictationDialog?.destroy();documentLibrary?.destroy();personalizationDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
 
 coffeeDialog = new CoffeeDialog({recipient:'renaud2005@gmail.com'});
 clockDialog=new ClockDialog({onClose:()=>returnFromUtility(clockDialog)});

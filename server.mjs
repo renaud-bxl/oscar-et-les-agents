@@ -7,6 +7,9 @@ import { open, readFile, readdir } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { BrowserPreviews } from './lib/browser-preview.mjs';
+import { AppUpdates } from './lib/app-updates.mjs';
+import { UpdateMaintenance, updateBlockers } from './lib/update-maintenance.mjs';
+import { assertUpdateStartup } from './lib/update-startup.mjs';
 import { Atelier } from './lib/orchestrator.mjs';
 import { detectProviders, runAgent, findBinary } from './lib/providers.mjs';
 import { BrowserLogin } from './lib/auth.mjs';
@@ -170,7 +173,7 @@ function openNativeFile(file) {
     execFile(command, [file], error => error ? reject(new Error('Impossible d’ouvrir ce fichier dans son application sur cet ordinateur.')) : resolve());
   });
 }
-export async function createAtelierServer({ port = 4850, dataDir = resolveServerDataDirectory(), providers, runner = runAgent, demoDelay = 1800, openFolder = openDataFolder, openFile = openNativeFile, detect = detectProviders, installer = runInstaller, loginFactory = options => new BrowserLogin(options), publishingFactory = options => new Publishing(options), connectorsFactory = options => new Connectors(options), automationFactory = options => new Automations(options), voiceFactory = options => new VoiceService(options), personalizationFactory = options => new Personalization(options), documentFactory = options => new DocumentLibrary(options), dictationFactory = options => new DictationService(options), calendarFactory = options => new CalendarActions(options) } = {}) {
+export async function createAtelierServer({ port = 4850, dataDir = resolveServerDataDirectory(), providers, runner = runAgent, demoDelay = 1800, openFolder = openDataFolder, openFile = openNativeFile, detect = detectProviders, installer = runInstaller, loginFactory = options => new BrowserLogin(options), publishingFactory = options => new Publishing(options), connectorsFactory = options => new Connectors(options), automationFactory = options => new Automations(options), voiceFactory = options => new VoiceService(options), personalizationFactory = options => new Personalization(options), documentFactory = options => new DocumentLibrary(options), dictationFactory = options => new DictationService(options), calendarFactory = options => new CalendarActions(options), updatesFactory = options => new AppUpdates(options), enableUpdates = false, updateShutdown = null } = {}) {
   const pdfVendor=await verifiedPdfAssets();
   const assetNames=(await readdir(path.join(ROOT,'public'),{withFileTypes:true})).filter(entry=>entry.isFile()&&/\.(?:html|css|js)$/u.test(entry.name)).map(entry=>entry.name).sort();
   const [packageBytes,...assets]=await Promise.all(['package.json',...assetNames.map(name=>`public/${name}`)].map(name=>readFile(path.join(ROOT,name))));
@@ -178,8 +181,9 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
   const version=JSON.parse(packageBytes.toString('utf8')).version,buildId=buildHash.digest('hex').slice(0,24);
   let engine, closing = false, closePromise;
   const assertOpen = () => { if (closing) throw fileError('Le bureau se ferme. Votre texte reste conservé ; relancez Oscar avant de réessayer.', 'SERVER_CLOSING'); };
-  const publicSnapshot=state=>({...state,version,buildId,calendar:calendar?.state()||{activeJobs:[]}});
-  let calendar;
+  const publicSnapshot=state=>({...state,version,buildId,calendar:calendar?.state()||{activeJobs:[]},updates:updates?.state||null});
+  let calendar, updates, updateResponse;
+  const maintenance = new UpdateMaintenance();
   const preparations = new Map();
   const missionRequests = new MissionRequests({ engine: { get missions(){return engine.missions;}, get:id=>engine.get(id) } });
   // In-flight promises only coordinate callers. The durable receipt belongs to
@@ -247,7 +251,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
       engine.scanFiles(mission); engine.save(mission);
     },
   });
-  const automations = automationFactory({ engine, dataDir: engine.dataDir, resolveConnectorPlan: options => connectors.readPlan(options) });
+  const automations = automationFactory({ engine, dataDir: engine.dataDir, resolveConnectorPlan: options => connectors.readPlan(options), isMaintenance: () => maintenance.active || Boolean(updates?.isBusy) });
   const voice = voiceFactory({ dataDir: engine.dataDir });
   await voice.ready;
   const dictation = dictationFactory({ dataDir: engine.dataDir });
@@ -262,6 +266,15 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
   const archives = new MissionArchives({ openFile: (directory, relative) => openMissionDownload(checkedMissionDirectory(directory), relative) });
   const archiveTasks = new Set();
   let activeArchive = null;
+  const getBusyReasons = () => updateBlockers({engine,calendar,login,connectors,publishing,automations,documents,voice,dictation,preparations,secretaryPending,activeArchive,archiveTasks,requests:maintenance.requests,responses:maintenance.responses});
+  updates = updatesFactory({root:ROOT,currentVersion:version,dataDir:engine.dataDir,getBusyReasons,getPort:()=>server.address()?.port||port,autoCheck:enableUpdates,onChange:snapshot=>{if(snapshot?.status==='error'&&!snapshot.maintenance){maintenance.release();updateResponse=null;}engine.emit('change',engine.state());},
+    ...(typeof updateShutdown === 'function' ? {requestShutdown:async()=>{
+      // Reply to the explicit click before closing sockets. The updater waits
+      // for this process to exit before replacing a single installed file.
+      if(updateResponse&&!updateResponse.writableFinished&&!updateResponse.destroyed)await new Promise(resolve=>{updateResponse.once('finish',resolve);updateResponse.once('close',resolve);});
+      await close(); await updateShutdown();
+    }} : {})
+  });
   const stateStream = new StateStream({ snapshot: publicSnapshot });
   const origins = new Set([`http://localhost:${port}`, `http://127.0.0.1:${port}`]);
   const hosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`]);
@@ -275,10 +288,17 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
     const allowedHosts = new Set([...hosts, `localhost:${actualPort}`, `127.0.0.1:${actualPort}`]);
     const allowedOrigins = new Set([...origins, `http://localhost:${actualPort}`, `http://127.0.0.1:${actualPort}`]);
     if (!allowedHosts.has(req.headers.host) || (req.headers.origin && !allowedOrigins.has(req.headers.origin))) { json(res, 403, { error: 'Cette requête ne vient pas de L’Atelier.' }); return; }
+    let releaseUpdateOperation;
     try {
       assertOpen();
       const url = new URL(req.url, 'http://localhost');
       const pathname = decodeURIComponent(url.pathname);
+      if (pathname.startsWith('/api/') && !['/api/state','/api/events','/api/updates','/api/updates/check','/api/updates/install','/api/updates/health'].includes(pathname)) {
+        if(maintenance.active||updates.isBusy)throw fileError('Le bureau se met à jour. Votre texte reste conservé ; attendez son redémarrage.','UPDATE_BUSY');
+        releaseUpdateOperation=maintenance.track(res);
+      }
+      if(pathname==='/api/updates/health'&&req.method==='GET'){json(res,200,{app:'oscar-et-les-agents',version,pid:process.pid,restartId:process.env.OSCAR_UPDATE_RESTART_ID||null});return;}
+      if(pathname==='/api/updates'&&req.method==='GET'){json(res,200,updates.state);return;}
       if (pathname === '/api/events' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
         stateStream.add(res, engine.state()); return;
@@ -350,6 +370,19 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
         let body;
         try { body = JSON.parse(Buffer.concat(parts).toString('utf8') || '{}'); } catch { json(res, 400, { error: 'La demande JSON est invalide.' }); return; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { json(res, 400, { error: 'La demande doit être un objet JSON.' }); return; }
+        if(pathname==='/api/updates/check'&&req.method==='POST'){
+          if(url.search||Object.keys(body).length)throw fileError('Utilisez le bouton de vérification des mises à jour.','UPDATE_INVALID');
+          json(res,200,await updates.check({force:true}));return;
+        }
+        if(pathname==='/api/updates/install'&&req.method==='POST'){
+          if(url.search||Object.keys(body).some(key=>!['version','confirmed'].includes(key))||body.confirmed!==true||typeof body.version!=='string')throw fileError('Confirmez la version affichée avant de mettre à jour.','UPDATE_INVALID');
+          if(updates.isBusy)throw fileError('Le bureau prépare déjà sa mise à jour.','UPDATE_BUSY');
+          maintenance.reserve(getBusyReasons());updateResponse=res;
+          try{const result=await updates.install(body);json(res,202,result);}
+          catch(error){maintenance.release();updateResponse=null;throw error;}
+          return;
+        }
+        if(maintenance.active||updates.isBusy)throw fileError('Le bureau se met à jour. Votre texte reste conservé ; attendez son redémarrage.','UPDATE_BUSY');
         const documentRoute = pathname.match(/^\/api\/documents\/([a-f0-9]{24})$/);
         if (documentRoute && req.method === 'DELETE') { json(res, 200, await documents.remove(documentRoute[1])); return; }
         if (pathname === '/api/automations/preview' && req.method === 'POST') { json(res, 200, automations.preview(body)); return; }
@@ -577,26 +610,28 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
       if (!['GET', 'HEAD'].includes(req.method)) { json(res, 405, { error: 'Méthode non prise en charge.' }); return; }
       const staticName = pathname === '/' ? 'index.html' : pathname.replace(/^\//, '');
       if(pdfVendor.assets.has(staticName)){res.writeHead(200,{'Content-Type':MIME[path.extname(staticName)],'Content-Security-Policy':CSP,'Cache-Control':'public, max-age=31536000, immutable'});res.end(req.method==='HEAD'?undefined:pdfVendor.assets.get(staticName));return;}
-      if (!['index.html', 'style.css', 'immersive.css', 'app.js', 'pixel-world.js', 'pixel-scene.css', 'mission-catalog.js', 'mission-catalog.css', 'mission-extras.js', 'coffee-dialog.js', 'coffee-dialog.css', 'ambience.js', 'welcome-guide.js', 'welcome-guide.css', 'i18n.js', 'translations-catalog.js', 'translations-interface.js', 'translations-guide.js', 'publication-dialog.js', 'publication-dialog.css', 'office-speech.js', 'clock-dialog.js', 'clock-dialog.css', 'creative-studio.js', 'creative-studio.css', 'automations-dialog.js', 'automations-dialog.css', 'connectors-dialog.js', 'connectors-dialog.css', 'completion-dialog.js', 'completion-dialog.css', 'artifact-viewer.js', 'artifact-viewer.css', 'pdf-preview.js', 'secretary-dialog.js', 'secretary-dialog.css', 'voice-dialog.js', 'voice-preview-oscar-paul-v2-fr.wav', 'voice-preview-oscar-paul-v2-en.wav', 'voice-preview-oscar-paul-v2-nl.wav', 'voice-preview-zoe-vera-v2-fr.wav', 'voice-preview-zoe-vera-v2-en.wav', 'voice-preview-zoe-vera-v2-nl.wav', 'voice-preview-zoe-fr.wav', 'voice-preview-zoe-en.wav', 'voice-preview-zoe-nl.wav', 'voice-dialog.css', 'voice-preview-oscar-2-fr.wav', 'voice-preview-oscar-2-en.wav', 'voice-preview-oscar-2-nl.wav', 'personalization-dialog.js', 'personalization-dialog.css', 'character-lines.js', 'document-library.js', 'document-library.css', 'dictation-dialog.js', 'dictation-dialog.css', 'office-theme.js', 'office-theme-init.js', 'office-theme.css', 'translations-theme.js', 'mission-timing.js', 'mission-timing.css', 'translations-performance.js', 'translations-team.js', 'translations-voices.js', 'dictation-entry.js', 'calendar-event-dialog.js', 'calendar-event-dialog.css', 'translations-calendar.js', 'draft-storage.js','delivery-progress.js','translations-delivery-progress.js','delivery-preview.js','translations-delivery-preview.js','delivery-experience.css','delivery-library.js','delivery-library.css','delivery-navigation.js','translations-delivery-library.js'].includes(staticName)) { res.writeHead(404); res.end('Introuvable'); return; }
+      if (!['index.html', 'style.css', 'immersive.css', 'app.js', 'pixel-world.js', 'pixel-scene.css', 'mission-catalog.js', 'mission-catalog.css', 'mission-extras.js', 'coffee-dialog.js', 'coffee-dialog.css', 'ambience.js', 'welcome-guide.js', 'welcome-guide.css', 'i18n.js', 'translations-catalog.js', 'translations-interface.js', 'translations-guide.js', 'publication-dialog.js', 'publication-dialog.css', 'office-speech.js', 'clock-dialog.js', 'clock-dialog.css', 'creative-studio.js', 'creative-studio.css', 'automations-dialog.js', 'automations-dialog.css', 'connectors-dialog.js', 'connectors-dialog.css', 'completion-dialog.js', 'completion-dialog.css', 'artifact-viewer.js', 'artifact-viewer.css', 'pdf-preview.js', 'secretary-dialog.js', 'secretary-dialog.css', 'voice-dialog.js', 'voice-preview-oscar-paul-v2-fr.wav', 'voice-preview-oscar-paul-v2-en.wav', 'voice-preview-oscar-paul-v2-nl.wav', 'voice-preview-zoe-vera-v2-fr.wav', 'voice-preview-zoe-vera-v2-en.wav', 'voice-preview-zoe-vera-v2-nl.wav', 'voice-preview-zoe-fr.wav', 'voice-preview-zoe-en.wav', 'voice-preview-zoe-nl.wav', 'voice-dialog.css', 'voice-preview-oscar-2-fr.wav', 'voice-preview-oscar-2-en.wav', 'voice-preview-oscar-2-nl.wav', 'personalization-dialog.js', 'personalization-dialog.css', 'character-lines.js', 'document-library.js', 'document-library.css', 'dictation-dialog.js', 'dictation-dialog.css', 'office-theme.js', 'office-theme-init.js', 'office-theme.css', 'translations-theme.js', 'mission-timing.js', 'mission-timing.css', 'translations-performance.js', 'translations-team.js', 'translations-voices.js', 'dictation-entry.js', 'calendar-event-dialog.js', 'calendar-event-dialog.css', 'translations-calendar.js', 'draft-storage.js','delivery-progress.js','translations-delivery-progress.js','delivery-preview.js','translations-delivery-preview.js','delivery-experience.css','delivery-library.js','delivery-library.css','delivery-navigation.js','translations-delivery-library.js','app-updates.js','app-updates.css','translations-updates.js'].includes(staticName)) { res.writeHead(404); res.end('Introuvable'); return; }
       const content = await readFile(path.join(ROOT, 'public', staticName));
       res.writeHead(200, { 'Content-Type': MIME[path.extname(staticName)], 'Content-Security-Policy': CSP, 'Cache-Control': 'no-cache' }); res.end(req.method === 'HEAD' ? undefined : content);
     } catch (error) {
       if (res.destroyed) return;
       if (!res.headersSent&&error.code?.startsWith('BROWSER_PREVIEW_')) {json(res,error.status||400,{error:error.message?.slice(0,2000),code:error.code,...(Array.isArray(error.entries)?{entries:error.entries}:{})});return;}
-      if (!res.headersSent) json(res, ['PUBLICATION_NOT_FOUND', 'AUTOMATION_NOT_FOUND', 'MISSION_FILE_NOT_FOUND', 'VOICE_AUDIO_NOT_FOUND', 'CALENDAR_NOT_FOUND'].includes(error.code) ? 404 : ['MISSION_FILE_FORBIDDEN', 'ARCHIVE_FORBIDDEN'].includes(error.code) ? 403 : ['SERVER_CLOSING', 'MISSION_CAPACITY', 'PUBLICATION_BUSY', 'PUBLICATION_CHANGED', 'CONNECTOR_BUSY', 'AUTOMATION_BUSY', 'AUTOMATION_REQUEST_CHANGED', 'AUTOMATION_REQUEST_DELETED', 'VOICE_BUSY', 'DICTATION_BUSY', 'DOCUMENT_BUSY', 'SECRETARY_REQUEST_CHANGED', 'SECRETARY_RETRY', 'ARCHIVE_BUSY', 'ARCHIVE_CHANGED', 'MISSION_REQUEST_CHANGED', 'MISSION_REQUEST_RETRY', 'CALENDAR_BUSY', 'CALENDAR_CHANGED', 'CALENDAR_UNCERTAIN'].includes(error.code) ? 409 : 400, { error: error.message?.slice(0, 2000) ?? 'La demande a échoué.', ...(/^(?:DICTATION|DOCUMENT|CALENDAR)_[A-Z_]{1,50}$/u.test(error.code||'') ? {code:error.code} : {}) });
+      if (!res.headersSent) json(res, ['PUBLICATION_NOT_FOUND', 'AUTOMATION_NOT_FOUND', 'MISSION_FILE_NOT_FOUND', 'VOICE_AUDIO_NOT_FOUND', 'CALENDAR_NOT_FOUND'].includes(error.code) ? 404 : ['MISSION_FILE_FORBIDDEN', 'ARCHIVE_FORBIDDEN'].includes(error.code) ? 403 : ['UPDATE_BUSY', 'UPDATE_CHANGED', 'SERVER_CLOSING', 'MISSION_CAPACITY', 'PUBLICATION_BUSY', 'PUBLICATION_CHANGED', 'CONNECTOR_BUSY', 'AUTOMATION_BUSY', 'AUTOMATION_REQUEST_CHANGED', 'AUTOMATION_REQUEST_DELETED', 'VOICE_BUSY', 'DICTATION_BUSY', 'DOCUMENT_BUSY', 'SECRETARY_REQUEST_CHANGED', 'SECRETARY_RETRY', 'ARCHIVE_BUSY', 'ARCHIVE_CHANGED', 'MISSION_REQUEST_CHANGED', 'MISSION_REQUEST_RETRY', 'CALENDAR_BUSY', 'CALENDAR_CHANGED', 'CALENDAR_UNCERTAIN'].includes(error.code) ? 409 : 400, { error: error.message?.slice(0, 2000) ?? 'La demande a échoué.', ...(/^(?:UPDATE|DICTATION|DOCUMENT|CALENDAR)_[A-Z_]{1,50}$/u.test(error.code||'') ? {code:error.code} : {}) });
       else res.destroy();
-    }
+    } finally { releaseUpdateOperation?.(); }
   });
   server.requestTimeout = 15000;
   server.once('listening', () => { if (!closing) automations.start(); });
   const close = () => {
     if (closePromise) return closePromise;
     closing = true;
+    const updatesClosed = updates.close();
     const automationsClosed = automations.close();
     activeArchive?.abort();
     closePromise = (async () => {
     await Promise.allSettled([...archiveTasks]);
     await automationsClosed;
+    await updatesClosed;
     for (const m of engine.missions.values()) if (engine.runs.has(m.id)) engine.stop(m.id);
     await personalization.close();
     await documents.close?.();
@@ -616,13 +651,14 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
     })();
     return closePromise;
   };
-  return { server, engine, publishing, connectors, automations, voice, personalization, documents, dictation, archives, calendar, browserPreviews, close };
+  return { server, engine, publishing, connectors, automations, voice, personalization, documents, dictation, archives, calendar, browserPreviews, updates, maintenance, close };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const port = Number(process.env.PORT ?? 4850);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Le port choisi est invalide.');
-  const { server, engine, close } = await createAtelierServer({ port });
+  try{assertUpdateStartup({dataDir:resolveServerDataDirectory()});}catch(error){console.error(error.message);process.exit(1);}
+  const { server, engine, close } = await createAtelierServer({ port, enableUpdates:true, updateShutdown:()=>process.exit(0) });
   server.on('error', error => { console.error(error.code === 'EADDRINUSE' ? `Le port ${port} est déjà utilisé. L’Atelier est peut-être déjà ouvert : http://localhost:${port}` : 'Impossible de lancer le serveur local.'); process.exitCode = 1; });
   server.listen(port, '127.0.0.1', () => {
     const url = `http://localhost:${port}`;

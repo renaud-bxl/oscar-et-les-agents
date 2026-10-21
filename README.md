@@ -2,7 +2,7 @@
 
 Donnez une mission à Oscar. Il recrute les bons spécialistes, ils arrivent dans un grand bureau illustré et animé, travaillent, rendent leurs dossiers… et prennent un café quand leur travail est validé.
 
-**Version 0.6.9** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
+**Version 0.6.10** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
 
 Pour un jeu navigateur au brief clair, Oscar recrute désormais une équipe de sept ou huit spécialistes : recherche, analyse, deux ou trois designers, rédaction et deux développeurs. Les collègues se transmettent leurs contributions validées ; le moteur, l’interface, les dessins et les textes sont réunis dans un seul jeu. Le panneau Équipe montre les métiers et les tâches en attente. Les déplacements contournent les postes et les collègues qui collaborent peuvent échanger au lounge. La détection d’un connecteur ne garantit pas l’autorisation de chaque action : une erreur de permission reste expliquée, sans nouvelle autorisation automatique. Les PDF se lisent directement dans le bureau avec un lecteur local passif, sans dépendre du lecteur PDF du navigateur. Les licences du moteur embarqué sont détaillées dans [PDFJS-NOTICES.md](PDFJS-NOTICES.md).
 
@@ -213,6 +213,18 @@ Dans **Mes missions**, recherchez un titre, une date ou un moteur et filtrez les
 Une livraison terminée propose **Télécharger toute la mission · ZIP**. L’archive contient le dossier de travail, y compris les résultats partiels d’une mission arrêtée ; les fichiers cachés et les dossiers `node_modules`/`vendor` sont exclus. Aucun lien symbolique n’est suivi. Limites : 500 fichiers, 15 Mo par fichier, 50 Mo de contenu. Le dossier reste directement accessible si le projet dépasse ces limites.
 
 Le bureau signale une interface mise à jour et propose **Recharger le bureau**. Il ne recharge pas seul un formulaire pendant votre saisie.
+
+## Recevoir et installer les mises à jour
+
+À partir de **0.6.10**, Oscar recherche les nouvelles versions publiques du dépôt GitHub au démarrage du serveur, puis toutes les six heures tant qu’il reste lancé. Une notification annonce la version disponible ; **Réglages → Mises à jour d’Oscar** permet aussi de vérifier, de lire les nouveautés et d’ouvrir la note de version sur GitHub. Hors connexion, le bureau reste utilisable et indique que la vérification est indisponible. Aucun téléchargement de programme ni installation ne démarre à la simple lecture de cette notification.
+
+Cliquez sur **Mettre à jour**, relisez la version proposée, puis confirmez avec **Installer cette version**. Les missions, connexions, publications, exports et autres opérations doivent d’abord être terminés. Pendant la préparation, le bureau réserve la mise à jour et empêche de nouveaux départs. Il prépare une copie de secours du logiciel, installe la version officielle et redémarre avec les mêmes dossiers, le même port et les mêmes réglages. Les missions, documents, voix installées et connexions d’abonnement sont conservés. La procédure vérifie que la version attendue répond et prévoit le rétablissement de la copie précédente si ce contrôle échoue. La page reste ouverte ; vous choisissez **Recharger maintenant** lorsque le nouveau bureau est prêt.
+
+Après une interruption de l’ordinateur ou du programme pendant l’installation, une vérification manuelle peut être nécessaire. Le bureau le signale et bloque une nouvelle installation. Les fichiers et les éventuelles copies de secours restent conservés ; faites vérifier cet état avec votre assistant avant de recommencer.
+
+**Une version 0.6.6 ne peut pas recevoir rétroactivement ce nouveau système de notifications.** Elle nécessite une première mise à niveau, comme les autres versions jusqu’à 0.6.9. Demandez à Codex ou Claude de mettre à jour le dépôt en préservant vos missions, ou reprenez la commande d’installation après avoir terminé les opérations et fermé le serveur de l’ancienne version. Fermer seulement l’onglet du navigateur ne ferme pas le serveur. Une fois 0.6.10 installée et lancée, les prochaines versions pourront être signalées dans le bureau.
+
+Une copie de développement contenant un dossier `.git` conserve son parcours par le dépôt : l’installation depuis le bouton y est refusée et le guide reste accessible. Les mises à jour de l’application proviennent des versions publiques GitHub par HTTPS ; elles ne disposent pas d’une signature indépendante de GitHub. Les adresses du dépôt et de la page d’installation restent identiques.
 
 ## Un bureau qui vous reconnaît
 
