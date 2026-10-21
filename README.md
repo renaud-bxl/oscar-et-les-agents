@@ -8,6 +8,8 @@ Cette version simplifie le choix des connecteurs et les demandes immédiates de 
 
 ![Le bureau illustré d’Oscar, les îlots de travail et le coin café](docs/bureau.png)
 
+**[Ouvrir la page d’installation →](https://renaud-bxl.github.io/oscar-et-les-agents/)**
+
 ## Installer et ouvrir
 
 Dans **Codex** ou **Claude Code**, avec accès à votre ordinateur, vous pouvez simplement demander :
