@@ -1,6 +1,6 @@
 # Oscar et les Agents
 
-Version 0.6.8 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
+Version 0.6.9 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
 
 ## Installer et lancer pour une personne
 
@@ -96,7 +96,7 @@ La demande de l’utilisateur autorise désormais une voie distincte de créatio
 
 La dictée partagée s’ouvre uniquement sur clic ; l’insertion nécessite relecture/validation et ne transmet aucune demande automatiquement. Ne pas insérer dans un champ retiré, verrouillé ou passé en lecture seule pendant la dictée.
 
-## Recrutement, suivi et loisirs (0.6.8)
+## Recrutement, suivi et loisirs (0.6.9)
 
 - Une création visuelle simple reconnue démarre par un plan local, une création Alma et un seul contrôle Oscar (2 appels). Valide fichiers réels, formats et empreintes ; copie localement sans écraser les originaux. Aucun rendu vectoriel générique ne remplace une image demandée. Pas de régénération automatique après échec.
 - Les jeux ne confient plus l’ensemble du projet à Sam seul. Le plan local des petits jeux de navigateur répartit recherche, règles, direction graphique, illustrations, rédaction, moteur et intégration, avec contributions distinctes et contrat commun. Les autres projets de jeux utilisent le plan complet adapté au brief et aux effectifs demandés. Respecte quatre agents maximum par métier, vingt au total et quatre spécialistes actifs en parallèle, sans promesse qu’un grand effectif accélère tout. Un petit outil HTML local clairement défini peut conserver le parcours Sam direct. Ne modifie pas la configuration globale du moteur.
@@ -106,3 +106,9 @@ La dictée partagée s’ouvre uniquement sur clic ; l’insertion nécessite re
 - Le thème sombre change matériaux du canvas et surfaces UI, sans filtre global ni voile gris. Automatic sombre20h–8h local ; garde le ciel réel indépendant, le choix mémorisé, les formulaires et le focus. Conserve les couleurs des images/documents et des peaux.
 - Oscar attend à son bureau quand un agent vient rendre son dossier ; l’agent attend son arrivée si nécessaire. Il garde son bureau pendant la relecture et l’assemblage, puis pour présenter la livraison completed ou expliquer une mission needs_review. Après une remise unique par tentative, l’agent rejoint une place du lounge et regarde ses collègues pendant reviewing/needs_review ; aucune file dos tourné devant Oscar. L’attente ne déclenche ni café ni texte de validation. Une vraie correction le ramène au poste ; après approbation réelle, café puis lounge/discussion avec un collègue libre/promenade, avec une majorité du temps au lounge. Les mises à jour identiques ne rejouent pas la remise et les déplacements ne retardent aucun appel. Pause et mouvement réduit sont respectés.
 - La navigation contourne les plateaux, les sièges et les claviers. Seul le collègue affecté utilise l’accès à sa place ; la profondeur du dessin suit les pieds des personnages. Les états queued et blocked ne montrent pas de frappe au clavier. Un échange décoratif borné code/design peut utiliser un vrai lien dependsOn dans une mission local-game-team, après remise et validation du designer. Il ne suspend aucun appel et ne modifie aucune tâche ; tout nouveau résultat doit rejoindre Oscar en priorité. Le mouvement réduit désactive ces sorties.
+
+## Bibliothèque des livraisons (0.6.9)
+
+- Livraison ouvre la bibliothèque de tous les dossiers de missions, y compris en cours, failed, cancelled et needs_review. Une sélection ouvre le détail de ce dossier avec demande, état et fichiers, puis Tous mes projets revient à la liste. Conserve les nœuds et le focus lors des rafraîchissements ; aucune consultation ne lance, relance ou modifie une mission.
+- Présente failed comme interrompu et cancelled comme arrêté, avec leurs fichiers conservés. Un fichier index.html partiel ne suffit pas à annoncer un jeu jouable ou une livraison terminée. La publication reste limitée à completed, après son aperçu et sa confirmation distincts. Préserve les dossiers et les données historiques, sans migration ni réécriture de contenus personnels pour afficher la bibliothèque.
+- Traduis les commandes et états fixes en français, anglais et néerlandais ; garde titres, demandes, noms de fichiers et chemins personnels comme données. Les erreurs de chargement restent visibles et permettent un nouvel essai de consultation, sans appel de modèle.

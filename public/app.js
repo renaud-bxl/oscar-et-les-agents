@@ -19,6 +19,8 @@ import { CharacterLines } from '/character-lines.js';
 import { DictationDialog } from '/dictation-dialog.js';
 import { OfficeTheme } from '/office-theme.js';
 import { MissionTiming } from '/mission-timing.js';
+import { DeliveryLibrary } from '/delivery-library.js';
+import { DeliveryNavigation } from '/delivery-navigation.js';
 import { DeliveryProgress } from '/delivery-progress.js';
 import { DeliveryPreview, ResultPreviewDialog, deliveryPreviewCandidate } from '/delivery-preview.js';
 import { CalendarEventDialog,calendarCommand,calendarQuestion } from '/calendar-event-dialog.js';
@@ -73,7 +75,7 @@ let missionWizard = null;
 let coffeeDialog = null;
 let welcomeGuide = null;
 let publicationDialog = null;
-let resultPreviewDialog=null,deliveryPanelPreview=null;
+let resultPreviewDialog=null,deliveryPanelPreview=null,deliveryLibrary=null,deliveryNavigation=null;
 let officeSpeech = null;
 let clockDialog = null;
 let creativeStudio = null;
@@ -92,7 +94,7 @@ let weatherTimer = null;
 let archiveDownload = null;
 const utilityReturns = new Map();
 function openUtility(dialog){if(activePanel||!utilityReturns.has(dialog))utilityReturns.set(dialog,{panel:activePanel,focus:document.activeElement});closeOfficePanel({restoreFocus:false});return dialog.open();}
-function returnFromUtility(dialog){const previous=utilityReturns.get(dialog);utilityReturns.delete(dialog);if(previous?.panel){openPanel(previous.panel,{focus:false});if(previous.focus?.isConnected)previous.focus.focus({preventScroll:true});}}
+function returnFromUtility(dialog){const previous=utilityReturns.get(dialog);utilityReturns.delete(dialog);if(previous?.panel){openPanel(previous.panel,{focus:false,deliveryView:'preserve'});if(previous.focus?.isConnected)previous.focus.focus({preventScroll:true});}}
 function renderDocumentSelectionStatus({ids=documentLibrary?.getSelection()||[],formats=documentLibrary?.getOutputFormats()||[]}={}){for(const id of ['brief-documents-status','guided-documents-status']){const status=$(id);if(status)status.textContent=`${ids.length} ${translate(ids.length===1?'exemple':'exemples')} · ${formats.map(format=>({docx:'Word',pdf:'PDF',xlsx:'Excel'})[format]).join(', ')||translate('Format libre')}`;}}
 const briefDrafts = new DraftStorage();
 let pendingBriefRequest = null;
@@ -113,7 +115,7 @@ let lastNarrated = null;
 let statusTimer = null;
 let activePanel = null;
 const missionTiming = new MissionTiming({container:$('mission-timing'),isVisible:()=>activePanel==='progress'});
-const deliveryProgress = new DeliveryProgress({container:$('delivery-progress-host'),isVisible:()=>!document.querySelector('dialog[open]'),onOpen:panel=>openPanel(panel)});
+const deliveryProgress = new DeliveryProgress({container:$('delivery-progress-host'),isVisible:()=>!document.querySelector('dialog[open]'),onOpen:panel=>panel==='delivery'?showDeliveryDetail():openPanel(panel)});
 let panelReturnFocus = null;
 let memberReturnPanel = null;
 let memberReturnFocus = null;
@@ -130,29 +132,33 @@ function node(tag, className, value) {
   if (value !== undefined && value !== null) el.textContent = String(value);
   return el;
 }
-const PANEL_LABELS = {catalog:['Les missions',`${MISSION_TEMPLATES.length} points de départ pour vos idées`],brief:['Parlez à Oscar','Votre prochaine mission'],team:['Votre équipe','Les talents de cette mission'],delivery:['Votre livraison','Fichiers et comptes rendus'],progress:['Le suivi du projet','Du brief à la livraison'],history:['Mes missions','Jusqu’à quatre bureaux en même temps'],settings:['Les réglages','Votre connexion et votre bureau']};
+const PANEL_LABELS = {catalog:['Les missions',`${MISSION_TEMPLATES.length} points de départ pour vos idées`],brief:['Parlez à Oscar','Votre prochaine mission'],team:['Votre équipe','Les talents de cette mission'],delivery:['Vos projets','Un dossier pour chaque demande'],progress:['Le suivi du projet','Du brief à la livraison'],history:['Mes missions','Jusqu’à quatre bureaux en même temps'],settings:['Les réglages','Votre connexion et votre bureau']};
 function restorePanel() {
+  if(activePanel==='delivery')deliveryNavigation?.cancelPending();
   const content=$('office-panel-body').firstElementChild;
   if(content) $('office-panel-storage').append(content);
   activePanel=null;missionTiming.setVisible(false);
   document.querySelectorAll('[data-open-panel]').forEach(button=>button.setAttribute('aria-expanded','false'));
 }
 function closeOfficePanel({restoreFocus=true}={}) {
+  if(activePanel==='delivery')deliveryNavigation?.cancelPending();
   if($('office-panel').open) $('office-panel').close();
   restorePanel();
   if(restoreFocus&&panelReturnFocus?.isConnected) panelReturnFocus.focus({preventScroll:true});
 }
-function openPanel(name,{focus=true}={}) {
+function openPanel(name,{focus=true,deliveryView='library'}={}) {
+  if(name!=='delivery')deliveryNavigation?.cancelPending();
   const content=document.querySelector(`[data-panel-section="${name}"]`);
   if(!content || !PANEL_LABELS[name]) return;
   if(!$('office-panel').open) panelReturnFocus=document.activeElement;
   if(content.parentElement!==$('office-panel-body')) {restorePanel();$('office-panel-body').append(content);}
   activePanel=name;missionTiming.setVisible(name==='progress');$('office-panel').dataset.panel=name;
-  $('office-panel-title').textContent=PANEL_LABELS[name][0];$('office-panel-kicker').textContent=PANEL_LABELS[name][1];
+  $('office-panel-title').removeAttribute('data-no-translate');$('office-panel-title').textContent=PANEL_LABELS[name][0];$('office-panel-kicker').textContent=PANEL_LABELS[name][1];
   $('panel-error').textContent=$('global-error').textContent;$('panel-error').hidden=$('global-error').hidden;
   if(!$('office-panel').open) $('office-panel').showModal();
   document.querySelectorAll('[data-open-panel]').forEach(button=>button.setAttribute('aria-expanded',String(button.dataset.openPanel===name)));
-  if(focus) {const target=name==='catalog'?$('template-search'):name==='brief'?$('mission-input'):name==='settings'?$('provider-select'):$('close-office-panel');target.focus({preventScroll:true});}
+  if(name==='delivery'&&deliveryNavigation){if(deliveryView==='detail'&&mission)deliveryNavigation.show(mission);else if(deliveryView!=='preserve')deliveryNavigation.library();else renderDeliveryNavigation();}
+  if(focus) {const target=name==='catalog'?$('template-search'):name==='brief'?$('mission-input'):name==='settings'?$('provider-select'):$('close-office-panel');target.focus({preventScroll:true});if(name==='delivery'&&deliveryNavigation?.state.mode==='library')deliveryLibrary?.focusSearch();}
 }
 function closeMemberForNavigation() {memberReturnPanel=null;memberReturnFocus=null;if($('member-dialog').open)$('member-dialog').close();openedRole=null;openedTaskId=null;lastMemberSignature='';}
 function dismissWelcome() {onboardingDismissed=true;$('office-onboarding').hidden=true;try{sessionStorage.setItem('oscar-welcome-dismissed','1');}catch{}}
@@ -457,7 +463,26 @@ function renderEvents() {
   }
   if(nearBottom) list.scrollTop=list.scrollHeight;
 }
+function renderDeliveryNavigation(){
+  if(!deliveryNavigation)return;const view=deliveryNavigation.state,detail=view.mode==='detail'&&mission?.id===view.id;
+  $('delivery-library-view').hidden=view.mode!=='library';$('delivery-project-navigation').hidden=view.mode==='library';$('delivery-project-detail').hidden=!detail;
+  $('delivery-project-loading').hidden=view.mode!=='loading';$('delivery-project-loading').textContent=translate('Chargement du dossier…');
+  $('delivery-project-error').hidden=view.mode!=='error';$('delivery-project-error-text').textContent=translate(view.error||'Ce dossier n’a pas pu être ouvert. Réessayez.');
+  $('delivery-selected-name').textContent=detail?mission.title||mission.prompt||'':state.missions.find(item=>item.id===view.id)?.title||'';
+  if(activePanel==='delivery'){$('office-panel-title').textContent=view.mode==='library'?'Vos projets':detail?mission.title||'Votre livraison':'Votre livraison';$('office-panel-title').toggleAttribute('data-no-translate',!!detail&&!!mission.title);$('office-panel-kicker').textContent=view.mode==='library'?'Un dossier pour chaque demande':'Dossier sélectionné';}
+}
+function activateDeliveryProject(detail){
+  if(detail.id!==selectedId)closeMemberForNavigation();browsingNew=false;selectedId=detail.id;mission=detail;++refreshSequence;
+  lastMissionSignature=JSON.stringify([detail.id,detail.updatedAt,detail.status]);history.replaceState(null,'',`/?mission=${encodeURIComponent(detail.id)}`);switchBriefDraft();
+  completionStatuses.set(detail.id,detail.status);pendingCompletions.delete(detail.id);renderAll();showError('');
+}
+function showDeliveryDetail(){openPanel('delivery',{deliveryView:'detail'});}
 function renderDeliveries() {
+  deliveryLibrary?.update(state.missions,{selectedId:mission?.id});renderDeliveryNavigation();
+  $('delivery-title').textContent=mission?.title||'Votre livraison';$('delivery-title').toggleAttribute('data-no-translate',!!mission?.title);
+  $('delivery-project-status').textContent=translate(missionStatus[mission?.status]||'');$('delivery-project-status').dataset.status=mission?.status||'';
+  $('delivery-project-request').textContent=mission?.prompt||'';
+
   $('delivery-folder-card').hidden=!mission;
   $('delivery-folder-path').textContent=mission?.workDirectory||mission?.folderName||'';
   const previewCandidate=deliveryPreviewCandidate(mission);$('delivery-view-result').hidden=!previewCandidate||isRunning(mission);$('delivery-view-result').textContent=previewCandidate?.kind==='browser'?'Lancer le jeu ou le site ↗':'Voir le résultat ↗';
@@ -484,7 +509,7 @@ function renderDeliveries() {
     const link=node('a','file-link');
     link.href=`/api/missions/${encodeURIComponent(mission.id)}/files/${file.path.split('/').map(encodeURIComponent).join('/')}`;
     const deliveredMission=mission;
-    link.addEventListener('click',event=>{event.preventDefault();closeOfficePanel({restoreFocus:false});if(/(?:^|\/)index\.html$/u.test(file.path)&&!isRunning(deliveredMission))resultPreviewDialog.open(deliveredMission,{entry:file.path});else artifactViewer?.open(deliveredMission,file);});
+    link.addEventListener('click',event=>{event.preventDefault();openDeliveryFile(deliveredMission,file);});
     link.append(node('i','','▤'));
     const text=node('span');
     const fileName=node('strong','',file.path);fileName.setAttribute('data-no-translate','');text.append(fileName,node('small','',Number.isFinite(file.size) ? file.size < 1024 ? `${file.size} octets` : `${Math.round(file.size/1024)} Ko` : 'Fichier de la mission'));
@@ -553,7 +578,8 @@ function narrateMission(){
   else if(next.approved>previous.approved)officeSpeech.speak('oscar','De nouvelles contributions sont validées. L’équipe avance ; vous pouvez suivre les détails dans le suivi.',{automatic:true,interrupt:false});
 }
 function renderAll() { renderHistory();renderProviders();renderMission(); }
-async function selectMission(id,{fromHistory=false}={}) {
+async function selectMission(id,{fromHistory=false,background=false}={}) {
+  if(!background)deliveryNavigation?.cancelPending();
   if(id!==selectedId)closeMemberForNavigation();
   if(fromHistory)closeOfficePanel();
   browsingNew=false;selectedId=id;history.replaceState(null,'',`/?mission=${encodeURIComponent(id)}`);
@@ -584,7 +610,7 @@ async function acceptState(next) {
     const signature=JSON.stringify([summary?.id,summary?.updatedAt,summary?.status]);
     if(summary && signature!==lastMissionSignature) {
       lastMissionSignature=signature;
-      selectMission(selectedId);
+      selectMission(selectedId,{background:true});
     }
   }
   renderAll();
@@ -593,6 +619,7 @@ async function acceptState(next) {
   else if(state.providers.length&&!selectedId&&!mission&&!creating&&!reuseLoading&&!$('mission-wizard-dialog').open&&!$('office-panel').open)welcomeGuide?.maybeOpen();
 }
 function newMission({forceLocal=false,reveal=true}={}) {
+  deliveryNavigation?.cancelPending();
   if(!forceLocal && isRunning(mission)){openAnotherOffice();return;}
   closeMemberForNavigation();
   pendingBriefRequest=null;saveBriefDraft();
@@ -604,6 +631,7 @@ function newMission({forceLocal=false,reveal=true}={}) {
   renderAll();if(reveal)openPanel('brief');
 }
 function acceptLaunchedMission(detail,provider){
+  deliveryNavigation?.cancelPending();
   selectedId=detail.id;mission=detail;state.active=detail;state.activeMissions=[...activeMissions().filter(m=>m.id!==detail.id),detail];browsingNew=false;history.replaceState(null,'',`/?mission=${encodeURIComponent(detail.id)}`);
   const previous=state.missions.findIndex(m=>m.id===detail.id);
   if(previous<0)state.missions.unshift(detail);else state.missions[previous]=detail;
@@ -759,7 +787,7 @@ $('pixel-fullscreen').addEventListener('click',async()=>{try{if(document.fullscr
 document.querySelectorAll('[data-prompt]').forEach(button=>button.addEventListener('click',()=>{$('mission-input').value=translate(button.dataset.prompt);saveBriefDraft();$('mission-input').focus();}));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshState();});
 window.addEventListener('online',refreshState);
-window.addEventListener('beforeunload',()=>{officeTheme.destroy();missionTiming.destroy();deliveryProgress.destroy();progressVisibilityObserver.disconnect();resultPreviewDialog?.destroy();deliveryPanelPreview?.destroy();archiveDownload?.abort();clearTimeout(statusTimer);clearTimeout(completionTimer);clearTimeout(weatherTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();dictationDialog?.destroy();documentLibrary?.destroy();personalizationDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
+window.addEventListener('beforeunload',()=>{officeTheme.destroy();deliveryNavigation?.destroy();deliveryLibrary?.destroy();missionTiming.destroy();deliveryProgress.destroy();progressVisibilityObserver.disconnect();resultPreviewDialog?.destroy();deliveryPanelPreview?.destroy();archiveDownload?.abort();clearTimeout(statusTimer);clearTimeout(completionTimer);clearTimeout(weatherTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();dictationDialog?.destroy();documentLibrary?.destroy();personalizationDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
 
 coffeeDialog = new CoffeeDialog({recipient:'renaud2005@gmail.com'});
 clockDialog=new ClockDialog({onClose:()=>returnFromUtility(clockDialog)});
@@ -776,11 +804,15 @@ creativeStudio=new CreativeStudio({onDictate:target=>dictateInto(target),getMiss
 for(const id of ['open-creative-studio','settings-creative-studio','delivery-creative-studio'])$(id).addEventListener('click',()=>openUtility(creativeStudio));
 connectorsDialog=new ConnectorsDialog({onDictate:target=>dictateInto(target),request,getMission:()=>mission,onClose:()=>returnFromUtility(connectorsDialog),onSecretary:(mode,connection)=>{utilityReturns.delete(connectorsDialog);openSecretary(mode,undefined,connection);}});
 automationsDialog=new AutomationsDialog({onDictate:target=>dictateInto(target),request,getState:()=>state,onClose:()=>returnFromUtility(automationsDialog),onMission:id=>{automationsDialog.close();selectMission(id);openPanel('progress');}});
-artifactViewer=new ArtifactViewer({request,onClose:()=>openPanel('delivery')});
+artifactViewer=new ArtifactViewer({request,onClose:showDeliveryDetail});
+deliveryLibrary=new DeliveryLibrary({container:$('delivery-library'),onOpen:id=>deliveryNavigation.open(id)});
+deliveryNavigation=new DeliveryNavigation({load:(id,{signal})=>request(`/api/missions/${encodeURIComponent(id)}`,{signal}),onSelect:activateDeliveryProject,onChange:view=>{renderDeliveryNavigation();if(view.mode==='detail')$('delivery-title').focus({preventScroll:true});}});
+$('delivery-back-library').addEventListener('click',()=>{const id=deliveryNavigation.state.id;deliveryNavigation.library();if(!deliveryLibrary.focusProject?.(id))deliveryLibrary.focusSearch?.();});
+$('delivery-project-retry').addEventListener('click',()=>deliveryNavigation.open(deliveryNavigation.state.id));
 const openWorkFolder=id=>request(`/api/missions/${encodeURIComponent(id)}/open-folder`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
 deliveryPanelPreview=new DeliveryPreview({container:$('delivery-panel-preview'),request});deliveryPanelPreview.root.hidden=true;
-resultPreviewDialog=new ResultPreviewDialog({request,onFolder:openWorkFolder,onPublish:publishResult,onClose:scheduleCompletion});
-completionDialog=new CompletionDialog({onView:viewResult,onPublish:publishResult,createPreview:(container,item)=>{const preview=new DeliveryPreview({container,request});preview.open(item);return preview;},avatar:()=>portrait('oscar'),onFolder:openWorkFolder,onFile:(item,file)=>/(?:^|\/)index\.html$/u.test(file.path)?resultPreviewDialog.open(item,{entry:file.path}):artifactViewer.open(item,file),onDelivery:async item=>{if(selectedId!==item.id)await selectMission(item.id);openPanel('delivery');},onNew:()=>newMission(),onImprove:item=>{newMission();$('mission-input').value=`${translate('Améliore la mission précédente :')} ${item.title||item.prompt}\n${translate('Dossier du travail précédent :')} ${item.workDirectory||item.folderName||''}\n${translate('Examine les fichiers existants, propose les améliorations utiles et vérifie le résultat. Garde les originaux et livre les nouvelles versions dans cette nouvelle mission.')}`;saveBriefDraft();},onClose:scheduleCompletion});
+resultPreviewDialog=new ResultPreviewDialog({request,onFolder:openWorkFolder,onPublish:publishResult,onClose:()=>{if(!document.querySelector('dialog[open]')&&deliveryNavigation?.state.mode==='detail'&&mission?.id===deliveryNavigation.state.id)showDeliveryDetail();scheduleCompletion();}});
+completionDialog=new CompletionDialog({onView:viewResult,onPublish:publishResult,createPreview:(container,item)=>{const preview=new DeliveryPreview({container,request});preview.open(item);return preview;},avatar:()=>portrait('oscar'),onFolder:openWorkFolder,onFile:openDeliveryFile,onDelivery:async item=>{if(selectedId!==item.id)activateDeliveryProject(item);showDeliveryDetail();},onNew:()=>newMission(),onImprove:item=>{newMission();$('mission-input').value=`${translate('Améliore la mission précédente :')} ${item.title||item.prompt}\n${translate('Dossier du travail précédent :')} ${item.workDirectory||item.folderName||''}\n${translate('Examine les fichiers existants, propose les améliorations utiles et vérifie le résultat. Garde les originaux et livre les nouvelles versions dans cette nouvelle mission.')}`;saveBriefDraft();},onClose:scheduleCompletion});
 const calendarEventDialog=new CalendarEventDialog({request,onDictate:target=>dictateInto(target)});
 secretaryDialog=new SecretaryDialog({request,onCalendarEvent:options=>calendarEventDialog.open(options),getState:()=>state,getProfile:()=>personalContext.profile||{},onDictate:target=>dictateInto(target),onMission:async id=>{await selectMission(id);openPanel('progress');},onAutomations:()=>automationsDialog.open(),onConnectors:()=>connectorsDialog.open(),onActivity:activity=>pixelWorld?.setSecretaryActivity(activity.busy)});
 $('open-secretary').addEventListener('click',()=>openSecretary());
@@ -806,12 +838,17 @@ $('reuse-mission').addEventListener('click',()=>{if(!mission||mission.assistant)
 for(const id of ['open-connectors','settings-connectors'])$(id).addEventListener('click',()=>openUtility(connectorsDialog));
 for(const id of ['open-automations','settings-automations'])$(id).addEventListener('click',()=>openUtility(automationsDialog));
 $('dismiss-office-status').addEventListener('click',hideWorldStatus);
+function openDeliveryFile(item,file){
+  if(selectedId!==item.id)activateDeliveryProject(item);deliveryNavigation?.show(mission?.id===item.id?mission:item);closeOfficePanel({restoreFocus:false});
+  return /(?:^|\/)index\.html$/u.test(file.path)&&!isRunning(item)?resultPreviewDialog.open(item,{entry:file.path}):artifactViewer.open(item,file);
+}
 async function viewResult(item){
   closeOfficePanel({restoreFocus:false});
+  if(selectedId!==item.id)activateDeliveryProject(item);deliveryNavigation?.show(item);
   const candidate=deliveryPreviewCandidate(item);
   if(candidate?.kind==='browser')return resultPreviewDialog.open(item);
   if(candidate)return artifactViewer.open(item,candidate.file);
-  if(selectedId!==item.id)await selectMission(item.id);openPanel('delivery');
+  if(selectedId!==item.id)activateDeliveryProject(item);showDeliveryDetail();
 }
 async function publishResult(item,entry){
   if(item.status!=='completed')return;
@@ -819,7 +856,7 @@ async function publishResult(item,entry){
   const candidate=deliveryPreviewCandidate(item),automatic=candidate?.kind==='browser'?candidate.file.path.split('/').slice(0,-1).join('/')||'.':undefined;
   closeOfficePanel({restoreFocus:false});return publicationDialog.open({entry:entry??automatic});
 }
-publicationDialog=new PublicationDialog({request,getMission:()=>mission,onClose:()=>openPanel('delivery')});
+publicationDialog=new PublicationDialog({request,getMission:()=>mission,onClose:showDeliveryDetail});
 $('publish-project').addEventListener('click',()=>{if(mission)publishResult(mission);});
 missionWizard = new MissionWizard($('mission-wizard-host'), {
   onDictate:target=>dictateInto(target),

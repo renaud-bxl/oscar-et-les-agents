@@ -2,7 +2,7 @@
 
 Donnez une mission à Oscar. Il recrute les bons spécialistes, ils arrivent dans un grand bureau illustré et animé, travaillent, rendent leurs dossiers… et prennent un café quand leur travail est validé.
 
-**Version 0.6.8** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
+**Version 0.6.9** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
 
 Pour un jeu navigateur au brief clair, Oscar recrute désormais une équipe de sept ou huit spécialistes : recherche, analyse, deux ou trois designers, rédaction et deux développeurs. Les collègues se transmettent leurs contributions validées ; le moteur, l’interface, les dessins et les textes sont réunis dans un seul jeu. Le panneau Équipe montre les métiers et les tâches en attente. Les déplacements contournent les postes et les collègues qui collaborent peuvent échanger au lounge. La détection d’un connecteur ne garantit pas l’autorisation de chaque action : une erreur de permission reste expliquée, sans nouvelle autorisation automatique. Les PDF se lisent directement dans le bureau avec un lecteur local passif, sans dépendre du lecteur PDF du navigateur. Les licences du moteur embarqué sont détaillées dans [PDFJS-NOTICES.md](PDFJS-NOTICES.md).
 
@@ -135,6 +135,8 @@ Documents/
 Les briefs, le journal d’activité, les validations et les fichiers sont conservés dans ce dossier. **Mes missions dans Documents** l’ouvre depuis les réglages. Arrêter un agent conserve les fichiers déjà produits.
 
 Chaque mission reçoit un dossier avec **sa date et un nom lisible**. Les homonymes portent un numéro ; aucun dossier existant n’est écrasé. À l’ouverture, les anciens dossiers de missions terminées portant un identifiant technique sont renommés quand cela peut être fait sans conflit. Les fichiers à l’intérieur gardent leurs noms et leur contenu. Le dossier d’une mission en cours reste stable. Depuis la livraison, ouvrez son dossier ou un document compatible dans son application habituelle ; les scripts et programmes ne sont pas ouverts automatiquement.
+
+**Livraison** ouvre la bibliothèque de **tous vos dossiers de missions** : jeux, créations et documents, y compris les travaux en cours ou interrompus. Cliquez sur un dossier pour retrouver sa demande, son état et ses fichiers ; **Tous mes projets** vous ramène à la bibliothèque. Un dossier interrompu reste signalé comme tel, avec les fichiers déjà créés. Leur présence ne signifie pas qu’un jeu est jouable ou que le projet est terminé : la publication reste réservée à une livraison validée par Oscar.
 
 Le stockage des dossiers est local. Pour réaliser les missions, les outils officiels transmettent au fournisseur choisi les consignes et les contenus nécessaires à son travail. Le logiciel n’est donc pas un modèle fonctionnant hors ligne. Les identifiants de connexion restent gérés par les outils officiels ; ils ne sont pas copiés dans les livraisons.
 

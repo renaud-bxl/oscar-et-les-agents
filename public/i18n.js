@@ -8,9 +8,10 @@ import performanceMessages, {patterns as performancePatterns} from './translatio
 import teamMessages from './translations-team.js';
 import deliveryProgressMessages from './translations-delivery-progress.js';
 import deliveryPreviewMessages from './translations-delivery-preview.js';
+import deliveryLibraryMessages from './translations-delivery-library.js';
 
 export const LANGUAGES=Object.freeze({fr:'Français',en:'English',nl:'Nederlands'});
-const messages={...interfaceMessages,...catalogMessages,...guideMessages,...calendarMessages,...themeMessages,...performanceMessages,...voiceMessages,...teamMessages,...deliveryProgressMessages,...deliveryPreviewMessages};
+const messages={...interfaceMessages,...catalogMessages,...guideMessages,...calendarMessages,...themeMessages,...performanceMessages,...voiceMessages,...teamMessages,...deliveryProgressMessages,...deliveryPreviewMessages,...deliveryLibraryMessages};
 const patterns=[...interfacePatterns,...catalogPatterns,...performancePatterns].map(item=>({...item,regex:new RegExp(item.source,'u')}));
 const STORE='oscar-language-v1';
 let language='fr',started=false,observer;
