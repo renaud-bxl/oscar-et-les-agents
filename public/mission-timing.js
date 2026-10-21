@@ -9,7 +9,10 @@ export function formatTimingDuration(ms){
   return hours?`${hours} h ${minutes%60} min ${seconds%60} s`:minutes?`${minutes} min ${seconds%60} s`:`${seconds} s`;
 }
 function stageText(call,mission){
-  if(call.stage==='creation')return mission.executionMode==='single-design'||(mission.tasks||[]).some(task=>task.role==='design'&&task.agentName===call.agent)?'crée le visuel':'réalise sa contribution';
+  if(call.stage==='creation'){
+    const role=(mission.tasks||[]).find(task=>task.agentName===call.agent)?.role;
+    return mission.executionMode==='single-design'?'crée le visuel':({design:'crée le visuel',code:'développe sa contribution',recherche:'recherche les informations',redaction:'rédige sa contribution',analyse:'analyse les informations'})[role]||'réalise sa contribution';
+  }
   return({planning:'prépare la mission',review:'vérifie les fichiers','final-review':'vérifie les fichiers',assembly:'assemble la livraison',answer:'prépare votre réponse'})[call.stage]||'utilise le moteur';
 }
 /** Facts recorded by the runner only; scene animations and task counts are irrelevant. */

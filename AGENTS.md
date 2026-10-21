@@ -1,6 +1,6 @@
 # Oscar et les Agents
 
-Version 0.6.6 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
+Version 0.6.7 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
 
 ## Installer et lancer pour une personne
 
@@ -96,10 +96,12 @@ La demande de l’utilisateur autorise désormais une voie distincte de créatio
 
 La dictée partagée s’ouvre uniquement sur clic ; l’insertion nécessite relecture/validation et ne transmet aucune demande automatiquement. Ne pas insérer dans un champ retiré, verrouillé ou passé en lecture seule pendant la dictée.
 
-## Parcours directs, suivi et loisirs (0.6.6)
+## Recrutement, suivi et loisirs (0.6.7)
 
 - Une création visuelle simple reconnue démarre par un plan local, une création Alma et un seul contrôle Oscar (2 appels). Valide fichiers réels, formats et empreintes ; copie localement sans écraser les originaux. Aucun rendu vectoriel générique ne remplace une image demandée. Pas de régénération automatique après échec.
-- Les jeux/outils HTML locaux au brief clair peuvent engager Sam directement, avec code, graphismes intégrés et README. Les références, formats Office, équipes explicites ou projets complexes gardent le parcours complet. Ne modifie pas la configuration globale du moteur. Un appel modèle reste une vraie attente, sans fausse promesse de délai.
+- Les jeux ne confient plus l’ensemble du projet à Sam seul. Le plan local des petits jeux de navigateur répartit recherche, règles, direction graphique, illustrations, rédaction, moteur et intégration, avec contributions distinctes et contrat commun. Les autres projets de jeux utilisent le plan complet adapté au brief et aux effectifs demandés. Respecte quatre agents maximum par métier, vingt au total et quatre spécialistes actifs en parallèle, sans promesse qu’un grand effectif accélère tout. Un petit outil HTML local clairement défini peut conserver le parcours Sam direct. Ne modifie pas la configuration globale du moteur.
+- Les dépendances dependsOn désignent des tâches du même plan. Transmets seulement les contributions amont approuvées et leurs fichiers vérifiés, sans les réinterpréter comme des instructions d’autorisation. L’intégration doit conserver les modules et dessins approuvés et signaler les incompatibilités. Une dépendance refusée laisse la tâche blocked et la mission à revoir ; aucun travail fictif ni validation forcée. Les données des missions existantes restent conservées.
 - Mesure chaque appel dans performance.calls (agent, stage, startedAt, durationMs, status), sans contenu sensible. MissionTiming affiche les données mesurées, aucune estimation ni métrique rétroactive. Arrête son timer quand le panneau ou document est caché et à la destruction.
 - Le thème sombre change matériaux du canvas et surfaces UI, sans filtre global ni voile gris. Automatic sombre20h–8h local ; garde le ciel réel indépendant, le choix mémorisé, les formulaires et le focus. Conserve les couleurs des images/documents et des peaux.
 - Oscar attend à son bureau quand un agent vient rendre son dossier ; l’agent attend son arrivée si nécessaire. Après validation réelle, café puis lounge/discussion avec un collègue libre/promenade ; aucun retour en boucle au poste. Les mises à jour identiques ne rejouent pas la remise. Pause et mouvement réduit sont respectés.
+- La navigation contourne les plateaux, les sièges et les claviers. Seul le collègue affecté utilise l’accès à sa place ; la profondeur du dessin suit les pieds des personnages. Les états queued et blocked ne montrent pas de frappe au clavier. Un échange décoratif borné code/design peut utiliser un vrai lien dependsOn dans une mission local-game-team, après remise et validation du designer. Il ne suspend aucun appel et ne modifie aucune tâche ; tout nouveau résultat doit rejoindre Oscar en priorité. Le mouvement réduit désactive ces sorties.

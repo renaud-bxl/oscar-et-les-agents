@@ -53,14 +53,14 @@ const DESKS=ISLANDS.flatMap((island,islandIndex)=>Array.from({length:4},(_,i)=>(
 const DOOR={x:110,y:190},RECEPTION={x:130,y:270},REVIEW={x:730,y:330};
 const OSCAR_HOME={x:720,y:237},OSCAR_WELCOME={x:155,y:285},OSCAR_GATE={x:570,y:310};
 const OSCAR_VISITS={recherche:{x:430,y:370},redaction:{x:1010,y:370},code:{x:890,y:470},design:{x:530,y:640},analyse:{x:1210,y:640}};
-const REVIEW_WAIT=Array.from({length:20},(_,i)=>({x:510+(i%10)*40,y:350+Math.floor(i/10)*40}));
+const REVIEW_WAIT=[...Array.from({length:18},(_,i)=>({x:(i%6<3?450:890)+(i%3)*50,y:350+Math.floor(i/6)*50})),{x:570,y:350},{x:870,y:350}];
 const COFFEE=Array.from({length:20},(_,i)=>({x:190+(i%4)*20,y:650+Math.floor(i/4)*40}));
 const CHAT=[{x:610,y:650},{x:850,y:650},{x:610,y:690},{x:850,y:690},{x:610,y:730},{x:850,y:730},{x:610,y:770},{x:850,y:770},{x:610,y:810},{x:650,y:810},{x:690,y:810},{x:730,y:810},{x:770,y:810},{x:810,y:810},{x:850,y:810},{x:650,y:650},{x:690,y:650},{x:730,y:650},{x:770,y:650},{x:810,y:650}];
 const STROLL=[{x:430,y:510},{x:890,y:570},{x:1210,y:510},{x:230,y:570}];
-const BUSY_TASKS=new Set(['working','revising']),EXIT_TASKS=new Set(['failed','cancelled']);
+const BUSY_TASKS=new Set(['working','revising']),WAIT_TASKS=new Set(['queued','blocked']),EXIT_TASKS=new Set(['failed','cancelled']);
 const RESULT_TASKS=new Set(['reviewing','approved','needs_review','failed']);
 const REVIEW_STATES=new Set(['to_oscar','waiting_oscar','to_review_queue','review_queue','handoff','to_review_wait','waiting_review','needs_review']);
-const TRAVEL_STATES=new Set(['entering','to_desk','to_oscar','to_review_queue','to_review_wait','to_coffee','to_chat','to_lounge','to_stroll','returning','leaving']);
+const TRAVEL_STATES=new Set(['entering','to_desk','to_oscar','to_review_queue','to_review_wait','to_coffee','to_chat','to_lounge','to_stroll','to_collaboration','returning','leaving']);
 const LAMPS=[{x:490,y:108},{x:720,y:64},{x:950,y:108},{x:550,y:520,floor:true},{x:1240,y:520,floor:true}];
 const HOTSPOTS=[
   {kind:'coffee',label:'Machine à café',x:57,y:565,w:123,h:173},
@@ -79,7 +79,7 @@ const HOTSPOTS=[
 ];
 const OBSTACLES=[
   ...ISLANDS.map(i=>({x:i.x,y:i.y,w:i.w,h:i.h})),
-  {x:610,y:220,w:220,h:70},{x:65,y:650,w:105,h:90},
+  {x:610,y:220,w:220,h:70},{x:1077,y:242,w:168,h:65},{x:65,y:650,w:105,h:90},
   {x:670,y:690,w:120,h:85},{x:550,y:690,w:50,h:100},{x:860,y:690,w:50,h:100},{x:70,y:385,w:50,h:60},
   {x:1320,y:390,w:50,h:60},{x:1300,y:715,w:70,h:80},{x:1270,y:650,w:110,h:64}
 ];
@@ -222,6 +222,7 @@ export class PixelWorld {
       this._oscarBubble=mission?'Allez, je prépare le recrutement !':'Explique-moi ce que tu veux faire';
       this._oscarBubbleUntil=this.time+3.5;
       this._lastCompleted=null;
+      this._nextCollaborationAt=this.time+12;
     }
     this.mission=mission||null;
     if(mission) {
@@ -473,6 +474,39 @@ export class PixelWorld {
     else if(step%4===2)this._travel(a,'returning',DESKS[a.slot].stand,'resting');
     else this._startCoffee(a);
   }
+  _finishCollaboration(meeting){
+    if(this._collaboration===meeting)this._collaboration=null;
+    this._nextCollaborationAt=this.time+55;
+    for(const key of meeting.keys){
+      const a=this.agents.get(key);if(!a||a.collaboration!==meeting)continue;
+      a.collaboration=null;
+      if(!['to_collaboration','collaboration'].includes(a.state)||a.retiring||EXIT_TASKS.has(a.task.status))continue;
+      if(this._pendingDelivery(a)){this._startReview(a);continue;}
+      this._bubble(a,'Je retrouve mon bureau.',2);
+      this._travel(a,'returning',DESKS[a.slot].stand,a.task.status==='approved'?'resting':'working');
+    }
+  }
+  _updateCollaborations(){
+    const meeting=this._collaboration;
+    if(meeting){
+      const pair=meeting.keys.map(key=>this.agents.get(key));
+      if(this.reducedMotion||this.time-meeting.startedAt>30||!['running','reviewing'].includes(this.mission?.status)||pair.some((a,i)=>!a||!a.visible||a.retiring||a.missionId!==this.missionId||taskAttempt(a.task)!==meeting.attempts[i]||!['to_collaboration','collaboration'].includes(a.state)||a.task.status==='blocked'||EXIT_TASKS.has(a.task.status)||this._pendingDelivery(a))){this._finishCollaboration(meeting);return;}
+      if(meeting.until==null&&pair.every(a=>a.state==='collaboration')){
+        meeting.until=this.time+3.2;this._bubble(pair[0],'On regarde ça ensemble ?',3.5);this._bubble(pair[1],'J’ai une idée à te montrer.',3.5);
+      }else if(meeting.until!=null&&this.time>=meeting.until)this._finishCollaboration(meeting);
+      return;
+    }
+    if(this.reducedMotion||this.mission?.executionMode!=='local-game-team'||!['running','reviewing'].includes(this.mission?.status)||this.time<(this._nextCollaborationAt??12))return;
+    this._nextCollaborationAt=this.time+3;
+    const live=[...this.agents.values()].filter(a=>a.visible&&!a.retiring&&a.missionId===this.missionId&&a.slot>=0);
+    const code=live.find(a=>a.role==='code'&&['working','waiting_task'].includes(a.state)&&(BUSY_TASKS.has(a.task.status)||a.task.status==='queued')&&Array.isArray(a.task.dependsOn)&&live.some(b=>b.role==='design'&&a.task.dependsOn.includes(b.id)&&b.task.status==='approved'&&b.handoffAttempts.has(taskAttempt(b.task))&&['coffee','chat','lounge','strolling','resting'].includes(b.state)));
+    if(!code)return;
+    const designer=live.find(a=>a.role==='design'&&code.task.dependsOn.includes(a.id)&&a.task.status==='approved'&&a.handoffAttempts.has(taskAttempt(a.task))&&['coffee','chat','lounge','strolling','resting'].includes(a.state));
+    // A decorative exchange between genuinely linked contributions. It never
+    // pauses an engine, approves a result, or changes the mission's task data.
+    const session={keys:[code.key,designer.key],attempts:[taskAttempt(code.task),taskAttempt(designer.task)],startedAt:this.time,until:null};this._collaboration=session;
+    [code,designer].forEach((a,i)=>{a.collaboration=session;a.paper=false;a.mug=false;this._bubble(a,'Je retrouve mon collègue.',2.5);this._travel(a,'to_collaboration',{x:650+i*80,y:650},'collaboration');});
+  }
   _arrived(a) {
     a.path=[];a.target=null;const state=a.afterTravel;a.afterTravel=null;
     if(state==='handoff'&&this.oscar.place!=='desk'){this._visit(a,'waiting_oscar');a.direction='up';this._bubble(a,'Mon dossier est prêt.');return;}
@@ -484,7 +518,7 @@ export class PixelWorld {
       this._event('hire',a);
     } else if(state==='working') {
       a.direction=DESKS[a.slot]?.direction||'up';a.workSince=this.time;a.paper=false;a.mug=false;
-      if(a.task.status==='queued') this._visit(a,'waiting_task');
+      if(WAIT_TASKS.has(a.task.status)) this._visit(a,'waiting_task');
       else if(this._pendingDelivery(a))this._startReview(a);
       else this._bubble(a,a.task.status==='revising'?'Je corrige le détail.':'À moi de jouer !',2);
     } else if(state==='handoff') {
@@ -499,6 +533,7 @@ export class PixelWorld {
     else if(state==='coffee') {a.direction='left';a.mug=true;a.deadline=this.time+2.5+a.random()*2;this._bubble(a,'Un café bien mérité !');this._event('coffee',a);}
     else if(state==='lounge'){a.direction=a.x<730?'right':'left';a.mug=false;a.deadline=this.time+4+a.random()*3;this._bubble(a,'On se retrouve ici ?',3);}
     else if(state==='strolling'){a.direction='down';a.mug=false;a.deadline=this.time+1.5+a.random()*2;this._bubble(a,'Je fais le tour des idées.',3);}
+    else if(state==='collaboration'){a.direction=a.collaboration?.keys[0]===a.key?'right':'left';a.paper=false;a.mug=false;}
     else if(state==='chat') {
       a.direction=a.x<730?'right':'left';a.mug=a.random()>.45;a.deadline=this.time+3+a.random()*3;
       const other=[...this.agents.values()].find(b=>b!==a&&b.state==='chat'&&b.task.status==='approved');
@@ -529,7 +564,7 @@ export class PixelWorld {
     const needsWork=BUSY_TASKS.has(a.task.status);
     const awayFromWork=['to_oscar','waiting_oscar','to_review_queue','review_queue','handoff','to_review_wait','waiting_review','needs_review','to_coffee','coffee','to_chat','chat','to_lounge','lounge','to_stroll','strolling','resting'].includes(a.state);
     if(needsWork&&awayFromWork&&(attempt>a.handoffAttempt||a.task.status==='revising')) this._returnToDesk(a);
-    else if(pendingHandoff&&['to_coffee','coffee','to_chat','chat','to_lounge','lounge','to_stroll','strolling','resting'].includes(a.state))this._startReview(a);
+    else if(pendingHandoff&&['to_coffee','coffee','to_chat','chat','to_lounge','lounge','to_stroll','strolling','resting','to_collaboration','collaboration'].includes(a.state))this._startReview(a);
     a.lastAttempt=attempt;
     if(TRAVEL_STATES.has(a.state)) {
       let remaining=a.speed*dt;
@@ -545,11 +580,11 @@ export class PixelWorld {
     }
     if(a.state==='briefing'&&this.time>=a.deadline) {this._travel(a,'to_desk',DESKS[a.slot].stand,'working');return;}
     if(a.state==='waiting_task') {
-      if(a.task.status!=='queued') {this._visit(a,'working');a.workSince=this.time;this._bubble(a,'C’est parti !');}
+      if(!WAIT_TASKS.has(a.task.status)) {this._visit(a,'working');a.workSince=this.time;this._bubble(a,'C’est parti !');}
       return;
     }
     if(a.state==='working') {
-      if(a.task.status==='queued') {this._visit(a,'waiting_task');return;}
+      if(WAIT_TASKS.has(a.task.status)) {this._visit(a,'waiting_task');return;}
       if(['reviewing','approved','needs_review','failed'].includes(a.task.status)&&this.time-a.workSince>.65) {
         if(!a.handoffAttempts.has(attempt)) this._startReview(a);
         else if(a.task.status==='approved') this._startCoffee(a);
@@ -585,20 +620,28 @@ export class PixelWorld {
     }
   }
 
-  _walkable(x,y) {
+  _walkable(x,y,{actor}={}) {
     if(x>=4&&x<=6&&y>=7&&y<=11) return true;
     if(x<3||x>=COLS-3||y<11||y>40) return false;
     const p=center(x,y);
-    return !OBSTACLES.some(b=>p.x>=b.x&&p.x<b.x+b.w&&p.y>=b.y&&p.y<b.y+b.h);
+    if(OBSTACLES.some(b=>p.x>=b.x&&p.x<b.x+b.w&&p.y>=b.y&&p.y<b.y+b.h))return false;
+    // Reserve the chairs and keyboards as well as the tabletop. Only the
+    // assigned colleague uses their own short, perpendicular seat corridor.
+    const desk=DESKS[actor?.slot];
+    return !ISLANDS.some(island=>{
+      if(p.x<island.x-20||p.x>=island.x+island.w+20||p.y<island.y-60||p.y>=island.y+island.h+60)return false;
+      const own=desk?.island===ISLANDS.indexOf(island)&&Math.abs(p.x-desk.stand.x)<=24;
+      return !(own&&(desk.position<2?p.y<island.y:p.y>=island.y+island.h));
+    });
   }
-  _nearest(point) {
+  _nearest(point,options) {
     const start=cell(point);
-    if(this._walkable(start.x,start.y)) return start;
-    for(let r=1;r<12;r++) for(let y=start.y-r;y<=start.y+r;y++) for(let x=start.x-r;x<=start.x+r;x++) if(this._walkable(x,y)) return {x,y};
+    if(this._walkable(start.x,start.y,options)) return start;
+    for(let r=1;r<12;r++) for(let y=start.y-r;y<=start.y+r;y++) for(let x=start.x-r;x<=start.x+r;x++) if(this._walkable(x,y,options)) return {x,y};
     return {x:5,y:11};
   }
-  _path(from,to) {
-    const start=this._nearest(from),end=this._nearest(to),key=(x,y)=>y*COLS+x;
+  _path(from,to,options={actor:from}) {
+    const start=this._nearest(from,options),end=this._nearest(to,options),key=(x,y)=>y*COLS+x;
     const queue=[start],previous=new Map([[key(start.x,start.y),null]]);
     let found=false;
     for(let n=0;n<queue.length;n++) {
@@ -606,7 +649,7 @@ export class PixelWorld {
       if(p.x===end.x&&p.y===end.y) {found=true;break;}
       for(const [dx,dy] of [[0,1],[1,0],[-1,0],[0,-1]]) {
         const x=p.x+dx,y=p.y+dy,k=key(x,y);
-        if(this._walkable(x,y)&&!previous.has(k)) {previous.set(k,p);queue.push({x,y});}
+        if(this._walkable(x,y,options)&&!previous.has(k)) {previous.set(k,p);queue.push({x,y});}
       }
     }
     if(!found) return [];
@@ -620,13 +663,13 @@ export class PixelWorld {
     const a=this.oscar;
     if(a.destination===place&&(a.path.length||a.place===place))return;
     const route=[];
-    if(a.y<310&&a.x>560){if(a.y>240)route.push({x:570,y:310});else route.push({x:570,y:205},{...OSCAR_GATE});}
+    if(a.y<300&&a.x>=590&&a.x<=850)route.push({x:a.x,y:205},{x:570,y:205},{...OSCAR_GATE});
     const from=route.at(-1)||a;
     if(place==='desk'){
       if(a.y<245&&a.x>570)route.length=0;
-      else route.push(...this._path(from,OSCAR_GATE),{x:570,y:205},{x:720,y:205});
+      else route.push(...this._path(from,OSCAR_GATE,{actor:a}),{x:570,y:205},{x:720,y:205});
       route.push({...OSCAR_HOME});
-    }else route.push(...this._path(from,point),{...point});
+    }else route.push(...this._path(from,point,{actor:a}),{...point});
     a.path=route;a.destination=place;a.place='walking';
     if(this.reducedMotion){Object.assign(a,point);a.path=[];this._oscarArrived();}
   }
@@ -639,6 +682,7 @@ export class PixelWorld {
     else if(a.place==='welcome'){this._oscarBubble='Explique-moi ce que tu veux faire';this._oscarBubbleUntil=this.time+5;}
   }
   _updateOscar(dt=0) {
+    this._updateCollaborations();
     const visible=[...this.agents.values()].filter(a=>a.visible),live=visible.filter(a=>!a.retiring);
     const review=!!this._reviewOwner||visible.some(a=>this._pendingDelivery(a)||REVIEW_STATES.has(a.state)&&!BUSY_TASKS.has(a.task.status))||this.mission?.tasks?.some(t=>t.status==='reviewing');
     if(review) this.oscarState='reviewing';
@@ -698,10 +742,13 @@ export class PixelWorld {
     else if(a.state==='handoff')text=a.task?.status==='failed'?'Un problème à te signaler.':'À toi de vérifier !';
     else if(['to_review_wait','waiting_review'].includes(a.state))text='J’attends le retour.';
     else if(a.state==='needs_review')text='À vérifier';
+    else if(a.state==='to_collaboration')text='Je retrouve mon collègue.';
+    else if(a.state==='collaboration')text='On regarde ça ensemble ?';
     else if(['to_lounge','lounge'].includes(a.state))text='On se retrouve ici ?';
     else if(['to_stroll','strolling'].includes(a.state))text='Je fais le tour des idées.';
     else if(a.state==='coffee')text='Un café bien mérité !';
-    else if(a.task?.status==='queued') text='Prêt ! J’attends le brief.';
+    else if(a.task?.status==='blocked')text='J’attends une contribution.';
+    else if(a.task?.status==='queued')text=a.task.dependsOn?.length?'J’attends une contribution.':'J’attends mon tour.';
     else if(a.task?.status==='reviewing') text='Oscar lit. Je retiens ma tasse.';
     else if(['revising','needs_review'].includes(a.task?.status)) text='Je corrige. Le café attendra.';
     else if(a.task?.status==='approved') text=['Validé ! Mon café aussi.','Mission validée. Sourire aussi.','Le vrai livrable ? L’équipe.'][n%3];
@@ -1078,6 +1125,7 @@ export class PixelWorld {
     if(actor.paper){c.save();c.translate(left?-24:20,-26);c.rotate(left?-.15:.12);this._shadow(c,()=>this._round(c,-7,-12,16,24,3,'#fff8ea'),3,1);this._line(c,-3,-6,5,-6,'#a2b7a0',1.4);this._line(c,-3,-1,4,-1,'#bbc9b0',1.4);c.restore();}
     if(actor.mug){const mx=left?-23:21;this._round(c,mx-6,-26,12,14,5,oscar?'#d5b187':info.shirt);this._ellipse(c,mx,-26,5,2,'#f5e8d3');c.beginPath();c.arc(mx+6,-20,4,-Math.PI/2,Math.PI/2);c.strokeStyle=info.shirt;c.lineWidth=3;c.stroke();}
     if(reacting&&reaction.kind==='wave'){const wave=this.reducedMotion?0:Math.sin((this.time-reaction.start)*13)*2;this._line(c,12,-31,23,-45,info.shirt,6);this._line(c,23,-45,22+wave,-55,skin,5);this._ellipse(c,22+wave,-57,3.5,4,skin);}
+    if(actor.state==='collaboration'&&!this.reducedMotion){const side=left?-1:1,talk=Math.sin(this.time*3+variant)*2;this._line(c,side*13,-31,side*25,-33+talk,skin,5);this._ellipse(c,side*26,-33+talk,3.3,3,skin);}
     if(actor.state==='chat'&&!this.reducedMotion&&Math.floor(this.time*2+variant)%8===0)this._heart(c,27,-68,P.coral);
     if(actor.state==='coffee'&&!this.reducedMotion){c.beginPath();c.moveTo(22,-31);c.bezierCurveTo(15,-37,28,-39,22,-44);c.strokeStyle='#fff9ea90';c.lineWidth=1.7;c.stroke();}
     c.restore();

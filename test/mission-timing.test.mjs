@@ -89,3 +89,10 @@ test('empty missions and terminal missions never schedule a timer',()=>{
   widget.update(mission({status:'completed'}));assert.equal(widget.root.hidden,false);assert.equal(time.queue.size,0);
   widget.update(mission());assert.equal([...time.queue.values()][0].delay,500);widget.update(null);assert.equal(time.queue.size,0);assert.equal(widget.root.hidden,true);widget.destroy();
 });
+
+test('a multidisciplinary team names the real parallel contributions without counting waiting colleagues as calls',()=>{
+  const tasks=[['Sam','code'],['Alma','design'],['Lina','recherche'],['Noé','redaction'],['Jules','analyse']].map(([agentName,role])=>({agentName,role,status:'working'}));
+  const data=missionTimingSnapshot(mission({executionMode:'local-game-team',tasks:[...tasks,{agentName:'Alex',role:'code',status:'queued'},{agentName:'Maya',role:'design',status:'blocked'}],performance:{calls:tasks.map(task=>call({agent:task.agentName,...(task.agentName==='Lina'?{status:'completed',durationMs:1000}:{})}))}}),{locale:'fr',now:15000});
+  assert.equal(data.callCount,5);assert.equal(data.calls.filter(call=>call.running).length,4);assert.deepEqual(data.calls.map(call=>call.label),['Sam développe sa contribution','Alma crée le visuel','Lina recherche les informations','Noé rédige sa contribution','Jules analyse les informations']);assert.equal(data.phase.includes('Alex'),false);assert.equal(data.phase.includes('Maya'),false);assert.equal(data.phase.includes('Lina'),false);
+  assert.equal(missionTimingSnapshot(mission({executionMode:'local-game-team',tasks,performance:{calls:[call({agent:'Sam'})]}}),{locale:'en'}).phase,'Sam develops their contribution');
+});

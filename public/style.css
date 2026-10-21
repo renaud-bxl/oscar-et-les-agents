@@ -115,6 +115,20 @@ h2 { margin: 4px 0 0; color: #35445b; font-size: 18px; font-weight: 550; line-he
 .team-panel .card-heading { padding: 23px 21px 17px; }
 .team-panel h2 { font-size: 18px; }
 .team-list { display: grid; gap: 5px; padding: 0 10px 11px; }
+.team-overview { margin: 0 14px 14px; padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+.team-overview[hidden],.team-role-counts>[hidden] { display: none; }
+.team-overview-title { margin: 0 0 10px; color: var(--ink); font-size: 13px; font-weight: 600; }
+.team-role-counts,.team-queue-status { display: flex; flex-wrap: wrap; gap: 7px; }
+.team-role-counts>span { padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); font-size: 12px; }
+.team-role-counts b { padding-right: 4px; }
+.team-queue-status { margin-top: 12px; gap: 6px 15px; color: var(--muted); font-size: 12px; }
+.team-flow-note { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.member-contributions { display: grid; gap: 8px; margin: 10px 0 15px; }
+.member-contribution { display: grid; grid-template-columns: minmax(65px,auto) 1fr; gap: 4px 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.member-contribution>span { font-size: 12px; overflow-wrap: anywhere; }
+.member-contribution>small { grid-column: 2; color: var(--muted); font-size: 11px; }
+.member-contribution:focus-visible { outline: 3px solid #6997bd; outline-offset: 3px; }
+.task-state.blocked,.team-status.blocked { background: #fcf0ea; color: #926e52; }
 .team-member { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 78px; padding: 13px 11px; border: 1px solid transparent; border-radius: 12px; background: transparent; text-align: left; transition: background .18s; }
 .team-member:hover { background: #f7f9fc; }
 .team-member.active, .team-member.selected, .team-member[aria-pressed="true"] { border-color: #e4ecf7; background: #f1f6fc; }

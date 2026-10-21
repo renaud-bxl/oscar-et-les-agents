@@ -35,7 +35,7 @@ const roleInfo = {
   analyse: {name: 'Jules', label: 'Analyse', initial: 'J', intro: 'Jules organise les données, évalue les options et fait ressortir ce qui aide à décider.'}
 };
 const missionStatus = {planning:'Oscar prépare le plan',running:'L’équipe est au travail',reviewing:'Oscar vérifie les résultats',completed:'Mission livrée',needs_review:'Votre attention est nécessaire',failed:'La mission a rencontré un problème',cancelled:'Mission arrêtée'};
-const taskStatus = {queued:'À venir',working:'En cours',reviewing:'Vérification',revising:'À améliorer',approved:'Validé',needs_review:'À vérifier',failed:'Interrompu',cancelled:'Arrêté'};
+const taskStatus = {queued:'À venir',blocked:'Bloqué par une contribution',working:'En cours',reviewing:'Vérification',revising:'À améliorer',approved:'Validé',needs_review:'À vérifier',failed:'Interrompu',cancelled:'Arrêté'};
 const ROLE_DETAILS={
   oscar:['Il découpe votre objectif en tâches, choisit les métiers et recrute les spécialistes utiles.','Un plan de travail, des retours sur chaque tâche et une livraison assemblée.','La cohérence du projet, les fichiers attendus et les points qui demandent votre attention.'],
   recherche:['L’équipe recherche des informations, compare les sources et prépare des dossiers thématiques ou parlementaires.','Des sources citées, une chronologie, des références officielles et des synthèses documentées.','Les dates, les liens, la distinction entre faits et interprétations et les limites de la recherche.'],
@@ -370,6 +370,17 @@ function renderTeam() {
   $('stat-approved').textContent=tasks.filter(t=>t.status==='approved').length;
   $('stat-files').textContent=mission?.files?.length || 0;
   $('team-count').textContent=tasks.length;
+  $('team-overview').hidden=!tasks.length;
+  for(const chip of document.querySelectorAll('[data-team-role]')) {
+    const count=tasks.filter(task=>roleOf(task.role)===chip.dataset.teamRole).length;
+    chip.hidden=!count;chip.querySelector('b').textContent=count;
+  }
+  $('team-working-count').textContent=tasks.filter(task=>['working','revising'].includes(task.status)).length;
+  $('team-review-count').textContent=tasks.filter(task=>task.status==='reviewing').length;
+  $('team-waiting-count').textContent=tasks.filter(task=>task.status==='queued').length;
+  const blockedCount=tasks.filter(task=>task.status==='blocked').length;
+  $('team-blocked-status').hidden=!blockedCount;$('team-blocked-count').textContent=blockedCount;
+  $('team-flow-note').hidden=!isRunning(mission)||tasks.length<2;
   $('oscar-team-status').textContent=mission?.phase || 'Prêt à vous écouter';
   const lead=$('team-oscar').querySelector('.team-avatar');if(!lead.firstElementChild)lead.replaceChildren(portrait('oscar'));
   const brand=document.querySelector('.brand-portrait');if(!brand.firstElementChild)brand.replaceChildren(portrait('oscar'));
@@ -418,7 +429,7 @@ function renderTasks() {
     const avatar=node('span','task-avatar');avatar.append(portrait(roleOf(task.role),(mission.tasks || []).filter(t=>t.role===task.role).findIndex(t=>t.id===task.id)));button.append(avatar);
     const main=node('span','task-main');
     main.append(node('span','task-title',task.title || info.label));
-    main.append(node('span','task-subtitle',`${agentName(task)}${task.activity ? ` · ${String(task.activity).slice(0,150)}` : ` · ${info.label}`}`));
+    main.append(node('span','task-subtitle',`${agentName(task)} · ${translate(task.activity ? String(task.activity).slice(0,150) : info.label)}`));
     button.append(main,node('span',`task-state ${task.status || ''}`,taskStatus[task.status] || task.status || 'À venir'));
     button.addEventListener('click',()=>openMember(roleOf(task.role),task.id));
     list.append(button);
@@ -657,12 +668,25 @@ function renderMember(role,taskId) {
   for(const task of tasks) {
     const section=node('section','dialog-task');section.dataset.task=task.id;
     section.append(node('h3','',task.title || info.label),node('span',`task-state ${task.status || ''}`,taskStatus[task.status] || task.status));
+    const dependencies=(Array.isArray(task.dependsOn)?task.dependsOn:[]).map(id=>(mission?.tasks||[]).find(item=>item.id===id)).filter(Boolean);
+    if(dependencies.length) {
+      section.append(node('div','dialog-label','Contributions nécessaires'));
+      const contributions=node('div','member-contributions');
+      for(const colleague of dependencies) {
+        const button=node('button','member-contribution');button.type='button';
+        button.append(node('strong','',agentName(colleague)),node('span','',colleague.title),node('small','',taskStatus[colleague.status]||colleague.status));
+        button.title=translate('Consulter cette contribution');
+        button.addEventListener('click',()=>{openedRole=roleOf(colleague.role);openedTaskId=colleague.id;lastMemberSignature='';renderMember(openedRole,openedTaskId);$('member-title').focus({preventScroll:true});});
+        contributions.append(button);
+      }
+      section.append(contributions);
+    }
     if(task.instruction) section.append(node('p','',task.instruction));
     if(task.criteria) {
       section.append(node('div','dialog-label','Critères de validation'));
       section.append(node('p','',Array.isArray(task.criteria)?task.criteria.join('\n'):typeof task.criteria==='string'?task.criteria:JSON.stringify(task.criteria,null,2)));
     }
-    if(task.activity) section.append(node('p','',`Activité : ${task.activity}`));
+    if(task.activity) section.append(node('p','',`${translate('Activité :')} ${translate(task.activity)}`));
     if(task.report) { section.append(node('div','dialog-label','Compte rendu'),node('pre','report-content',task.report)); }
     if(task.review?.feedback) section.append(node('p',task.review.approved?'':'report-review',`Retour d’Oscar : ${task.review.feedback}`));
     list.append(section);

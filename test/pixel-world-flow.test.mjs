@@ -166,3 +166,49 @@ test('pause freezes leisure and reduced motion avoids repeated decorative walks 
   assert.equal(a.state,'lounge');assert.equal(a.path.length,0);assert.equal(s.events.filter(event=>event.kind==='handoff').length,1);assert.equal(s.transitions.some(event=>event.state==='to_stroll'),false);
   s.world._manualPaused=true;const before={time:s.world.time,x:a.x,y:a.y,state:a.state,events:s.events.length};s.world._tick(1000000);assert.deepEqual({time:s.world.time,x:a.x,y:a.y,state:a.state,events:s.events.length},before);
 });
+
+test('Oscar takes the rear aisles around every desk instead of crossing chairs or keyboards',()=>{
+  const s=scene([]),islands=[{x:170,y:350},{x:1050,y:350},{x:610,y:430},{x:270,y:610},{x:950,y:610}];
+  for(const target of [{x:430,y:370},{x:1010,y:370},{x:890,y:470},{x:530,y:640},{x:1210,y:640}]){
+    Object.assign(s.world.oscar,{x:720,y:237,path:[],place:'desk',destination:'desk'});s.world._oscarRoute('visit',target);
+    assert.deepEqual(s.world.oscar.path[0],{x:720,y:205},'Oscar first steps away from his own desk toward its rear');
+    for(const point of s.world.oscar.path)for(const island of islands)assert.equal(point.x>=island.x-20&&point.x<island.x+240&&point.y>=island.y-60&&point.y<island.y+150,false,`route crosses desk/chair clearance: ${JSON.stringify(point)}`);
+  }
+  const actor={x:130,y:270,slot:0,role:'recherche'},path=s.world._path(actor,{x:210,y:330});assert.ok(path.length);assert.ok(Math.hypot(path.at(-1).x-210,path.at(-1).y-330)<15,'the assigned colleague can still enter their own seat corridor');
+  assert.equal(s.world._walkable(10,16,{actor:s.world.oscar}),false,'Oscar cannot take that colleague’s seat corridor');
+});
+
+test('queued and blocked contributions wait without fake keyboard work or validation',()=>{
+  const tasks=[{id:'queue',role:'code',status:'queued'},{id:'blocked',role:'design',status:'blocked'}],s=scene(tasks),before=JSON.stringify(s.mission);s.advance(120);
+  assert.ok([...s.world.agents.values()].every(a=>a.state==='waiting_task'));assert.equal(s.events.some(event=>['handoff','approved','coffee'].includes(event.kind)),false);assert.equal(JSON.stringify(s.mission),before);
+  tasks[0].status='working';s.world.update(s.mission);s.advance(.2);assert.equal(s.world.agents.get('isolated-flow:queue').state,'working');assert.equal(s.world.agents.get('isolated-flow:blocked').state,'waiting_task');
+  s.world._clickCounts=new Map();s.world.onInteract=()=>{};s.world.onSelect=()=>{};s.world._selectActor(s.world.agents.get('isolated-flow:blocked'));assert.equal(s.world.agents.get('isolated-flow:blocked').bubble,'J’attends une contribution.');clearTimeout(s.world._selectionTimer);
+});
+
+test('a designer and a developer with a real dependency have a bounded lounge exchange then return',()=>{
+  const tasks=[{id:'art',role:'design',status:'approved',agentName:'Alma'},{id:'integration',role:'code',status:'working',agentName:'Alex',dependsOn:['art']}],s=scene(tasks);s.mission.executionMode='local-game-team';s.world.update(s.mission);const before=JSON.stringify(s.mission);
+  for(let i=0;i<1200&&!s.world._collaboration?.until;i++)s.advance(.1);
+  const meeting=s.world._collaboration;assert.ok(meeting?.until,'linked colleagues meet only after both arrive');const pair=meeting.keys.map(key=>s.world.agents.get(key));
+  assert.ok(pair.every(a=>a.state==='collaboration'));assert.equal(pair[0].direction,'right');assert.equal(pair[1].direction,'left');assert.ok(Math.hypot(pair[0].x-pair[1].x,pair[0].y-pair[1].y)<=85);
+  assert.equal(s.events.filter(event=>event.id==='art'&&event.kind==='handoff').length,1,'the designer delivers before the meeting');assert.equal(tasks[1].status,'working');assert.equal(JSON.stringify(s.mission),before);
+  s.advance(35);assert.equal(s.world._collaboration,null);assert.equal(s.world.agents.get('isolated-flow:integration').state,'working');assert.ok(s.transitions.some(event=>event.id==='art'&&event.state==='resting'));assert.equal(JSON.stringify(s.mission),before);
+});
+
+test('lounge exchanges never involve unrelated roles or postpone a new result for Oscar',()=>{
+  const tasks=[{id:'art',role:'design',status:'approved'},{id:'integration',role:'code',status:'working',dependsOn:[]}],s=scene(tasks);s.mission.executionMode='local-game-team';s.world.update(s.mission);s.advance(70);assert.equal(s.world._collaboration,undefined);
+  tasks[1].dependsOn=['art'];s.world.update(s.mission);for(let i=0;i<1200&&!s.world._collaboration?.until;i++)s.advance(.1);assert.ok(s.world._collaboration?.until);
+  tasks[1].status='reviewing';s.world.update(s.mission);s.advance(.2);assert.equal(s.world._collaboration,null);s.advance(40);assert.equal(s.events.filter(event=>event.id==='integration'&&event.kind==='handoff').length,1);assert.equal(s.world.agents.get('isolated-flow:integration').state,'waiting_review');
+});
+
+test('reduced motion disables optional collaboration excursions while preserving actual work',()=>{
+  const s=scene([{id:'art',role:'design',status:'approved'},{id:'code',role:'code',status:'working',dependsOn:['art']}]);s.mission.executionMode='local-game-team';s.world.reducedMotion=true;s.world.update(s.mission);s.advance(150);
+  assert.equal(s.world._collaboration,undefined);assert.equal(s.transitions.some(event=>event.state==='to_collaboration'),false);assert.equal(s.world.agents.get('isolated-flow:code').state,'working');
+});
+
+test('sprite depth keeps rear-aisle walkers behind seated colleagues and foreground walkers in front',()=>{
+  const s=scene([{id:'seated',role:'recherche',status:'working'}]);s.advance(20);const a=s.world.agents.get('isolated-flow:seated'),drawn=[];
+  Object.assign(s.world,{ctx:{setTransform(){},clearRect(){},translate(){},scale(){},drawImage(){}},canvas:{width:1440,height:850},viewport:{dpr:1,scale:1,offsetX:0,offsetY:0},_doorOpen:0,props:{},_sprite:(c,actor)=>drawn.push(actor.id)});
+  for(const name of ['_drawViewportBackdrop','_drawWindows','_drawSunShadows','_drawAtmosphere','_drawClock','_drawCoffeeSteam','_drawSecretary','_screen','_oscarDesk','_drawLamps','_drawPropFeedback','_drawBubbles','_round','_ellipse','_text'])s.world[name]=()=>{};
+  Object.assign(s.world.oscar,{x:a.x,y:a.y-62,path:[]});PixelWorld.prototype._draw.call(s.world);assert.ok(drawn.indexOf('oscar')<drawn.indexOf(a.id));
+  drawn.length=0;Object.assign(s.world.oscar,{x:a.x,y:a.y+72});PixelWorld.prototype._draw.call(s.world);assert.ok(drawn.indexOf('oscar')>drawn.indexOf(a.id));
+});

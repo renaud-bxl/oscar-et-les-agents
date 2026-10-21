@@ -2,9 +2,9 @@
 
 Donnez une mission à Oscar. Il recrute les bons spécialistes, ils arrivent dans un grand bureau illustré et animé, travaillent, rendent leurs dossiers… et prennent un café quand leur travail est validé.
 
-**Version 0.6.6** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
+**Version 0.6.7** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
 
-Cette version simplifie le choix des connecteurs et les demandes immédiates de Zoé, conserve la sélection d’export par mission et montre les fichiers exclus avant une publication. La détection d’un connecteur ne garantit pas l’autorisation de chaque action : une erreur de permission reste expliquée, sans nouvelle autorisation automatique. Les PDF se lisent directement dans le bureau avec un lecteur local passif, sans dépendre du lecteur PDF du navigateur. Les licences du moteur embarqué sont détaillées dans [PDFJS-NOTICES.md](PDFJS-NOTICES.md).
+Pour un jeu navigateur au brief clair, Oscar recrute désormais une équipe de sept ou huit spécialistes : recherche, analyse, deux ou trois designers, rédaction et deux développeurs. Les collègues se transmettent leurs contributions validées ; le moteur, l’interface, les dessins et les textes sont réunis dans un seul jeu. Le panneau Équipe montre les métiers et les tâches en attente. Les déplacements contournent les postes et les collègues qui collaborent peuvent échanger au lounge. La détection d’un connecteur ne garantit pas l’autorisation de chaque action : une erreur de permission reste expliquée, sans nouvelle autorisation automatique. Les PDF se lisent directement dans le bureau avec un lecteur local passif, sans dépendre du lecteur PDF du navigateur. Les licences du moteur embarqué sont détaillées dans [PDFJS-NOTICES.md](PDFJS-NOTICES.md).
 
 ![Le bureau illustré d’Oscar, les îlots de travail et le coin café](docs/bureau.png)
 
@@ -83,13 +83,17 @@ Le **studio créatif** commence par votre description, le support et le format. 
 
 Choisissez une carte, répondez aux questions, ajustez le résumé, puis confiez-le à Oscar. **Mon idée** permet de partir d’une demande libre. Les missions préparent des livrables : les contenus de réseaux sociaux restent des brouillons, les questions parlementaires ne sont pas déposées et les dossiers d’éditeur ne sont pas envoyés automatiquement. Une publication éventuelle passe par votre action et votre confirmation dans la livraison.
 
-## Un démarrage plus direct et un bureau sombre
+## Un recrutement complémentaire et un bureau vivant
 
-Une illustration simple utilise une création par Alma et une vérification par Oscar, puis une copie locale des fichiers approuvés dans Livraison/. Les petits jeux et outils pour navigateur dont le brief est clair démarrent directement avec Sam, qui produit le code, les graphismes intégrés et le mode d’emploi. Les projets complexes, les équipes explicitement demandées et les missions avec références gardent le parcours complet. Aucun appel en cours n’est interrompu par une mise à jour ; générer et vérifier un résultat peut toujours prendre plusieurs minutes.
+Une illustration simple utilise une création par Alma et une vérification par Oscar, puis une copie locale des fichiers approuvés dans Livraison/. Un petit outil local clairement défini peut être confié directement à Sam. Les jeux font travailler une équipe complémentaire : recherche, règles et équilibrage, direction de l’interface, illustrations, textes et développement. Plusieurs designers ou développeurs peuvent intervenir quand leurs contributions sont distinctes. Oscar garde le rôle de chef, de contrôleur et d’assembleur final.
+
+Pour les petits jeux de navigateur reconnus, un contrat commun définit les fichiers, la palette et l’interface du moteur. Les collègues reçoivent les contributions nécessaires après validation d’Oscar ; l’intégration reprend les modules et les dessins approuvés. Les projets complexes, les équipes explicitement demandées et les missions avec références gardent le plan complet adapté au brief. L’effectif n’est pas une promesse de rapidité : les étapes dépendantes attendent leurs prérequis et **quatre spécialistes au maximum travaillent en parallèle**. Si une contribution nécessaire reste refusée, les tâches qui en dépendent restent bloquées et la mission demande votre attention. Aucun appel en cours n’est interrompu par une mise à jour ; créer et vérifier un résultat peut toujours prendre plusieurs minutes.
 
 **Suivi** affiche la durée réelle et les appels du moteur enregistrés pour les nouvelles missions. Les anciennes missions indiquent quand cette mesure n’existe pas ; aucune estimation de fin n’est inventée.
 
-Le bouton soleil/lune du haut propose **Clair**, **Sombre** et **Automatique**. Le thème automatique devient sombre de 20 h à 8 h, selon l’ordinateur. La palette du bureau et les menus changent sans voile gris et sans altérer les couleurs des livrables. Après remise et validation du travail, les agents vont au café, au lounge ou se promènent. Oscar attend au bureau pour recevoir les dossiers.
+Le bouton soleil/lune du haut propose **Clair**, **Sombre** et **Automatique**. Le thème automatique devient sombre de 20 h à 8 h, selon l’ordinateur. La palette du bureau et les menus changent sans voile gris et sans altérer les couleurs des livrables. Après remise et validation du travail, les agents vont au café, au lounge ou se promènent. Oscar attend au bureau pour recevoir les dossiers et emprunte les allées pour contourner les sièges et les claviers.
+
+Dans une équipe de jeu, un designer et un développeur dont les tâches sont liées peuvent se retrouver brièvement au lounge puis revenir à leur poste. Cet échange visuel est décoratif : il ne suspend pas les appels, ne valide rien et ne crée aucune fausse progression. La remise d’un nouveau résultat à Oscar reste prioritaire. Le mouvement réduit désactive ces sorties supplémentaires.
 
 ## Jusqu’à quatre bureaux en même temps
 

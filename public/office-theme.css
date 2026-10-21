@@ -77,4 +77,4 @@
 @media(prefers-reduced-motion:reduce){.hud-theme *{scroll-behavior:auto}}
 
 :root[data-office-theme="dark"] .task-state:is(.working,.reviewing,.revising){background:#253f54!important;border-color:#59778f!important;color:#dbedff!important}
-:root[data-office-theme="dark"] .task-state:is(.failed,.needs_review,.cancelled){background:#442f2c!important;border-color:#ae7f6d!important;color:#ffdbcb!important}
+:root[data-office-theme="dark"] .task-state:is(.failed,.needs_review,.cancelled,.blocked){background:#442f2c!important;border-color:#ae7f6d!important;color:#ffdbcb!important}

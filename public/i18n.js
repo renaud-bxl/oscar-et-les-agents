@@ -5,9 +5,10 @@ import calendarMessages from './translations-calendar.js';
 import voiceMessages from './translations-voices.js';
 import themeMessages from './translations-theme.js';
 import performanceMessages, {patterns as performancePatterns} from './translations-performance.js';
+import teamMessages from './translations-team.js';
 
 export const LANGUAGES=Object.freeze({fr:'Français',en:'English',nl:'Nederlands'});
-const messages={...interfaceMessages,...catalogMessages,...guideMessages,...calendarMessages,...themeMessages,...performanceMessages,...voiceMessages};
+const messages={...interfaceMessages,...catalogMessages,...guideMessages,...calendarMessages,...themeMessages,...performanceMessages,...voiceMessages,...teamMessages};
 const patterns=[...interfacePatterns,...catalogPatterns,...performancePatterns].map(item=>({...item,regex:new RegExp(item.source,'u')}));
 const STORE='oscar-language-v1';
 let language='fr',started=false,observer;
