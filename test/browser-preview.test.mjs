@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import {mkdtemp,mkdir,writeFile,rm,symlink,truncate} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,rm,symlink,truncate} from 'node:fs/promises';
+import vm from 'node:vm';
 import path from 'node:path';
 import os from 'node:os';
 import {BrowserPreviews,BROWSER_PREVIEW_LIMITS} from '../lib/browser-preview.mjs';
@@ -42,6 +43,34 @@ test('an existing preview never rereads edited files and cannot expose unlisted 
   assert.equal(await(await fetch(preview.url)).text(),'ORIGINAL');assert.equal(await(await fetch(new URL('app.js',preview.url))).text(),'ORIGINAL SCRIPT');
   for(const target of [new URL('unlisted.json',preview.url),new URL('outside.json',preview.url),new URL('/api/state',preview.url),new URL('/index.html',preview.url)]){const response=await fetch(target);assert.equal(response.status,404);assert.equal(response.headers.get('access-control-allow-origin'),null);assert(!/PRIVATE|UNLISTED/u.test(await response.text()));}
   assert(!JSON.stringify(preview).includes(directory));assert(!JSON.stringify(preview).includes('ORIGINAL'));
+});
+
+test('a compiled dist is preferred to development sources and root resources are rebased only in HTML tags',async t=>{
+  const{previews,file,mission,directory}=await fixture(t);
+  await file('index.html','<!doctype html><script type="module" src="/src/main.tsx"></script>');
+  const html='<!doctype html><html><head><link rel="stylesheet" href="/assets/game.css"></head><body><img src="/assets/pizza.svg"><script type="module" src="/assets/game.js?v=1"></script><script>const example=\'<img src="/not-a-real-resource.png">\';</script></body></html>';
+  await file('dist/index.html',html);await file('dist/assets/game.js','console.error("Simulated game error");');await file('dist/assets/game.css','body{background:green}');await file('dist/assets/pizza.svg','<svg xmlns="http://www.w3.org/2000/svg"/>');await file('dist/manifest.webmanifest','{"name":"Temporary game"}');
+  const prepared=await previews.prepare(mission.id),page=await(await fetch(prepared.url)).text(),prefix=prepared.url.slice(0,-10);
+  assert.equal(prepared.entry,'dist/index.html');assert.equal(prepared.root,'dist');assert.equal(prepared.profile,'static-web-v1');assert.ok(page.startsWith('<!doctype html>'),'instrumentation must not force the page into quirks mode');
+  for(const asset of['game.css','pizza.svg','game.js?v=1'])assert.ok(page.includes(prefix+'assets/'+asset));assert.ok(page.includes('src="/not-a-real-resource.png"'),'inline JavaScript is never rewritten');
+  assert.equal((await fetch(new URL('assets/game.js?v=1',prepared.url))).status,200);assert.equal((await fetch(new URL('/assets/game.js',prepared.url))).status,404,'unscoped root paths never expose another snapshot');assert.equal(await readFile(path.join(directory,'dist/index.html'),'utf8'),html,'the user’s HTML is unchanged');
+});
+
+test('development sources and missing required resources explain why a game cannot run without starting a build',async t=>{
+  const{previews,file,mission}=await fixture(t);await file('index.html','<!doctype html><script type="module" src="/src/main.tsx"></script>');await file('package.json','{"scripts":{"build":"never execute this command"}}');
+  await assert.rejects(previews.prepare(mission.id),{code:'BROWSER_PREVIEW_BUILD_REQUIRED'});assert.equal(previews.server,null);
+  await file('index.html','<!doctype html><script src="missing.js"></script>');await assert.rejects(previews.prepare(mission.id),{code:'BROWSER_PREVIEW_MISSING_ASSETS'});assert.equal(previews.server,null);
+  await file('index.html','<!doctype html><main>Game</main><img src="missing.png"><img src="https://example.invalid/pizza.png">');const result=await previews.prepare(mission.id);assert.equal(result.warnings.length,2);assert.ok(result.warnings.every(message=>typeof message==='string'));assert.equal(mission.status,'completed');
+});
+
+test('the diagnostic bridge reports bounded messages only and cannot access parent accounts or commands',async t=>{
+  const{previews,file,mission}=await fixture(t);await file('index.html','<!doctype html><html><head></head><body><canvas></canvas></body></html>');const result=await previews.prepare(mission.id),page=await(await fetch(result.url)).text(),script=page.match(/<script data-oscar-preview-diagnostics>([\s\S]*?)<\/script>/u)?.[1];assert.ok(script);
+  const handlers=new Map(),posted=[],logged=[];const parent=new Proxy({postMessage:(data,target)=>posted.push({data,target})},{get(target,key){assert.equal(key,'postMessage','the bridge only posts text, never reads a parent API, DOM or account');return target[key];}}),window={parent,addEventListener:(kind,handler)=>handlers.set(kind,handler)},console={error:(...values)=>logged.push(values)};
+  vm.runInNewContext(script,{window,console});handlers.get('error')({target:window,message:result.url.replace('index.html','game.js')+' failed'});handlers.get('unhandledrejection')({reason:new Error('Temporary rejection')});console.error('Temporary console error');handlers.get('securitypolicyviolation')({});handlers.get('DOMContentLoaded')();
+  assert.deepEqual(posted.slice(0,5).map(item=>item.data.code),['runtime','promise','console','resource','ready']);assert.equal(logged.length,1);
+  for(let i=0;i<50;i++)handlers.get('error')({target:window,message:'x'.repeat(1000)});assert.equal(posted.length,20);
+  for(const{data,target}of posted){assert.equal(target,'*');assert.equal(Object.keys(data).length,5);assert.equal(data.type,'oscar-preview');assert.equal(data.profile,'static-web-v1');assert.ok(data.message.length<=512);assert(!data.message.includes(new URL(result.url).pathname.split('/')[1]));}
+  for(const route of['/api/state','/api/connectors','/api/missions','/state.json','/preferences.json'])assert.equal((await fetch(new URL(route,result.url))).status,404);
 });
 
 test('binary assets retain every byte across read chunks and close removes the listening preview',async t=>{

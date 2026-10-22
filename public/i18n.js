@@ -10,10 +10,11 @@ import deliveryProgressMessages from './translations-delivery-progress.js';
 import deliveryPreviewMessages from './translations-delivery-preview.js';
 import deliveryLibraryMessages from './translations-delivery-library.js';
 import updateMessages from './translations-updates.js';
+import recoveryMessages, {patterns as recoveryPatterns} from './translations-recovery.js';
 
 export const LANGUAGES=Object.freeze({fr:'Français',en:'English',nl:'Nederlands'});
-const messages={...interfaceMessages,...catalogMessages,...guideMessages,...calendarMessages,...themeMessages,...performanceMessages,...voiceMessages,...teamMessages,...deliveryProgressMessages,...deliveryPreviewMessages,...deliveryLibraryMessages,...updateMessages};
-const patterns=[...interfacePatterns,...catalogPatterns,...performancePatterns].map(item=>({...item,regex:new RegExp(item.source,'u')}));
+const messages={...interfaceMessages,...catalogMessages,...guideMessages,...calendarMessages,...themeMessages,...performanceMessages,...voiceMessages,...teamMessages,...deliveryProgressMessages,...deliveryPreviewMessages,...deliveryLibraryMessages,...updateMessages,...recoveryMessages};
+const patterns=[...interfacePatterns,...catalogPatterns,...performancePatterns,...recoveryPatterns].map(item=>({...item,regex:new RegExp(item.source,'u')}));
 const STORE='oscar-language-v1';
 let language='fr',started=false,observer;
 const originals=new WeakMap(),attributes=new WeakMap();

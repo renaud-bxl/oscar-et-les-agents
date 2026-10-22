@@ -1,6 +1,6 @@
 # Oscar et les Agents
 
-Version 0.6.11 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
+Version 0.6.12 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
 
 ## Installer et lancer pour une personne
 
@@ -22,7 +22,7 @@ Ne demande jamais de clé API pour cette application. N’extrais ni ne copie le
 - Ne versionne ni `data/`, ni `.tools/`, ni `.runtime/`, ni identifiants, journaux, briefs ou fichiers personnels.
 - Jusqu’à quatre missions utilisent des dossiers et contrôleurs d’arrêt indépendants. L’arrêt d’une mission doit préserver les autres.
 - Chaque dossier de mission reçoit une date et un titre lisible, avec numéro en cas de collision. La migration des anciens dossiers terminés conserve le contenu et les noms des fichiers ; ne renomme pas un dossier encore utilisé et n’écrase jamais un homonyme. Les identifiants internes restent indépendants du nom du dossier.
-- Un appel de moteur est limité à douze minutes, détection comprise. Préserve l’annulation du groupe de processus, les fichiers partiels et un état d’échec fidèle au délai réellement utilisé. Ne relance pas automatiquement un appel réel après une limite de temps.
+- Un appel de moteur est limité à douze minutes, détection comprise. Préserve l’annulation du groupe de processus, les fichiers partiels et un état d’échec fidèle au délai réellement utilisé. Oscar peut entreprendre une seule reprise ciblée et sauvegardée après une échéance ou une déconnexion temporaire, conformément à la demande utilisateur du 22 octobre 2026 ; aucune répétition aveugle ni boucle sans limite. Les appels de comptes, l’annulation volontaire, les erreurs de connexion/authentification, les quotas et les permissions ne sont jamais retentés automatiquement.
 - L’effectif souhaité propose automatique, 4, 8, 12, 15 ou 20 agents. Oscar peut recruter au maximum quatre agents par métier et vingt par mission. Jusqu’à vingt spécialistes travaillent en parallèle au total dans l’ensemble des missions du serveur, avec une capacité partagée ; ne transforme pas ce plafond global en vingt places par bureau. Un grand effectif utilise davantage l’abonnement sans garantie d’accélération proportionnelle.
 - Le bureau occupe toute la fenêtre. Les vues utilisent les panneaux flottants existants ; conserve les mêmes nœuds DOM pour préserver les formulaires et le focus.
 - Les personnages suivent l’état des tâches. Les animations et objets décoratifs ne modifient pas la progression réelle.
@@ -123,8 +123,16 @@ La dictée partagée s’ouvre uniquement sur clic ; l’insertion nécessite re
 - Un verrou persistant après interruption exige une vérification explicite et bloque une nouvelle installation. Ne le supprime pas automatiquement sur la seule mort du parent : un worker peut encore travailler. Conserve le reçu et la sauvegarde durable pour diagnostiquer ou restaurer le code avant une nouvelle tentative.
 - Les versions jusqu’à 0.6.9, dont 0.6.6, ne possèdent pas ce mécanisme : aucune notification ne peut leur être ajoutée à distance. Première mise à niveau avec un assistant ou l’installateur, après la fin des travaux et fermeture du serveur ; fermer le navigateur seul est insuffisant. Le bootstrap reçu en pipe télécharge la source GitHub actuelle ; un script local utilise son propre dépôt. Le bootstrap refuse d’écraser une installation tant qu’un bureau répond sur le port contrôlé, même sans mission active. Ensuite seulement, la version dotée du mécanisme peut annoncer les suivantes.
 
-## Parallélisme partagé (0.6.11)
+## Parallélisme partagé (0.6.12)
 
 - Démarre les tâches indépendantes depuis le brief et le contrat commun dès qu’une place se libère, sans attendre tous les collègues d’une vague. La limite globale de vingt spécialistes vaut pour les créations et leurs corrections dans l’ensemble des missions ; quatre missions simultanées, vingt agents par mission et quatre par métier restent les plafonds de recrutement.
 - Déclare seulement les dépendances réelles. L’intégrateur attend les contributions utiles validées et leurs fichiers vérifiés ; les tests et relectures qui dépendent du résultat attendent ce résultat. Un démarrage parallèle ne permet ni d’inventer les apports d’un collègue ni de marquer une tâche comme approuvée sans contrôle.
 - Une annulation ou un échec libère ses places et retire ses attentes sans interrompre une autre mission. Les données et missions déjà lancées restent conservées. Les personnages reflètent les états reçus ; le décor ne crée pas de travail fictif pour montrer vingt personnes occupées.
+
+
+## Reprise et aperçu vérifiable (0.6.12)
+
+- Le contrôleur peut sauvegarder les fichiers et l’état hors de travail/, relire les livrables déjà présents et effectuer une unique vague de réparation ciblée par mission. Le compteur est durable. Une tâche récupérée n’est approuvée qu’après contrôle réel et empreintes ; un échec persistant reste explicite avec fichiers conservés. La reprise manuelle garde le même identifiant, dossier et plan, et doit être confirmée par l’action de l’utilisateur. Une réponse HTTP perdue se résout par GET, sans nouvelle soumission aveugle.
+- Pour les petites créations et jeux locaux reconnus, les appels Codex utilisent un effort medium uniquement pour l’invocation. Le modèle, les réglages personnels, les permissions et les connexions restent identiques. Les autres missions conservent leur effort hérité. Les rapports et recherches sont proportionnés au brief ; pas de longue étude pour un petit jeu.
+- Une image de décor conservée n’est jamais présentée comme un jeu jouable. Les entrées HTML compilées connues sont choisies explicitement en cas d’ambiguïté. Les essais gardent le serveur isolé, le sandbox sans same-origin, le refus des comptes/réseaux externes et les limites de fichiers. Les diagnostics d’un aperçu sont des textes non fiables et ne déclenchent ni commande ni réparation.
+- Le bilan peut proposer Tester, mais ne lance pas automatiquement le code livré. L’essai volontaire propose clavier, formats d’écran et agrandissement. Les erreurs réelles restent visibles et actionnables ; ne les masque pas et ne promets pas une absence universelle de panne.

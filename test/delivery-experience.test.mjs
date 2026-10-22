@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm,realpath} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {DeliveryPreview,ResultPreviewDialog,deliveryPreviewCandidate,isolatedPreviewUrl} from '../public/delivery-preview.js';
+import {DeliveryPreview,ResultPreviewDialog,deliveryPreviewCandidate,deliveryPreviewEntries,isolatedPreviewUrl} from '../public/delivery-preview.js';
 import {CompletionDialog} from '../public/completion-dialog.js';
 import {createAtelierServer} from '../server.mjs';
 import {Publishing} from '../lib/publishing.mjs';
@@ -14,7 +14,7 @@ const previewUrl=`http://127.0.0.1:54321/${'a'.repeat(64)}/index.html`;
 function installDom(t){
   const previous=globalThis.document,document={activeElement:null};
   class Element{
-    constructor(tag,namespaceURI){this.tagName=tag.toUpperCase();this.namespaceURI=namespaceURI;this.nodeType=1;this.ownerDocument=document;this.children=[];this.attributes=new Map();this.handlers=new Map();this.className='';this.hidden=false;this.open=false;this.disabled=false;this.isConnected=true;this._text='';this.classList={toggle:(name,force)=>{const values=new Set(this.className.split(/\s+/u).filter(Boolean));if(force??!values.has(name))values.add(name);else values.delete(name);this.className=[...values].join(' ');}};}
+    constructor(tag,namespaceURI){this.tagName=tag.toUpperCase();this.namespaceURI=namespaceURI;this.nodeType=1;this.ownerDocument=document;this.children=[];this.attributes=new Map();this.handlers=new Map();this.dataset={};this.className='';this.hidden=false;this.open=false;this.disabled=false;this.isConnected=true;this._text='';if(tag==='iframe')this.contentWindow={};this.classList={toggle:(name,force)=>{const values=new Set(this.className.split(/\s+/u).filter(Boolean));if(force??!values.has(name))values.add(name);else values.delete(name);this.className=[...values].join(' ');}};}
     set textContent(value){this._text=String(value??'');this.children=[];}
     get textContent(){return this._text+this.children.map(child=>child.textContent).join('');}
     append(...children){for(const child of children){child.parentElement=this;this.children.push(child);}}
@@ -75,6 +75,35 @@ test('an explicit game preview uses the isolated iframe and a late response cann
   const late=widget.open(result());await widget.open(result({files:[{path:'Livraison/image.png',size:20}]}));resolve({url:previewUrl,root:'Livraison'});await late;assert.equal(widget.body.querySelector('iframe'),null);assert.ok(widget.body.querySelector('img'));widget.destroy();
 });
 
+test('a failed game with artwork but no HTML is explicitly an unfinished game, not an image delivery',async t=>{
+  const document=installDom(t),container=document.createElement('div'),requests=[];
+  const widget=new DeliveryPreview({container,request:async(...args)=>requests.push(args)}),item=result({status:'failed',executionMode:'local-game-team',error:'Le moteur a dépassé douze minutes.',files:[{path:'t3-design/decors.svg',size:100}]});const original=JSON.stringify(item);
+  await widget.open(item);assert.equal(widget.root.hidden,false);assert.match(widget.title.textContent,/n’est pas encore prêt/u);assert.match(widget.status.textContent,/Aucun index\.html/u);assert.match(widget.status.textContent,/pas un jeu testable/u);assert.ok(widget.body.querySelector('img'));assert.equal(widget.body.querySelector('iframe'),null);assert.equal(requests.length,0);assert.equal(widget.controls.hidden,true);assert.equal(JSON.stringify(item),original);widget.destroy();
+});
+
+test('multiple entry points are explicitly selectable and a completion preview does not execute before a click',async t=>{
+  const document=installDom(t),container=document.createElement('div'),requests=[];const widget=new DeliveryPreview({container,request:async(route,options)=>{requests.push({route,body:JSON.parse(options.body)});return{url:previewUrl,root:'site-b'};}}),item=result({status:'failed',files:[{path:'site-a/index.html',size:100},{path:'site-b/index.html',size:100}]});
+  assert.equal(deliveryPreviewCandidate(item),null);assert.equal(deliveryPreviewEntries(item).length,2);await widget.open(item);assert.equal(widget.chooser.hidden,false);assert.equal(requests.length,0);widget.entrySelect.value='site-b/index.html';await widget.chooseButton.click();await Promise.resolve();assert.equal(requests[0].body.entry,'site-b/index.html');assert.ok(widget.frame);assert.match(widget.frame.title,/non validé/u);
+  widget.cleanup();requests.length=0;await widget.open(result(),{deferBrowser:true});assert.equal(requests.length,0);assert.equal(widget.frame,null);await widget.body.querySelector('button').click();await Promise.resolve();assert.equal(requests.length,1);widget.destroy();
+});
+
+test('preview input and screen-size controls are voluntary and diagnostic messages cannot invoke actions',async t=>{
+  const document=installDom(t),handlers=new Map();document.defaultView={addEventListener:(kind,fn)=>handlers.set(kind,fn),removeEventListener:(kind,fn)=>{if(handlers.get(kind)===fn)handlers.delete(kind);}};let now=1000;const requests=[],container=document.createElement('div'),widget=new DeliveryPreview({container,now:()=>now,request:async(...args)=>{requests.push(args);return{url:previewUrl,root:'Livraison'};}}),item=result({status:'failed'});const original=JSON.stringify(item);await widget.open(item);const frame=widget.frame;
+  assert.equal(frame.tabIndex,0);assert.notEqual(document.activeElement,frame);await widget.focusButton.click();assert.equal(document.activeElement,frame);widget.sizeSelect.value='phone';widget.sizeSelect.emit('change');assert.equal(widget.root.dataset.size,'phone');await widget.expandButton.click();assert.equal(widget.expandButton.getAttribute('aria-expanded'),'true');assert.ok(widget.root.className.includes('delivery-preview-expanded'));
+  const data={type:'oscar-preview',profile:'static-web-v1',kind:'error',code:'runtime',message:'<img src=x onerror="publish()">'};const deliver=(overrides={})=>handlers.get('message')?.({source:frame.contentWindow,origin:'null',data,...overrides});
+  deliver({source:{}});deliver({origin:'http://127.0.0.1:4850'});deliver({data:{...data,command:'repair'}});deliver({data:{...data,profile:'account-service'}});deliver({data:{...data,message:'x'.repeat(513)}});assert.equal(widget.diagnosticCount,0);
+  deliver();assert.equal(widget.diagnosticCount,1);assert.equal(widget.diagnosticList.querySelector('img'),null);assert.equal(widget.diagnosticList.textContent,data.message);deliver();assert.equal(widget.diagnosticCount,1,'duplicate messages do not flood the UI');
+  for(let i=0;i<50;i++){now+=100;deliver({data:{...data,message:'Temporary failure '+i}});}assert.equal(widget.diagnosticList.children.length,20);assert.equal(requests.length,1);assert.equal(JSON.stringify(item),original,'project messages cannot approve or resume a mission');
+  widget.destroy();assert.equal(handlers.size,0);assert.equal(frame.src,'about:blank');
+});
+
+test('a recoverable failure offers an explicit resume and partial test without claiming approval',async t=>{
+  installDom(t);const resumed=[],viewed=[],options=[];const dialog=new CompletionDialog({onResume:item=>resumed.push(item.id),onView:item=>viewed.push(item.id),createPreview:(container,item,settings)=>{options.push(settings);return{destroy(){}};}});
+  dialog.open(result({status:'failed',recovery:{canResume:false}}));assert.equal(dialog.dialog.querySelectorAll('button').some(button=>button.textContent==='Reprendre avec Oscar'),false);assert.ok(dialog.dialog.querySelectorAll('button').some(button=>button.textContent==='Tester l’aperçu partiel ↗'));assert.deepEqual(options[0],{deferBrowser:true});assert.equal(viewed.length,0);assert.equal(resumed.length,0);
+  dialog.close();dialog.open(result({status:'failed',updatedAt:2000,recovery:{canResume:true}}));await dialog.dialog.querySelectorAll('button').find(button=>button.textContent==='Reprendre avec Oscar').click();assert.deepEqual(resumed,['delivery-test']);assert.equal(viewed.length,0);
+  dialog.open(result({status:'completed',recovery:{canResume:true}}));assert.equal(dialog.dialog.querySelectorAll('button').some(button=>button.textContent==='Reprendre avec Oscar'),false);dialog.destroy();
+});
+
 test('the completion balance preserves partial outcomes, folder access and explicit publish controls',async t=>{
   const document=installDom(t),folders=[],files=[],published=[],viewed=[];
   const dialog=new CompletionDialog({onFolder:async id=>folders.push(id),onFile:async(item,file)=>files.push([item.id,file.path]),onPublish:async item=>published.push(item.id),onView:async item=>viewed.push(item.id)});
@@ -97,6 +126,13 @@ test('a result dialog keeps the checked project root for a later explicit publis
   await dialog.publish.click();assert.deepEqual(published,[{id:'delivery-test',root:'Livraison'}]);assert.equal(dialog.dialog.open,false);
   for(const status of ['failed','needs_review','cancelled']){await dialog.open(result({status}));assert.equal(dialog.publish.hidden,true);assert.match(dialog.preview.note.textContent,/Aperçu partiel/u);dialog.close();}
   dialog.destroy();assert.equal(document.body.querySelector('dialog'),null);
+});
+
+test('a refused resume stays visible in the preview and cannot be dispatched twice while waiting',async t=>{
+  installDom(t);let reject,calls=0;const dialog=new ResultPreviewDialog({request:async()=>({url:previewUrl,root:'Livraison'}),onFolder:async()=>{},onResume:async()=>{calls++;await new Promise((_,fail)=>{reject=fail;});}});
+  await dialog.open(result({status:'failed',recovery:{canResume:true}}));const pending=dialog.resume.click();await Promise.resolve();assert.equal(dialog.resume.disabled,true);await dialog.resume.click();assert.equal(calls,1);reject(new Error('La reprise est indisponible.'));await pending;
+  assert.equal(dialog.dialog.open,true);assert.equal(dialog.error.hidden,false);assert.equal(dialog.error.textContent,'La reprise est indisponible.');assert.equal(dialog.resume.disabled,false);
+  await dialog.open(result({status:'failed',recovery:{canResume:false}}));assert.equal(dialog.resume.hidden,true);await dialog.resume.click();assert.equal(calls,1);dialog.destroy();
 });
 
 async function serverFixture(t){

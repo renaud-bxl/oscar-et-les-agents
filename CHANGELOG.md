@@ -1,5 +1,13 @@
 # Historique des versions
 
+## 0.6.12 — 22 octobre 2026
+
+- Oscar récupère les fichiers déjà produits et peut effectuer une unique reprise ciblée après une panne temporaire, avec sauvegarde privée et validations réelles. Les reprises manuelles gardent le même dossier.
+- Les petites missions Codex n’héritent plus systématiquement du niveau de réflexion élevé des réglages personnels : un effort moyen est appliqué seulement à leur appel, sans changer le modèle ni les permissions.
+- L’aperçu distingue un dessin partiel d’un jeu testable, privilégie les livraisons compilées et propose des commandes pour jouer au clavier, essayer différentes tailles et agrandir. Les diagnostics restent visibles et ne déclenchent aucune action de compte.
+- Les problèmes de délai, connexion, quota, permission et outil absent sont différenciés. Une alerte non bloquante du moteur n’est plus confondue avec un refus d’accès.
+
+
 ## 0.6.11 — 22 octobre 2026
 
 - Jusqu’à vingt spécialistes peuvent travailler en parallèle au total dans l’ensemble des bureaux. Les quatre missions partagent cette capacité ; chaque mission conserve un maximum de vingt agents, dont quatre par métier.

@@ -5,8 +5,8 @@
 <key>CFBundleName</key><string>Oscar et les Agents</string>
 <key>CFBundleExecutable</key><string>Atelier</string>
 <key>CFBundleIdentifier</key><string>local.oscar.agents</string>
-<key>CFBundleVersion</key><string>11</string>
-<key>CFBundleShortVersionString</key><string>0.6.11</string>
+<key>CFBundleVersion</key><string>12</string>
+<key>CFBundleShortVersionString</key><string>0.6.12</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSUIElement</key><true/>
 </dict></plist>

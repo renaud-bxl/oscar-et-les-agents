@@ -16,9 +16,11 @@ const fakeSource = String.raw`
 const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const args = process.argv.slice(2);
+if(process.env.FAKE_PROBE_CAPTURE)fs.appendFileSync(process.env.FAKE_PROBE_CAPTURE,JSON.stringify(args)+'\n');
 const provider = process.argv[1].endsWith('codex') ? 'codex' : 'claude';
 if (args.includes('--version')) {
-  console.log(provider === 'codex' ? 'codex-cli 0.162.0-alpha.17.2' : (process.env.FAKE_OLD ? '2.1.200' : '2.1.303 (Claude Code)'));
+  if(process.env.FAKE_SLOW_PROBE)setTimeout(()=>console.log('codex-cli 0.162.0-alpha.17.2'),2000);
+  else console.log(provider === 'codex' ? 'codex-cli 0.162.0-alpha.17.2' : (process.env.FAKE_OLD ? '2.1.200' : '2.1.303 (Claude Code)'));
 } else if (args.includes('--help')) {
   console.log(provider === 'codex' ? '--json --sandbox --color --skip-git-repo-check --output-schema' + (process.env.FAKE_NO_SEARCH ? '' : ' --search') : '--restricted --output-format --verbose --permission-mode "manual" "dontAsk" --permission-prompts --tools --allowedTools --strict-mcp-config --json-schema --input-format --no-session-persistence --setting-sources');
 } else if (args.includes('status')) {
@@ -32,6 +34,12 @@ if (args.includes('--version')) {
     fs.writeFileSync(process.env.FAKE_CAPTURE, JSON.stringify({ provider, args, input, cwd: process.cwd(), apiKeysPresent: ['OPENAI_API_KEY','CODEX_API_KEY','ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN','CLAUDE_CODE_OAUTH_TOKEN'].some(key => Boolean(process.env[key])), schema: schemaIndex >= 0 ? JSON.parse(fs.readFileSync(args[schemaIndex + 1], 'utf8')) : null }));
     const emit = value => console.log(JSON.stringify(value));
     const mode = process.env.FAKE_MODE || 'ok';
+    if(mode==='classified-error'){
+      if(process.env.FAKE_STDERR)console.error(process.env.FAKE_STDERR);
+      const message=process.env.FAKE_DIAGNOSTIC;
+      emit(provider==='codex'?{type:'turn.failed',error:{message}}:{type:'result',subtype:'error_during_execution',is_error:true,errors:[message]});
+      process.exitCode=1;return;
+    }
     if (mode === 'hang') {
       const worker = spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); require("node:fs").writeFileSync(process.env.FAKE_PID + ".ready", "1"); setInterval(() => {}, 1000)'], { stdio: 'ignore' });
       fs.writeFileSync(process.env.FAKE_PID, String(worker.pid));
@@ -141,7 +149,7 @@ async function fixture(fn) {
   const cwd = join(directory, 'mission');
   await Promise.all([mkdir(bin), mkdir(cwd)]);
   await Promise.all(['codex', 'claude'].map(name => writeFile(join(bin, name), `#!${process.execPath}\n${fakeSource}`, { mode: 0o700 })));
-  const keys = ['PATH', 'FAKE_CAPTURE', 'FAKE_MODE', 'FAKE_PID', 'FAKE_OLD', 'FAKE_NO_SEARCH', 'FAKE_CONNECTOR_EVENTS', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'];
+  const keys = ['PATH', 'FAKE_CAPTURE', 'FAKE_MODE', 'FAKE_PID', 'FAKE_OLD', 'FAKE_NO_SEARCH', 'FAKE_CONNECTOR_EVENTS', 'FAKE_DIAGNOSTIC', 'FAKE_STDERR', 'FAKE_SLOW_PROBE', 'FAKE_PROBE_CAPTURE', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'];
   const original = Object.fromEntries(keys.map(key => [key, process.env[key]]));
   process.env.PATH = bin;
   process.env.FAKE_CAPTURE = join(directory, 'capture.json');
@@ -149,6 +157,10 @@ async function fixture(fn) {
   delete process.env.FAKE_MODE;
   delete process.env.FAKE_OLD;
   delete process.env.FAKE_NO_SEARCH;
+  delete process.env.FAKE_DIAGNOSTIC;
+  delete process.env.FAKE_STDERR;
+  delete process.env.FAKE_SLOW_PROBE;
+  delete process.env.FAKE_PROBE_CAPTURE;
   try {
     await fn({ cwd, directory, capture: async () => JSON.parse(await readFile(process.env.FAKE_CAPTURE, 'utf8')) });
   } finally {
@@ -202,8 +214,37 @@ test('Codex : prompt stdin, configuration par défaut, sandbox, nettoyage du sch
     assert.deepEqual(invocation.schema, schema);
     assert.equal((await readdir(cwd)).some(file => file.startsWith('.oscar-schema-')), false);
     assert.doesNotMatch(invocation.args.join(' '), /--model|--ignore|bypass|danger-full/);
+    assert.ok(!invocation.args.some(arg=>arg.startsWith('model_reasoning_effort=')));
     assert.ok(activities.includes('Recherche sur le Web'));
     assert.doesNotMatch(activities.join(' '), /private|thought|query/);
+  });
+});
+
+test('Codex reasoning effort is a bounded per-call override and keeps model, prompt and protections',async()=>{
+  await fixture(async({cwd,capture})=>{
+    for(const reasoningEffort of ['medium','high']){
+      await runAgent({provider:'codex',cwd,prompt:'Un petit jeu simulé, sans compte.',reasoningEffort,readOnly:true});
+      const invocation=await capture();
+      assert.equal(invocation.input,'Un petit jeu simulé, sans compte.');
+      assert.equal(invocation.args.filter(arg=>arg.startsWith('model_reasoning_effort=')).length,1);
+      const index=invocation.args.indexOf(`model_reasoning_effort="${reasoningEffort}"`);
+      assert.ok(index>0);assert.equal(invocation.args[index-1],'-c');
+      assert.equal(invocation.args[invocation.args.indexOf('--sandbox')+1],'read-only');
+      assert.equal(invocation.args[invocation.args.indexOf('-a')+1],'never');
+      assert.doesNotMatch(invocation.args.join(' '),/--model|bypass|danger-full|ignore-user-config/u);
+    }
+    await runAgent({provider:'codex',cwd,prompt:'Une autre mission garde le réglage global.'});
+    assert.ok(!(await capture()).args.some(arg=>arg.startsWith('model_reasoning_effort=')));
+  });
+});
+
+test('invalid or unverified reasoning settings are refused before any CLI process starts',async()=>{
+  await fixture(async({cwd,directory})=>{
+    process.env.FAKE_PROBE_CAPTURE=join(directory,'probes.jsonl');
+    for(const reasoningEffort of ['low','ultra','medium";approval_policy="never',null,{},1])await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Mission',reasoningEffort}),error=>error.code==='PROVIDER_REQUEST_INVALID'&&error.recoverable===false);
+    await assert.rejects(runAgent({provider:'claude',cwd,prompt:'Mission',reasoningEffort:'medium'}),{code:'PROVIDER_REQUEST_INVALID'});
+    assert.equal((await readdir(directory)).includes('probes.jsonl'),false);
+    assert.equal((await readdir(directory)).includes('capture.json'),false);
   });
 });
 
@@ -416,7 +457,7 @@ for (const provider of ['codex', 'claude']) {
   test(`${provider} : transforme un OAuth expiré en erreur de reconnexion sans fuite`, async () => {
     await fixture(async ({ cwd }) => {
       process.env.FAKE_MODE = 'auth';
-      await assert.rejects(runAgent({provider,cwd,prompt:'Mission'}), error => /connexion expirée/.test(error.message) && !/NEVER-LEAK/.test(error.message));
+      await assert.rejects(runAgent({provider,cwd,prompt:'Mission'}), error => error.code==='PROVIDER_AUTH_REQUIRED' && error.action==='reconnect' && error.provider===provider && error.recoverable===false && /connexion expirée/.test(error.message) && !/NEVER-LEAK/.test(error.message));
     });
   });
 }
@@ -424,7 +465,7 @@ for (const provider of ['codex', 'claude']) {
 test('refuse les JSON tronqués et nettoie le schéma même en échec', async () => {
   await fixture(async ({ cwd }) => {
     process.env.FAKE_MODE = 'malformed';
-    await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Mission',schema:{type:'object'}}), error => /JSON invalide ou incomplet/.test(error.message) && !/NEVER-LEAK/.test(error.message));
+    await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Mission',schema:{type:'object'}}), error => error.code==='PROVIDER_OUTPUT_INVALID' && error.recoverable===false && /JSON invalide ou incomplet/.test(error.message) && !/NEVER-LEAK/.test(error.message));
     assert.equal((await readdir(cwd)).length, 0);
   });
 });
@@ -432,21 +473,67 @@ test('refuse les JSON tronqués et nettoie le schéma même en échec', async ()
 test('une réponse sans événement terminal ne devient jamais un succès', async () => {
   await fixture(async ({ cwd }) => {
     process.env.FAKE_MODE = 'missing-terminal';
-    await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Mission'}), /confirmation finale/);
+    await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Mission'}), error=>error.code==='PROVIDER_NO_RESULT' && error.recoverable===false && /confirmation finale/u.test(error.message));
   });
 });
 
 test('un processus en échec reste un échec, même sans événement JSON', async () => {
   await fixture(async ({ cwd }) => {
     process.env.FAKE_MODE = 'exit-error';
-    await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Mission'}), error => /limite d’utilisation/.test(error.message) && !/NEVER-LEAK/.test(error.message));
+    await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Mission'}), error => error.code==='PROVIDER_USAGE_LIMIT' && error.action==='wait' && error.recoverable===false && /limite d’utilisation/.test(error.message) && !/NEVER-LEAK/.test(error.message));
   });
 });
 
 test('une écriture refusée par Claude ne valide pas le livrable', async () => {
   await fixture(async ({ cwd }) => {
     process.env.FAKE_MODE = 'permission';
-    await assert.rejects(runAgent({provider:'claude',cwd,prompt:'Mission'}), /permissions autorisées/);
+    await assert.rejects(runAgent({provider:'claude',cwd,prompt:'Mission'}), error=>error.code==='PROVIDER_PERMISSION_REQUIRED' && error.action==='review-permissions' && error.recoverable===false && /permissions autorisées/u.test(error.message));
+  });
+});
+
+test('provider failure categories distinguish actionable causes without exposing diagnostics',async()=>{
+  await fixture(async({cwd,capture})=>{
+    process.env.FAKE_MODE='classified-error';
+    const cases=[
+      ['Permission denied while opening a file','PROVIDER_PERMISSION_REQUIRED','review-permissions',false],
+      ['Command rejected by approval policy never','PROVIDER_PERMISSION_REQUIRED','review-permissions',false],
+      ['The permission mode is manual and the sandbox is read-only. Unexpected failure at line 40123.','PROVIDER_UNAVAILABLE','check-connection',false],
+      ['connection reset by peer ECONNRESET','PROVIDER_NETWORK','retry',true],
+      ['HTTP 503 temporarily unavailable','PROVIDER_NETWORK','retry',true],
+      ['tool image_generator is not available','PROVIDER_TOOL_UNAVAILABLE','review-tools',false],
+      ['unknown option --restricted','PROVIDER_UNSUPPORTED','update-engine',false],
+    ];
+    for(const provider of ['codex','claude'])for(const[diagnostic,code,action,recoverable]of cases){
+      process.env.FAKE_DIAGNOSTIC=diagnostic+' sk-NEVER-LEAK private@example.test';
+      await assert.rejects(runAgent({provider,cwd,prompt:'Une contribution simulée.'}),error=>{
+        assert.equal(error.code,code,diagnostic);assert.equal(error.action,action);assert.equal(error.recoverable,recoverable);assert.equal(error.provider,provider);
+        assert.doesNotMatch(error.message+JSON.stringify(error),/NEVER-LEAK|private@example|line 40123/u);
+        return true;
+      });
+      const {args}=await capture();
+      assert.doesNotMatch(args.join(' '),/bypass|danger-full-access|skip-permissions/u);
+      if(provider==='codex'){assert.equal(args[args.indexOf('-a')+1],'never');assert.equal(args[args.indexOf('--sandbox')+1],'workspace-write');}
+      else assert.ok(args.includes('--restricted'));
+    }
+  });
+});
+
+test('the nonfatal Codex PATH warning is not classified as a permission request',async()=>{
+  await fixture(async({cwd})=>{
+    process.env.FAKE_MODE='classified-error';
+    process.env.FAKE_STDERR='WARNING: proceeding, even though we could not update PATH: Operation not permitted (os error 1)';
+    process.env.FAKE_DIAGNOSTIC='stream disconnected unexpectedly';
+    await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Mission simulée.'}),error=>error.code==='PROVIDER_NETWORK'&&error.recoverable===true);
+    process.env.FAKE_DIAGNOSTIC='An unspecified internal failure';
+    await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Mission simulée.'}),error=>error.code==='PROVIDER_UNAVAILABLE'&&error.recoverable===false);
+  });
+});
+
+test('the overall deadline covers provider detection and never starts a model after expiry',async()=>{
+  await fixture(async({cwd,directory})=>{
+    process.env.FAKE_SLOW_PROBE='1';
+    await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Mission simulée.',timeoutMs:150}),error=>error.code==='PROVIDER_TIMEOUT'&&error.name==='TimeoutError'&&error.action==='repair'&&error.provider==='codex');
+    assert.equal((await readdir(directory)).includes('capture.json'),false);
   });
 });
 
@@ -490,7 +577,7 @@ test('le délai maximal est de douze minutes et un délai court arrête le faux 
     for (const timeoutMs of [0, -1, Infinity, MAX_AGENT_TIMEOUT_MS + 1]) await assert.rejects(runAgent({ provider: 'codex', cwd, prompt: 'Mission', timeoutMs }), /12 minutes/);
     await writeFile(join(cwd, 'resultat-partiel.txt'), 'À conserver');
     process.env.FAKE_MODE = 'hang';
-    await assert.rejects(runAgent({ provider: 'codex', cwd, prompt: 'Mission', schema: { type: 'object' }, timeoutMs: 600 }), error => error.name === 'TimeoutError' && /600 ms/.test(error.message) && !/quatre minutes/.test(error.message));
+    await assert.rejects(runAgent({ provider: 'codex', cwd, prompt: 'Mission', schema: { type: 'object' }, timeoutMs: 600 }), error => error.name === 'TimeoutError' && error.code==='PROVIDER_TIMEOUT' && error.recoverable===true && error.action==='repair' && error.provider==='codex' && /600 ms/.test(error.message) && !/quatre minutes/.test(error.message));
     assert.equal(await readFile(join(cwd, 'resultat-partiel.txt'), 'utf8'), 'À conserver');
     assert.equal((await readdir(cwd)).some(file => file.startsWith('.oscar-schema-')), false);
     let workerPid;

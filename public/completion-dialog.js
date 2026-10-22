@@ -1,3 +1,5 @@
+import {deliveryPreviewEntries} from './delivery-preview.js';
+
 const node = (tag, className, text) => { const element = document.createElement(tag); if (className) element.className = className; if (text !== undefined) element.textContent = String(text); return element; };
 const safeText = (value, length = 2000) => typeof value === 'string' ? value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '').slice(0, length) : '';
 function portrait() {
@@ -16,8 +18,8 @@ function summary(mission) {
 }
 
 export class CompletionDialog {
-  constructor({ onDelivery = () => {}, onFolder, onFile, onImprove = () => {}, onNew = () => {}, onView, onPublish, createPreview, onClose = () => {}, avatar } = {}) {
-    Object.assign(this, { onDelivery, onFolder, onFile, onImprove, onNew, onView, onPublish, createPreview, onClose, avatar }); this.epoch = 0;
+  constructor({ onDelivery = () => {}, onFolder, onFile, onImprove = () => {}, onNew = () => {}, onView, onPublish, onResume, createPreview, onClose = () => {}, avatar } = {}) {
+    Object.assign(this, { onDelivery, onFolder, onFile, onImprove, onNew, onView, onPublish, onResume, createPreview, onClose, avatar }); this.epoch = 0;
     this.dialog = node('dialog', 'completion-dialog'); this.dialog.id = 'completion-dialog'; this.dialog.setAttribute('aria-labelledby', 'completion-title');
     this.dialog.addEventListener('close', () => { if (!this.dialog.open) this.closed(); }); document.body.append(this.dialog);
   }
@@ -37,7 +39,7 @@ export class CompletionDialog {
     const project = node('p', 'completion-project', safeText(mission.title || mission.prompt || 'Votre projet', 160)); project.setAttribute('data-no-translate', ''); body.append(title, intro, project);
     const assignment=node('details','completion-assignment');assignment.append(node('summary','',validated?'Tâche terminée':'Travaux conservés'));const prompt=node('p','',safeText(mission.prompt,16000));prompt.setAttribute('data-no-translate','');assignment.append(prompt);body.append(assignment);
     if(mission.error){const issue=node('p','completion-problem',safeText(mission.error,2000));issue.setAttribute('data-no-translate','');body.append(issue);}
-    if(typeof this.createPreview==='function')this.preview=this.createPreview(body,mission);
+    if(typeof this.createPreview==='function')this.preview=this.createPreview(body,mission,{deferBrowser:true});
     const tasks = Array.isArray(mission.tasks) ? mission.tasks : [], files = Array.isArray(mission.files) ? mission.files : [];
     const corrections = tasks.reduce((count, task) => count + (Number.isFinite(task.attempt) ? Math.max(0, Math.min(20, task.attempt - 1)) : 0), 0);
     const stats = node('div', 'completion-stats');
@@ -66,7 +68,11 @@ export class CompletionDialog {
     else folderCopy.append(node('p', 'completion-folder-path', 'Le chemin exact sera disponible en rouvrant cette mission.'));
     this.folderButton = this.button('Ouvrir le dossier de tous les fichiers ↗', 'completion-action completion-folder-open', () => this.openFolder()); this.folderButton.disabled=typeof this.onFolder!=='function';folderCopy.append(this.folderButton);folder.append(folderCopy); body.append(folder);
     this.error = node('p', 'completion-error'); this.error.hidden = true; this.error.setAttribute('role', 'alert'); body.append(this.error);
-    const actions = node('footer', 'completion-actions'); actions.append(this.button(validated?'Voir le résultat ↗':'Voir les fichiers conservés ↗', 'completion-action completion-action-primary', () => this.act(validated&&typeof this.onView==='function'?'onView':'onDelivery')));
+    const browser=deliveryPreviewEntries(mission).length>0,canResume=!validated&&!demo&&mission.recovery?.canResume===true&&typeof this.onResume==='function';
+    const actions = node('footer', 'completion-actions');
+    if(browser&&typeof this.onView==='function')actions.append(this.button(validated?'Tester le jeu ou le site ↗':'Tester l’aperçu partiel ↗','completion-action completion-action-primary',()=>this.act('onView')));
+    else actions.append(this.button(validated?'Voir le résultat ↗':'Voir les fichiers conservés ↗', 'completion-action completion-action-primary', () => this.act(validated&&typeof this.onView==='function'?'onView':'onDelivery')));
+    if(canResume)actions.append(this.button('Reprendre avec Oscar','completion-action completion-action-primary',()=>{if(this.mission.recovery?.canResume===true)return this.act('onResume');}));
     if(validated&&!demo&&typeof this.onPublish==='function')actions.append(this.button('Publier le projet ↗','completion-action',()=>this.act('onPublish')));
     actions.append(this.button('Ouvrir le dossier de tous les fichiers ↗','completion-action',()=>this.openFolder()));
     const secondary=node('div','completion-secondary-actions');secondary.append(this.button('Améliorer avec Oscar','completion-action completion-action-new',()=>this.act('onImprove')),this.button('Une nouvelle mission','completion-action completion-action-new',()=>this.act('onNew')));body.append(secondary);

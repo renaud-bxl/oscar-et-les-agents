@@ -23,7 +23,8 @@ import { DeliveryLibrary } from '/delivery-library.js';
 import { AppUpdates } from '/app-updates.js';
 import { DeliveryNavigation } from '/delivery-navigation.js';
 import { DeliveryProgress } from '/delivery-progress.js';
-import { DeliveryPreview, ResultPreviewDialog, deliveryPreviewCandidate } from '/delivery-preview.js';
+import { DeliveryPreview, ResultPreviewDialog, deliveryPreviewCandidate, deliveryPreviewEntries } from '/delivery-preview.js';
+import { requestMissionRecovery } from '/mission-recovery.js';
 import { CalendarEventDialog,calendarCommand,calendarQuestion } from '/calendar-event-dialog.js';
 import { DraftStorage, draftScope } from '/draft-storage.js';
 'use strict';
@@ -50,6 +51,7 @@ const ROLE_DETAILS={
   analyse:['Les analystes organisent les données, calculent, comparent les options et font ressortir les éléments utiles à une décision.','Des tableaux, des comparatifs, des indicateurs et des conclusions argumentées.','Les hypothèses, les unités, les calculs et la différence entre une mesure et une estimation.'],
 };
 const runningStatuses = new Set(['planning','running','reviewing']);
+const recoveryPending = new Set();
 let state = {providers:[], missions:[], active:null};
 const applicationUpdates = new AppUpdates({hosts:{notice:$('application-update-notice'),settings:$('application-update-settings')},request,getState:()=>state});
 let initialBuildId = null;
@@ -487,7 +489,13 @@ function renderDeliveries() {
 
   $('delivery-folder-card').hidden=!mission;
   $('delivery-folder-path').textContent=mission?.workDirectory||mission?.folderName||'';
-  const previewCandidate=deliveryPreviewCandidate(mission);$('delivery-view-result').hidden=!previewCandidate||isRunning(mission);$('delivery-view-result').textContent=previewCandidate?.kind==='browser'?'Lancer le jeu ou le site ↗':'Voir le résultat ↗';
+  const previewCandidate=deliveryPreviewCandidate(mission),previewEntries=deliveryPreviewEntries(mission);$('delivery-view-result').hidden=(!previewCandidate&&!previewEntries.length)||isRunning(mission);$('delivery-view-result').textContent=previewCandidate?.kind==='browser'||previewEntries.length?(mission?.status==='completed'?'Lancer le jeu ou le site ↗':'Tester l’aperçu partiel ↗'):'Voir le résultat ↗';
+  const repairing=recoveryPending.has(mission?.id);
+  $('mission-recovery').hidden=mission?.recovery?.canResume!==true&&!repairing;
+  $('mission-recovery-button').disabled=repairing;
+  $('mission-recovery-button').textContent=translate(repairing?'Oscar prépare la reprise…':'Faire reprendre ce projet par Oscar');
+  $('mission-access-help').hidden=!mission||isRunning(mission)||!['reconnect','check-connection','review-permissions','review-tools','update-engine'].includes(mission.errorInfo?.action);
+  if($('mission-recovery-status').dataset.mission!==mission?.id){$('mission-recovery-status').dataset.mission=mission?.id||'';$('mission-recovery-status').textContent='';$('mission-recovery-status').hidden=true;}
   const files=mission?.files || [];
   const reports=(mission?.tasks || []).filter(t=>t.report);
   const result=mission?.result;
@@ -816,13 +824,16 @@ $('delivery-back-library').addEventListener('click',()=>{const id=deliveryNaviga
 $('delivery-project-retry').addEventListener('click',()=>deliveryNavigation.open(deliveryNavigation.state.id));
 const openWorkFolder=id=>request(`/api/missions/${encodeURIComponent(id)}/open-folder`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
 deliveryPanelPreview=new DeliveryPreview({container:$('delivery-panel-preview'),request});deliveryPanelPreview.root.hidden=true;
-resultPreviewDialog=new ResultPreviewDialog({request,onFolder:openWorkFolder,onPublish:publishResult,onClose:()=>{if(!document.querySelector('dialog[open]')&&deliveryNavigation?.state.mode==='detail'&&mission?.id===deliveryNavigation.state.id)showDeliveryDetail();scheduleCompletion();}});
-completionDialog=new CompletionDialog({onView:viewResult,onPublish:publishResult,createPreview:(container,item)=>{const preview=new DeliveryPreview({container,request});preview.open(item);return preview;},avatar:()=>portrait('oscar'),onFolder:openWorkFolder,onFile:openDeliveryFile,onDelivery:async item=>{if(selectedId!==item.id)activateDeliveryProject(item);showDeliveryDetail();},onNew:()=>newMission(),onImprove:item=>{newMission();$('mission-input').value=`${translate('Améliore la mission précédente :')} ${item.title||item.prompt}\n${translate('Dossier du travail précédent :')} ${item.workDirectory||item.folderName||''}\n${translate('Examine les fichiers existants, propose les améliorations utiles et vérifie le résultat. Garde les originaux et livre les nouvelles versions dans cette nouvelle mission.')}`;saveBriefDraft();},onClose:scheduleCompletion});
+resultPreviewDialog=new ResultPreviewDialog({request,onFolder:openWorkFolder,onPublish:publishResult,onResume:resumeMission,onClose:()=>{if(!document.querySelector('dialog[open]')&&deliveryNavigation?.state.mode==='detail'&&mission?.id===deliveryNavigation.state.id)showDeliveryDetail();scheduleCompletion();}});
+completionDialog=new CompletionDialog({onView:viewResult,onPublish:publishResult,onResume:resumeMission,createPreview:(container,item,options)=>{const preview=new DeliveryPreview({container,request});preview.open(item,{deferBrowser:true,...options});return preview;},avatar:()=>portrait('oscar'),onFolder:openWorkFolder,onFile:openDeliveryFile,onDelivery:async item=>{if(selectedId!==item.id)activateDeliveryProject(item);showDeliveryDetail();},onNew:()=>newMission(),onImprove:item=>{newMission();$('mission-input').value=`${translate('Améliore la mission précédente :')} ${item.title||item.prompt}\n${translate('Dossier du travail précédent :')} ${item.workDirectory||item.folderName||''}\n${translate('Examine les fichiers existants, propose les améliorations utiles et vérifie le résultat. Garde les originaux et livre les nouvelles versions dans cette nouvelle mission.')}`;saveBriefDraft();},onClose:scheduleCompletion});
 const calendarEventDialog=new CalendarEventDialog({request,onDictate:target=>dictateInto(target)});
 secretaryDialog=new SecretaryDialog({request,onCalendarEvent:options=>calendarEventDialog.open(options),getState:()=>state,getProfile:()=>personalContext.profile||{},onDictate:target=>dictateInto(target),onMission:async id=>{await selectMission(id);openPanel('progress');},onAutomations:()=>automationsDialog.open(),onConnectors:()=>connectorsDialog.open(),onActivity:activity=>pixelWorld?.setSecretaryActivity(activity.busy)});
 $('open-secretary').addEventListener('click',()=>openSecretary());
 $('delivery-folder-open').addEventListener('click',async()=>{if(!mission)return;try{await openWorkFolder(mission.id);}catch(error){showError(error.message);}});
 $('delivery-view-result').addEventListener('click',()=>{if(mission)viewResult(mission);});
+$('mission-recovery-button').addEventListener('click',()=>{if(mission)resumeMission(mission).catch(()=>{});});
+$('mission-access-engine').addEventListener('click',()=>openPanel('settings'));
+$('mission-access-connectors').addEventListener('click',()=>openUtility(connectorsDialog));
 $('open-work-folder').addEventListener('click',async()=>{if(!mission)return;try{await openWorkFolder(mission.id);}catch(error){showError(error.message);}});
 $('download-archive').addEventListener('click',async()=>{
   if(!mission||isRunning(mission)||archiveDownload)return;
@@ -851,9 +862,21 @@ async function viewResult(item){
   closeOfficePanel({restoreFocus:false});
   if(selectedId!==item.id)activateDeliveryProject(item);deliveryNavigation?.show(item);
   const candidate=deliveryPreviewCandidate(item);
-  if(candidate?.kind==='browser')return resultPreviewDialog.open(item);
-  if(candidate)return artifactViewer.open(item,candidate.file);
+  if(candidate||deliveryPreviewEntries(item).length)return resultPreviewDialog.open(item);
   if(selectedId!==item.id)activateDeliveryProject(item);showDeliveryDetail();
+}
+async function resumeMission(item){
+  if(recoveryPending.has(item.id)||item.recovery?.canResume!==true)return;
+  recoveryPending.add(item.id);renderDeliveries();
+  try{
+    const current=await requestMissionRecovery(request,item);
+    if(selectedId===item.id){completionDialog.close();resultPreviewDialog.close();activateDeliveryProject(current);openPanel('progress');}
+    showWorldStatus(translate('Oscar reprend les fichiers conservés et vous tient au courant dans le suivi.'));
+    return current;
+  }catch(error){
+    if(selectedId===item.id){$('mission-recovery-status').textContent=translate(error.message);$('mission-recovery-status').hidden=false;}
+    throw error;
+  }finally{recoveryPending.delete(item.id);renderDeliveries();}
 }
 async function publishResult(item,entry){
   if(item.status!=='completed')return;

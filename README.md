@@ -2,7 +2,7 @@
 
 Donnez une mission à Oscar. Il recrute les bons spécialistes, ils arrivent dans un grand bureau illustré et animé, travaillent, rendent leurs dossiers… et prennent un café quand leur travail est validé.
 
-**Version 0.6.11** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
+**Version 0.6.12** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
 
 Pour un jeu navigateur au brief clair, Oscar recrute désormais une équipe de sept ou huit spécialistes : recherche, analyse, deux ou trois designers, rédaction et deux développeurs. Les collègues se transmettent leurs contributions validées ; le moteur, l’interface, les dessins et les textes sont réunis dans un seul jeu. Le panneau Équipe montre les métiers et les tâches en attente. Les déplacements contournent les postes et les collègues qui collaborent peuvent échanger au lounge. La détection d’un connecteur ne garantit pas l’autorisation de chaque action : une erreur de permission reste expliquée, sans nouvelle autorisation automatique. Les PDF se lisent directement dans le bureau avec un lecteur local passif, sans dépendre du lecteur PDF du navigateur. Les licences du moteur embarqué sont détaillées dans [PDFJS-NOTICES.md](PDFJS-NOTICES.md).
 
@@ -64,6 +64,14 @@ Le choix **Français / English / Nederlands**, dans le guide ou les réglages, e
 Ces personnages représentent des agents IA. Chaque tâche démarre un agent distinct. Oscar choisit les métiers nécessaires ; il n’appelle pas automatiquement les cinq pour une petite demande. Les animations montrent les états réels des tâches. Les pauses et les discussions sont décoratives ; elles ne retardent pas les appels aux modèles.
 
 Un résultat refusé repasse une fois en correction. Les fichiers obligatoires sont contrôlés sur le disque. L’assemblage final est ensuite relu. Un refus persistant reste **à revoir** et n’est pas annoncé comme une livraison validée. Ces contrôles IA et matériels complètent votre relecture ; ils ne garantissent pas l’absence d’erreur.
+
+## Reprendre un projet et essayer sa livraison
+
+Oscar conserve les fichiers en cas d’interruption. Pour une panne temporaire d’une mission ordinaire, il peut sauvegarder le travail, relire les fichiers déjà prêts et effectuer **une seule reprise ciblée**. Les collègues indépendants continuent ; un résultat absent ou refusé ne devient jamais validé automatiquement. Les lectures de comptes, les permissions, les quotas et un arrêt volontaire restent hors de cette reprise automatique.
+
+Depuis le dossier d’un projet interrompu, **Faire reprendre ce projet par Oscar** permet une reprise explicite dans le même dossier quand elle est disponible. Elle utilise le moteur connecté et sa consommation habituelle. Les réglages et connecteurs expliquent les accès à vérifier ; Oscar n’élargit aucun accès automatiquement.
+
+**Tester** ouvre volontairement le jeu ou le site dans un aperçu isolé, avec commandes clavier et tailles d’écran. Un simple décor est annoncé comme image partielle, pas comme jeu terminé. Les fichiers source nécessitant une compilation et les erreurs détectées sont expliqués. Un aperçu local ne remplace pas les tests métier ni l’essai d’un serveur ou d’un service distant.
 
 ## Quatre-vingt-quatre missions pour démarrer
 
