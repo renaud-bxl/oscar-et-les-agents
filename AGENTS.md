@@ -1,14 +1,14 @@
 # Oscar et les Agents
 
-Version 0.6.13 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
+Version 0.6.14 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
 
 ## Installer et lancer pour une personne
 
 Quand la personne demande d’installer et lancer ce dépôt, effectue le travail :
 
-1. Depuis une copie du dépôt, lance `sh install.sh --engine codex` si tu es Codex/ChatGPT, `sh install.sh --engine claude` si tu es Claude Code, ou `--engine both` si la personne demande les deux. Pour un autre dossier, ajoute `--dir` avec son chemin absolu.
+1. Depuis une copie du dépôt, lance `sh install.sh --engine codex` si tu es Codex/ChatGPT, `sh install.sh --engine claude` si tu es Claude Code, ou `--engine both` si la personne demande les deux. Pour un autre dossier du logiciel, ajoute `--dir` avec son chemin absolu ; pour les missions, documents et outils locaux volumineux, ajoute `--data-dir`. Ces dossiers peuvent être sur un SSD monté. Ne déplace pas les anciennes missions implicitement.
 2. Le programme prépare Node.js et les moteurs manquants sans sudo, conserve les connexions d’abonnement et ouvre la connexion officielle dans le navigateur si nécessaire. Laisse la personne confirmer sa connexion dans son navigateur.
-3. Le bureau s’ouvre sur http://localhost:4850. Les données se trouvent dans `~/Documents/Oscar et les agents`.
+3. Le bureau s’ouvre sur http://localhost:4850. Les données se trouvent dans `~/Documents/Oscar et les agents` par défaut, ou dans le dossier explicitement configuré. Préserve `.runtime/installation.json`, l’identité du dossier et les choix lors des mises à jour ; refuse un disque absent ou remplacé sans créer un bureau local de secours. Conserve HOME, CODEX_HOME et les connexions officielles.
 
 Le guide de première visite, les réglages et les questionnaires permettent aussi de préparer un moteur manquant et de lancer sa connexion dans le navigateur. Une connexion déjà reconnue est conservée. Attends la fin des missions utilisant ce moteur avant de modifier sa connexion.
 
@@ -66,6 +66,7 @@ Ne demande jamais de clé API pour cette application. N’extrais ni ne copie le
 - Les routines sont locales et nécessitent un serveur lancé et un ordinateur éveillé. Respecte le fuseau local, l’absence de chevauchement et la limite de quatre missions. Une reprise après fermeture ne doit pas provoquer une rafale de rattrapage. La pause empêche les prochains départs et préserve la mission déjà active.
 - Les aperçus de documents et l’ouverture native doivent rester limités aux fichiers connus de la mission. Refuse liens symboliques, traversées et formats exécutables ; les aperçus de documents restent passifs. L’essai explicite d’un jeu/site statique utilise le parcours distinct DeliveryPreview : fichiers validés de la mission, serveur local isolé et iframe limitée aux scripts du projet, sans accès aux comptes, MCP, ressources extérieures ou fichiers hors projet. Ne transforme pas un aperçu partiel en livraison validée ou publiable.
 - L’aperçu PDF utilise PDF.js local en canvas, avec intégrité des assets vérifiée au démarrage, une seule page active, limites de pages/pixels/délai et annulation. Conserve isEvalSupported:false, XFA et WebAssembly désactivés ; aucun sandbox de scripts ni CDN. Les liens et formulaires PDF ne reçoivent pas d’interface interactive. Préserve les licences et le téléchargement/application native de secours.
+- Les lecteurs DOCX/XLSX réutilisent le runtime local de documents après installation volontaire. Conserve la vérification ZIP, les limites d’entrée/sortie/temps, la file partagée et l’annulation ; les fichiers doivent rester connus de la mission et inchangés. Le worker renvoie des données typées, jamais du HTML actif. Rends le texte avec textContent, les styles validés uniquement ; aucun lien actif, macro, recalcul ni ressource distante. Les formules sont des textes ou leurs valeurs mises en cache ; une valeur absente reste signalée. Ne promets pas une fidélité complète à Word/Excel et conserve le téléchargement/application native.
 
 ## Publication confirmée
 

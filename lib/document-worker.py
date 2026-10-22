@@ -506,7 +506,10 @@ def main():
         raise ValueError('Le texte à exporter est vide ou dépasse 512 Ko.')
     if not isinstance(job.get('formats'), list) or not 1 <= len(job['formats']) <= 3 or len(set(job['formats'])) != len(job['formats']) or any(value not in ['docx', 'pdf', 'xlsx'] for value in job['formats']):
         raise ValueError('Choisissez Word, PDF ou Excel.')
-    parsed = blocks(job['text']); rows = rows_for(job, parsed)
+    parsed = blocks(job['text'])
+    # Word and PDF paragraphs are not spreadsheets: their own layout limits
+    # must not inherit Excel's unrelated 2,000-row bound.
+    rows = rows_for(job, parsed) if job['sourceType'] in ['csv', 'json'] or 'xlsx' in job['formats'] else None
     if job['sourceType'] in ['csv', 'json']:
         parsed = [('table', rows)]
     template = job.get('template'); template_bytes = base64.b64decode(template['base64'], validate=True) if template else None

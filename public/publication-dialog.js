@@ -5,7 +5,7 @@ export class PublicationDialog {
   constructor({request,getMission,onClose=()=>{}}){
     Object.assign(this,{request,getMission,onClose});this.kind='github';this.busy=false;this.preview=null;this.timer=null;this.epoch=0;
     this.dialog=node('dialog','publication-dialog');this.dialog.id='publication-dialog';this.dialog.setAttribute('aria-labelledby','publication-title');
-    this.dialog.addEventListener('close',()=>{if(this.dialog.open)return;this.epoch++;clearTimeout(this.timer);this.password.value='';this.preview=null;this.onClose();});
+    this.dialog.addEventListener('close',()=>{if(this.dialog.open)return;this.epoch++;clearTimeout(this.timer);this.password.value='';this.preview=null;if(!this.destroyed)this.onClose();});
     document.body.append(this.dialog);this.build();
   }
   field(label,type='text',placeholder=''){
@@ -48,7 +48,7 @@ export class PublicationDialog {
     const body=node('div','publication-body');body.append(intro,tabs,this.github,this.ftp,entry.wrapper,this.inspect,this.error,this.review,this.status,this.result);this.dialog.append(header,body);
   }
   async open({entry}={}){
-    const mission=this.getMission();if(!mission)return;
+    const mission=this.getMission();if(this.destroyed||!mission)return;
     this.entry.value=typeof entry==='string'?entry:'';this.missionId=mission.id;this.preview=null;this.review.hidden=true;this.error.hidden=true;this.status.textContent='';this.result.hidden=true;this.repo.value=String(mission.title||'mon-projet').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-|-$/g,'').slice(0,80)||'mon-projet';
     this.password.value='';this.busy=false;this.dialog.showModal();this.updateControls();const epoch=++this.epoch;await this.refresh(epoch);this.poll(epoch);
   }
@@ -66,9 +66,10 @@ export class PublicationDialog {
     if(running)this.status.textContent='Attendez la fin de cette mission avant de publier sa livraison.';
   }
   async refresh(epoch=this.epoch){
+    if(this.destroyed)return;
     try{
       const [providers,job]=await Promise.all([this.request('/api/publishing'),this.request(`/api/missions/${encodeURIComponent(this.missionId)}/publication`)]);
-      if(epoch!==this.epoch||!this.dialog.open)return;
+      if(this.destroyed||epoch!==this.epoch||!this.dialog.open)return;
       this.providers=providers;this.job=job;
       const gh=providers.github||{};this.githubStatus.textContent=gh.message||(gh.connected?`GitHub connecté · ${gh.user}`:gh.available?'Connectez votre compte GitHub pour créer un dépôt.':'Le programme officiel GitHub est nécessaire sur cet ordinateur. Installez GitHub CLI puis vérifiez à nouveau.');
       this.device.replaceChildren();this.device.hidden=!(gh.deviceCode&&gh.verificationUrl);
@@ -81,10 +82,11 @@ export class PublicationDialog {
       this.updateControls();
     }catch(error){if(epoch===this.epoch&&this.dialog.open)this.showError(error.message);}
   }
-  poll(epoch){clearTimeout(this.timer);if(!this.dialog.open||epoch!==this.epoch)return;this.timer=setTimeout(async()=>{await this.refresh(epoch);this.poll(epoch);},2000);}
-  async connect(){this.busy=true;this.updateControls();try{await this.request('/api/publishing/github/login',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});await this.refresh();}catch(error){this.showError(error.message);}finally{this.busy=false;this.updateControls();}}
+  poll(epoch){if(this.destroyed||epoch!==this.epoch)return;clearTimeout(this.timer);if(!this.dialog.open)return;this.timer=setTimeout(async()=>{await this.refresh(epoch);this.poll(epoch);},2000);}
+  async connect(){if(this.destroyed||this.busy)return;const epoch=this.epoch;this.busy=true;this.updateControls();try{await this.request('/api/publishing/github/login',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});await this.refresh(epoch);}catch(error){if(epoch===this.epoch&&!this.destroyed)this.showError(error.message);}finally{if(epoch===this.epoch&&!this.destroyed){this.busy=false;this.updateControls();}}}
   showError(message){this.error.textContent=message;this.error.hidden=false;}
   async inspectFiles(){
+    if(this.destroyed||this.busy)return;
     this.busy=true;this.error.hidden=true;this.updateControls();const epoch=this.epoch;
     try{
       const data=await this.request(`/api/missions/${encodeURIComponent(this.missionId)}/publication/preview`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.body())});if(epoch!==this.epoch)return;this.preview=data;
@@ -94,12 +96,12 @@ export class PublicationDialog {
       this.excludedList.replaceChildren(...(data.exclusions?.paths||[]).map(pathItem));this.exclusions.hidden=!(data.exclusions?.count>0);this.excludedLimit.hidden=data.exclusions?.truncated!==true;
       this.review.hidden=false;this.confirm.disabled=false;this.confirm.focus({preventScroll:true});
     }
-    catch(error){if(epoch===this.epoch)this.showError(error.message);}finally{this.busy=false;this.updateControls();}
+    catch(error){if(epoch===this.epoch)this.showError(error.message);}finally{if(epoch===this.epoch&&!this.destroyed){this.busy=false;this.updateControls();}}
   }
   async publish(){
-    if(!this.preview)return;this.busy=true;this.error.hidden=true;this.updateControls();const epoch=this.epoch;
+    if(this.destroyed||this.busy||!this.preview)return;this.busy=true;this.error.hidden=true;this.updateControls();const epoch=this.epoch;
     try{const job=await this.request(`/api/missions/${encodeURIComponent(this.missionId)}/publication`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...this.body(),confirmation:true,digest:this.preview.digest})});if(epoch!==this.epoch)return;this.job=job;this.status.textContent=job.message||'Publication en cours…';this.password.value='';this.preview=null;this.review.hidden=true;}
-    catch(error){if(epoch===this.epoch)this.showError(error.message);}finally{this.busy=false;this.updateControls();}
+    catch(error){if(epoch===this.epoch)this.showError(error.message);}finally{if(epoch===this.epoch&&!this.destroyed){this.busy=false;this.updateControls();}}
   }
-  destroy(){clearTimeout(this.timer);this.password.value='';this.dialog.remove();}
+  destroy(){if(this.destroyed)return;this.destroyed=true;this.epoch++;clearTimeout(this.timer);this.password.value='';this.preview=null;if(this.dialog.open)this.dialog.close();this.dialog.remove();}
 }

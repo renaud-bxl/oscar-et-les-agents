@@ -2,7 +2,7 @@
 
 Donnez une mission à Oscar. Il recrute les bons spécialistes, ils arrivent dans un grand bureau illustré et animé, travaillent, rendent leurs dossiers… et prennent un café quand leur travail est validé.
 
-**Version 0.6.13** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
+**Version 0.6.14** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
 
 Pour un jeu navigateur au brief clair, Oscar recrute désormais une équipe de sept ou huit spécialistes : recherche, analyse, deux ou trois designers, rédaction et deux développeurs. Les collègues se transmettent leurs contributions validées ; le moteur, l’interface, les dessins et les textes sont réunis dans un seul jeu. Le panneau Équipe montre les métiers et les tâches en attente. Les déplacements contournent les postes et les collègues qui collaborent peuvent échanger au lounge. La détection d’un connecteur ne garantit pas l’autorisation de chaque action : une erreur de permission reste expliquée, sans nouvelle autorisation automatique. Les PDF se lisent directement dans le bureau avec un lecteur local passif, sans dépendre du lecteur PDF du navigateur. Les licences du moteur embarqué sont détaillées dans [PDFJS-NOTICES.md](PDFJS-NOTICES.md).
 
@@ -43,6 +43,20 @@ Node.js 22.18 ou plus récent est nécessaire ; s’il manque, l’installateur 
 
 Les fois suivantes, ouvrez **Oscar et les agents** dans votre dossier Applications sur Mac, ou double-cliquez sur **Lancer.command**. Le bureau est disponible sur **http://localhost:4850**. Le lanceur retrouve un bureau déjà ouvert.
 
+### Choisir un dossier ou un SSD externe
+
+Sur la page d’installation, ouvrez **Choisir un autre dossier ou un SSD**. Vous pouvez choisir séparément le dossier du logiciel et celui des missions et données locales. Le logiciel, ses outils intégrés, les documents, les modèles vocaux et la dictée peuvent ainsi être conservés sur un SSD branché.
+
+Par exemple, sur macOS, en remplaçant `Mon SSD` par le nom réel de votre disque :
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/renaud-bxl/oscar-et-les-agents/main/install.sh | sh -s -- --engine codex --dir '/Volumes/Mon SSD/Oscar/Logiciel' --data-dir '/Volumes/Mon SSD/Oscar/Donnees'
+```
+
+`--dir` choisit le logiciel ; `--data-dir` choisit les données et mémorise ce dossier pour les prochains lancements et mises à jour. Sans ces options, les emplacements habituels sont conservés. Le SSD doit être monté avant l’installation et chaque lancement. Si le dossier configuré ou son disque est absent, le lancement s’arrête avec une explication ; il ne crée pas un bureau vide sur le disque interne. Deux bureaux utilisant des données différentes ne partagent pas automatiquement le même port.
+
+Ce choix **ne déplace pas les anciennes missions** : pour changer une installation existante, terminez les opérations, arrêtez son serveur et conservez une sauvegarde avant un transfert accompagné. Les connexions ChatGPT/Claude restent gérées par leurs clients officiels sur l’ordinateur ; un SSD ne rend pas ces connexions transportables vers une autre machine.
+
 ## Votre première visite
 
 Un guide vous accueille au premier lancement : le rôle d’Oscar, la connexion, les missions, les agents, les livraisons et les réglages. Vous pouvez le fermer et le retrouver avec le bouton **?** du bureau ou **Revoir le guide de découverte** dans les réglages.
@@ -66,6 +80,8 @@ Ces personnages représentent des agents IA. Chaque tâche démarre un agent dis
 Un résultat refusé repasse une fois en correction. Les fichiers obligatoires sont contrôlés sur le disque. L’assemblage final est ensuite relu. Un refus persistant reste **à revoir** et n’est pas annoncé comme une livraison validée. Ces contrôles IA et matériels complètent votre relecture ; ils ne garantissent pas l’absence d’erreur.
 
 ## Reprendre un projet et essayer sa livraison
+
+Les fichiers **Word (.docx), Excel (.xlsx) et PDF** de la livraison se lisent dans le bureau. Le lecteur Word affiche les paragraphes, titres, tableaux et certains styles ; le lecteur Excel propose les feuilles, leurs cellules et un choix d’affichage des formules ou des valeurs enregistrées. Il ne recalcule pas les formules. Les aperçus sont en lecture seule et n’activent aucun lien, macro ou contenu distant. Les mises en page complexes, images, graphiques et cellules fusionnées peuvent nécessiter l’application d’origine ; le téléchargement et l’ouverture native restent disponibles.
 
 Oscar conserve les fichiers en cas d’interruption. Pour une panne temporaire d’une mission ordinaire, il peut sauvegarder le travail, relire les fichiers déjà prêts et effectuer **une seule reprise ciblée**. Les collègues indépendants continuent ; un résultat absent ou refusé ne devient jamais validé automatiquement. Les lectures de comptes, les permissions, les quotas et un arrêt volontaire restent hors de cette reprise automatique.
 

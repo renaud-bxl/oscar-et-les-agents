@@ -5,6 +5,7 @@ umask 077
 
 oscar_engine=''
 oscar_dir="${HOME:?Le dossier personnel est introuvable.}/.local/share/oscar-et-les-agents"
+oscar_data_dir=''
 oscar_skip_login=0
 oscar_no_open=0
 oscar_dry_run=0
@@ -16,10 +17,13 @@ oscar_help() {
 Oscar et les agents — installation macOS et Linux
 
   sh install.sh [--engine codex|claude|both] [--dir /chemin/absolu]
+                [--data-dir /chemin/absolu]
                 [--skip-login] [--no-open] [--dry-run]
 
   --engine       ChatGPT avec Codex, Claude, ou les deux moteurs.
   --dir          Dossier d’installation ; les missions existantes sont conservées.
+  --data-dir     Dossier des missions, documents et voix, mémorisé pour les relances.
+                 Un SSD doit être monté. Aucun ancien dossier n’est déplacé.
   --skip-login   Reporter la connexion à votre abonnement.
   --no-open      Installer sans ouvrir le bureau.
   --dry-run      Montrer les opérations sans rien installer.
@@ -32,6 +36,8 @@ while [ "$#" -gt 0 ]; do
     --engine=*) oscar_engine=${1#*=}; shift ;;
     --dir) [ "$#" -ge 2 ] || oscar_fail 'Précisez le dossier après --dir.'; oscar_dir=$2; shift 2 ;;
     --dir=*) oscar_dir=${1#*=}; shift ;;
+    --data-dir) [ "$#" -ge 2 ] || oscar_fail 'Précisez le dossier après --data-dir.'; oscar_data_dir=$2; shift 2 ;;
+    --data-dir=*) oscar_data_dir=${1#*=}; shift ;;
     --skip-login) oscar_skip_login=1; shift ;;
     --no-open) oscar_no_open=1; shift ;;
     --dry-run) oscar_dry_run=1; shift ;;
@@ -94,12 +100,39 @@ oscar_check_parents() {
   done
 }
 oscar_check_parents "$oscar_dir"
+oscar_check_volume() {
+  case "$1" in
+    /Volumes/*) [ "$oscar_system" = darwin ] || return 0; oscar_tail=${1#/Volumes/}; oscar_anchor="/Volumes/${oscar_tail%%/*}" ;;
+    /media/*|/mnt/*|/run/media/*)
+      [ "$oscar_system" = linux ] || return 0
+      oscar_anchor=$1
+      while [ "$oscar_anchor" != / ]; do
+        if [ -d "$oscar_anchor" ] && [ "$(stat -c %d "$oscar_anchor")" != "$(stat -c %d "$(dirname "$oscar_anchor")")" ]; then break; fi
+        oscar_anchor=$(dirname "$oscar_anchor")
+      done
+      ;;
+    *) return 0 ;;
+  esac
+  [ "$oscar_anchor" != / ] && [ -d "$oscar_anchor" ] && [ ! -L "$oscar_anchor" ] || oscar_fail 'Le disque externe choisi n’est pas monté. Rebranchez-le ; aucun dossier de remplacement ne sera créé.'
+  if [ "$oscar_system" = darwin ]; then
+    [ "$(stat -f %d "$oscar_anchor")" != "$(stat -f %d "$(dirname "$oscar_anchor")")" ] || oscar_fail 'Le disque externe choisi n’est pas monté. Aucun dossier de remplacement ne sera créé.'
+  fi
+  [ "$1" != "$oscar_anchor" ] || oscar_fail 'Choisissez un sous-dossier du disque réservé à Oscar.'
+}
+oscar_check_volume "$oscar_dir"
+if [ -n "$oscar_data_dir" ]; then
+  case "$oscar_data_dir" in /*) ;; *) oscar_fail 'Le dossier des données doit être un chemin absolu.' ;; esac
+  case "$oscar_data_dir/" in *'/../'*|*'/./'*|*'//'*) oscar_fail 'Le chemin des données contient un raccourci ambigu.' ;; esac
+  oscar_check_parents "$oscar_data_dir"
+  oscar_check_volume "$oscar_data_dir"
+fi
 for oscar_internal in .runtime .runtime/bin .tools .tools/node_modules .tools/node_modules/.bin data; do
   [ ! -L "$oscar_dir/$oscar_internal" ] || oscar_fail 'Un dossier interne est un lien symbolique. Utilisez un dossier d’installation sain.'
 done
 
 if [ "$oscar_dry_run" -eq 1 ]; then
   printf '\n%s\n%s\n%s\n' "Simulation : installer Oscar et les agents dans $oscar_dir." "Moteur choisi : $oscar_engine." 'Le programme vérifiera Node.js, installera les moteurs manquants localement et ouvrira leur connexion officielle. Aucun changement effectué.'
+  [ -z "$oscar_data_dir" ] || printf '%s\n' "Données choisies : $oscar_data_dir. Aucun dossier existant ne sera déplacé."
   exit 0
 fi
 
@@ -153,6 +186,12 @@ if [ -z "$oscar_node" ]; then
   mkdir "$oscar_temp/runtime"
   tar -xzf "$oscar_temp/node.tar.gz" -C "$oscar_temp/runtime" --strip-components=1 || oscar_fail 'Impossible de décompresser Node.js.'
   oscar_node_usable "$oscar_temp/runtime/bin/node" || oscar_fail 'Le programme Node.js téléchargé ne fonctionne pas sur cet ordinateur.'
+  if [ -e "$oscar_dir/.runtime/installation.json" ] || [ -L "$oscar_dir/.runtime/installation.json" ]; then
+    [ -f "$oscar_dir/.runtime/installation.json" ] && [ ! -L "$oscar_dir/.runtime/installation.json" ] || oscar_fail 'La configuration locale de l’installation n’est pas un fichier sûr.'
+    [ "$(wc -c < "$oscar_dir/.runtime/installation.json")" -le 16384 ] || oscar_fail 'La configuration locale de l’installation dépasse sa taille autorisée.'
+    cp "$oscar_dir/.runtime/installation.json" "$oscar_temp/runtime/installation.json"
+    chmod 600 "$oscar_temp/runtime/installation.json"
+  fi
   if [ -e "$oscar_dir/.runtime" ]; then mv "$oscar_dir/.runtime" "$oscar_temp/previous-runtime"; fi
   if ! mv "$oscar_temp/runtime" "$oscar_dir/.runtime"; then
     if [ -d "$oscar_temp/previous-runtime" ]; then mv "$oscar_temp/previous-runtime" "$oscar_dir/.runtime"; fi
@@ -243,6 +282,7 @@ try {
 COPY_SOURCE
 
 set -- --engine "$oscar_engine"
+[ -z "$oscar_data_dir" ] || set -- "$@" --data-dir "$oscar_data_dir"
 [ "$oscar_skip_login" -eq 0 ] || set -- "$@" --skip-login
 [ "$oscar_no_open" -eq 0 ] || set -- "$@" --no-open
 # A piped bootstrap must give the official browser login its own terminal input.

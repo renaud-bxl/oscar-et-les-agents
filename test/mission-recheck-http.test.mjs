@@ -69,6 +69,21 @@ test('the result locks correction review during dispatch and exposes errors with
   await dialog.open(mission({status:'completed'}));assert.equal(dialog.resume.hidden,true);await dialog.resume.click();assert.equal(calls,1);dialog.destroy();
 });
 
+test('a pending completion review cannot reopen a closed balance or replace another project',async t=>{
+  installDom(t);const pending=new Map(),calls=[];const dialog=new CompletionDialog({onResume:item=>{calls.push(item.id);return new Promise((resolve,reject)=>pending.set(item.id,{resolve,reject}));}});
+  const first=mission();dialog.open(first);const firstButton=dialog.recoveryButton,reviewA=firstButton.click();await Promise.resolve();assert.equal(dialog.dialog.open,true);assert.equal(firstButton.disabled,true);await firstButton.click();assert.deepEqual(calls,[first.id]);
+  dialog.close();pending.get(first.id).reject(new Error('Response arrived after closing.'));await reviewA;assert.equal(dialog.dialog.open,false,'A failed request never reopens a dismissed balance.');
+  dialog.open({...first,updatedAt:2});const nextA=dialog.recoveryButton.click();await Promise.resolve();dialog.close();const second=mission({id:'another-project',updatedAt:3});dialog.open(second);const reviewB=dialog.recoveryButton.click();await Promise.resolve();
+  pending.get(first.id).reject(new Error('Old project failure.'));await nextA;assert.equal(dialog.mission.id,second.id);assert.equal(dialog.dialog.open,true);assert.equal(dialog.error.hidden,true);assert.equal(dialog.recoveryButton.disabled,true,'The old request cannot unlock another pending review.');
+  pending.get(second.id).resolve(second);await reviewB;assert.equal(dialog.dialog.open,false);assert.deepEqual(calls,[first.id,first.id,second.id]);dialog.destroy();
+});
+
+test('a late native-folder error belongs only to its original result and cannot unlock another folder request',async t=>{
+  installDom(t);const pending=new Map(),calls=[];const dialog=new ResultPreviewDialog({request:()=>assert.fail('No preview request for empty files'),onFolder:id=>{calls.push(id);return new Promise((resolve,reject)=>pending.set(id,{resolve,reject}));}});
+  await dialog.open(mission());const first=dialog.folder.click();await Promise.resolve();assert.equal(dialog.folder.disabled,true);await dialog.folder.click();assert.deepEqual(calls,['corrections-test']);dialog.close();await dialog.open(mission({id:'another-project'}));const second=dialog.folder.click();await Promise.resolve();
+  pending.get('corrections-test').reject(new Error('Old folder unavailable.'));await first;assert.equal(dialog.mission.id,'another-project');assert.equal(dialog.error.hidden,true);assert.equal(dialog.folder.disabled,true);pending.get('another-project').resolve();await second;assert.equal(dialog.folder.disabled,false);assert.equal(dialog.dialog.open,true);dialog.destroy();
+});
+
 test('HTTP correction review requires its explicit action, consumes one durable review and never resets writing',async t=>{
   const dataDir=await mkdtemp(path.join(os.tmpdir(),'oscar-http-recheck-')),id=randomUUID(),folder=path.join(dataDir,'missions','Corrections conservées'),work=path.join(folder,'travail'),taskDir=path.join(work,'t1-code');
   await mkdir(taskDir,{recursive:true});const corrected='# Rapport corrigé\nCette correction locale existe avant la relecture.';await writeFile(path.join(taskDir,'rapport.md'),corrected);await writeFile(path.join(work,'original.txt'),'Original conservé.');

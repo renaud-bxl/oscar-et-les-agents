@@ -1,6 +1,8 @@
 import {getLocale,translate} from './i18n.js';
 import {sanitizeStudioSvg} from './creative-studio.js';
 import {PdfCanvasPreview} from './pdf-preview.js';
+import {OfficeViewer} from './office-viewer.js';
+import {officeText} from './translations-office.js';
 
 const MAX_BYTES=20*1024*1024,MAX_TEXT=512*1024;
 const TEXT_TYPES=new Set('txt md markdown csv tsv json jsonl log py js mjs cjs ts tsx jsx html htm css scss sass less yaml yml toml ini cfg conf sql xml rst tex ipynb c cpp h hpp java rs go sh bash zsh ps1 bat'.split(' '));
@@ -31,7 +33,7 @@ export class ArtifactViewer {
     this.build();
     this._onClose=()=>{if(!this.dialog.open)this.finishedClosing();};this._onCancel=event=>{event.preventDefault();this.close();};
     this._onBackdrop=event=>{if(event.target!==this.dialog)return;const box=this.dialog.getBoundingClientRect();if(event.clientX<box.left||event.clientX>box.right||event.clientY<box.top||event.clientY>box.bottom)this.close();};
-    this._onLanguage=()=>{if(this.opened&&this.current){this.updateMeta();this.pdfPreview?.updateLabels();}};
+    this._onLanguage=()=>{if(this.opened&&this.current){this.updateMeta();this.pdfPreview?.updateLabels();this.officePreview?.updateLabels();if(this.officePreview)this.officeLabels(this.current.info);}};
     this.dialog.addEventListener('close',this._onClose);this.dialog.addEventListener('cancel',this._onCancel);this.dialog.addEventListener('click',this._onBackdrop);document.addEventListener('oscar:language',this._onLanguage);
   }
   build() {
@@ -63,6 +65,7 @@ export class ArtifactViewer {
   cleanup() {
     this.controller?.abort();this.controller=null;
     this.pdfPreview?.close();this.pdfPreview=null;
+    this.officePreview?.destroy();this.officePreview=null;
     for(const image of this.content.querySelectorAll('img'))image.removeAttribute('src');this.content.replaceChildren();
     for(const url of this.urls)URL.revokeObjectURL(url);this.urls.clear();
   }
@@ -95,6 +98,16 @@ export class ArtifactViewer {
     await preview.open(bytes,this.content);if(!this.active(epoch))return;
     this.mode.textContent='PDF · lecture dans le bureau';this.hint.textContent='Aperçu local en lecture seule. Les liens, formulaires et scripts du PDF restent inactifs.';this.hint.hidden=false;
   }
+  async showOffice(info,epoch) {
+    const result=await this.request(`/api/missions/${encodeURIComponent(this.current.mission.id)}/document-preview`,{method:'POST',headers:{'Content-Type':'application/json','X-Oscar-Client':'1'},body:JSON.stringify({path:info.path}),signal:this.controller.signal});
+    if(!this.active(epoch))return;
+    this.officePreview=new OfficeViewer({container:this.content});this.officePreview.open(result);
+    this.officeLabels(info);
+  }
+  officeLabels(info) {
+    this.mode.textContent=officeText(info.extension==='docx'?'Word · lecture dans le bureau':'Excel · lecture dans le bureau',getLocale());
+    this.hint.textContent=officeText('Lecture locale en lecture seule. La mise en page avancée reste accessible dans votre application habituelle.',getLocale());this.hint.hidden=false;
+  }
   async load() {
     if(!this.current||!this.opened)return;const epoch=++this.epoch;this.cleanup();this.controller=new AbortController();this.showError('');this.showStatus('');this.retry.hidden=true;this.hint.hidden=true;
     const info=this.current.info;this.placeholder('Ouverture du fichier…','Votre livrable reste dans le dossier de cette mission.',true);this.mode.textContent='Chargement…';
@@ -103,6 +116,8 @@ export class ArtifactViewer {
         const data=await this.bytes(info.url,MAX_TEXT,{truncate:true});if(!this.active(epoch))return;
         const pre=node('pre','artifact-text',new TextDecoder('utf-8').decode(data.bytes).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,''));pre.setAttribute('data-no-translate','');pre.tabIndex=0;this.content.replaceChildren(pre);this.mode.textContent='Texte · lecture seule';
         if(data.truncated){this.hint.textContent='L’aperçu affiche les 512 premiers Ko. Téléchargez le fichier ou ouvrez-le dans son application pour lire la suite.';this.hint.hidden=false;}
+      } else if(['docx','xlsx'].includes(info.extension)) {
+        await this.showOffice(info,epoch);
       } else if(['png','jpg','jpeg','webp','svg','pdf'].includes(info.extension)) {
         const {bytes}=await this.bytes(info.url,MAX_BYTES);if(!this.active(epoch))return;
         if(info.extension==='svg'){const source=sanitizeStudioSvg(new TextDecoder('utf-8').decode(bytes));await this.showImage(new Blob([source],{type:'image/svg+xml'}),epoch,{caption:'SVG vérifié · aperçu sans éléments actifs'});}
@@ -113,7 +128,7 @@ export class ArtifactViewer {
       } else {
         this.placeholder('Ce format s’ouvre dans son application.','Téléchargez le fichier ou ouvrez son dossier. Aucun contenu de ce fichier n’est exécuté dans le bureau.');this.mode.textContent='Fichier à conserver';
       }
-    }catch(error){if(!this.active(epoch)||error.name==='AbortError')return;this.showError(error.message||'L’aperçu n’a pas pu être chargé.');this.placeholder('Votre fichier reste accessible.','Le dossier et le téléchargement restent disponibles pendant que vous réessayez.');this.mode.textContent='Aperçu indisponible';this.retry.hidden=false;}
+    }catch(error){if(!this.active(epoch)||error.name==='AbortError')return;this.showError(officeText(error.message||'L’aperçu n’a pas pu être chargé.',getLocale()));this.placeholder('Votre fichier reste accessible.','Le dossier et le téléchargement restent disponibles pendant que vous réessayez.');this.mode.textContent='Aperçu indisponible';this.retry.hidden=false;}
   }
   async openNative() {
     if(!this.current||this.nativeBusy||!NATIVE_TYPES.has(this.current.info.extension))return;const epoch=this.epoch;this.nativeBusy=true;this.native.disabled=true;this.showStatus('');

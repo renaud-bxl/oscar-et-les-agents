@@ -1,10 +1,19 @@
 #!/bin/zsh
 atelier_project="${0:A:h}/../../.."
-cd "$atelier_project" || exit 1
+cd "$atelier_project" || { /usr/bin/osascript -e 'display alert "Oscar ne peut pas démarrer" message "Le dossier du logiciel est indisponible. Rebranchez son disque puis réessayez." as critical'; exit 1; }
 if [[ -x .runtime/bin/node ]]; then
-  exec .runtime/bin/node launch.mjs
+  atelier_node=.runtime/bin/node
 elif [[ -x /opt/homebrew/bin/node ]]; then
-  exec /opt/homebrew/bin/node launch.mjs
+  atelier_node=/opt/homebrew/bin/node
+elif command -v node >/dev/null 2>&1; then
+  atelier_node=$(command -v node)
 else
-  exec node launch.mjs
+  /usr/bin/osascript -e 'display alert "Oscar ne peut pas démarrer" message "Node.js est introuvable. Relancez install.sh depuis un terminal pour préparer le logiciel." as critical'
+  exit 1
 fi
+"$atelier_node" launch.mjs
+atelier_status=$?
+if [[ "$atelier_status" -ne 0 ]]; then
+  /usr/bin/osascript -e 'display alert "Oscar ne peut pas démarrer" message "Vérifiez que le disque contenant vos données est branché. Aucun bureau de remplacement ne sera créé. Lancez Lancer.command pour lire le détail de l’erreur." as critical'
+fi
+exit "$atelier_status"

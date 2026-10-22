@@ -203,7 +203,13 @@ export class AutomationsDialog {
     if(schedule.frequency==='weekly')schedule.dayOfWeek=Number(this.day.value);
     if(schedule.frequency==='interval')schedule.intervalMinutes=Number(this.interval.value);
     const previous=this.data.automations.find(item=>item.id===this.editingId);
-    return{label:this.labelInput.value.trim(),prompt:this.prompt.value.trim(),provider:this.provider.value,schedule,enabled:previous?.enabled??true,requiresConnector:this.connector.checked,connectorName:this.connector.checked?this.connectorSelect.value:''};
+    const requiresConnector=this.connector.checked,connectorName=requiresConnector?this.connectorSelect.value:'';
+    const selected=this.connections.find(item=>item.client===this.provider.value&&item.name===connectorName);
+    const service=selected?.readOnlyAutomation?.service;
+    // Editing a Zoé routine must follow the service explicitly selected here;
+    // the old hidden mode must not turn a free request into an account task.
+    const assistantMode=!requiresConnector?'free':service==='gmail'?'mail':service==='calendar'?'calendar':'service';
+    return{label:this.labelInput.value.trim(),prompt:this.prompt.value.trim(),provider:this.provider.value,schedule,enabled:previous?.enabled??true,requiresConnector,connectorName,...(previous?.assistant?{assistant:true,assistantMode}:{})};
   }
   async save() {
     if(this.busy)return;

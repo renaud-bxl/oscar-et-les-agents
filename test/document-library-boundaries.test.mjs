@@ -55,3 +55,18 @@ test('Excel rejects content beyond one cell capacity without writing a truncated
  await assert.rejects(library.export({sourceText:JSON.stringify([{Texte:'x'.repeat(33000)+' FIN_A_CONSERVER'}]),sourceType:'json',destination,formats:['xlsx']}),/32 767 caractères/u);
  assert.deepEqual(await readdir(destination),[]);
 });
+
+test('Word and PDF prose are not rejected by the unrelated Excel row limit',real,async t=>{
+ const{library,destination}=await setup(t,{pythonBinary:python});
+ const content=Array.from({length:2105},(_,i)=>`Paragraphe ${i+1} — texte public à conserver.`).join('\n');
+ const result=await library.export({sourceText:content,destination,formats:['docx','pdf'],title:'Rapport complet'});
+ await exec(python,['-I','-c',`import sys;from docx import Document;from pypdf import PdfReader;assert any('Paragraphe 2105' in p.text for p in Document(sys.argv[1]).paragraphs);assert 'Paragraphe 2105' in ''.join(p.extract_text() or '' for p in PdfReader(sys.argv[2]).pages)`,...result.files.map(file=>path.join(destination,file.path))]);
+ await assert.rejects(library.export({sourceText:content,destination,formats:['xlsx'],title:'Trop de lignes Excel'}),/2 000 lignes/u);
+});
+
+test('a stale removal confirmation never deletes a replacement example under the same name',async t=>{
+ const{library}=await setup(t),item=await library.import({name:'Exemple.txt',base64:Buffer.from('Version confirmée').toString('base64')});
+ const {writeFile}=await import('node:fs/promises');await writeFile(path.join(library.directory,item.name),'Nouvelle version à préserver');
+ await assert.rejects(library.remove(item.id,{revision:item.revision}),{code:'DOCUMENT_CHANGED'});assert.equal(await readFile(path.join(library.directory,item.name),'utf8'),'Nouvelle version à préserver');
+ const current=await library.item(item.id);await assert.rejects(library.remove(item.id,{revision:'bad'}));await library.remove(item.id,{revision:current.revision});assert.equal((await library.state()).items.length,0);
+});

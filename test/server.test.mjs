@@ -118,8 +118,9 @@ test('les téléchargements préservent les octets et restent inertes, bornés �
 
 test('le dossier par défaut est dans Documents et les anciens chemins explicites restent compatibles', () => {
   assert.equal(resolveServerDataDirectory({}), path.join(os.homedir(), 'Documents', 'Oscar et les agents'));
-  assert.equal(resolveServerDataDirectory({ ATELIER_DATA_DIR: '/tmp/ancien-dossier' }), '/tmp/ancien-dossier');
-  assert.equal(resolveServerDataDirectory({ ATELIER_DATA_DIR: '/tmp/ancien-dossier', OSCAR_DATA_DIR: '/tmp/nouveau-dossier' }), '/tmp/nouveau-dossier');
+  const temporaryRoot = process.platform === 'darwin' ? '/private/tmp' : '/tmp';
+  assert.equal(resolveServerDataDirectory({ ATELIER_DATA_DIR: '/tmp/ancien-dossier' }), path.join(temporaryRoot, 'ancien-dossier'));
+  assert.equal(resolveServerDataDirectory({ ATELIER_DATA_DIR: '/tmp/ancien-dossier', OSCAR_DATA_DIR: '/tmp/nouveau-dossier' }), path.join(temporaryRoot, 'nouveau-dossier'));
 });
 
 test('HTTP autorise quatre missions et réserve chaque connexion à son propre moteur', async t => {

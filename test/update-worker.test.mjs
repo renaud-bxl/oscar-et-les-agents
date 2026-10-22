@@ -20,6 +20,7 @@ async function fixture(t,{fetchChange}={}){
   const base=await realpath(await mkdtemp(path.join(os.tmpdir(),'oscar-update-test-'))),root=path.join(base,'installation'),dataDir=path.join(base,'personal-data');await mkdir(root);await mkdir(dataDir);
   for(const[name,bytes]of source(oldVersion)){if(name.startsWith('.github/'))continue;await mkdir(path.dirname(path.join(root,name)),{recursive:true});await writeFile(path.join(root,name),bytes);}
   for(const name of ['data','.tools','.runtime']){await mkdir(path.join(root,name));await writeFile(path.join(root,name,'personal.txt'),'PRESERVE-'+name);}
+  await writeFile(path.join(root,'.runtime','installation.json'),JSON.stringify({version:1,dataDirectory:dataDir,locationId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'}));
   await writeFile(path.join(root,'atelier.log'),'PRESERVE-LOG');await writeFile(path.join(dataDir,'missions.txt'),'PRESERVE-MISSIONS');
   const calls=[],fetchImpl=async(url,options)=>{calls.push({url,options});if(fetchChange)return fetchChange(url,options);if(url.endsWith('/releases/latest'))return new Response(JSON.stringify(release(newVersion)));if(url.endsWith('/v'+oldVersion))return new Response(archive(oldVersion));if(url.endsWith('/v'+newVersion))return new Response(archive(newVersion));throw new Error('No real network permitted');};
   const configs=[];t.after(async()=>{for(const config of configs)if(config.workspace)await rm(config.workspace,{recursive:true,force:true});await rm(base,{recursive:true,force:true});});
@@ -27,7 +28,7 @@ async function fixture(t,{fetchChange}={}){
   return{root,dataDir,base,calls,fetchImpl,prepare,configs};
 }
 const versionAt=async root=>JSON.parse(await readFile(path.join(root,'package.json'),'utf8')).version;
-async function preserved(f){for(const name of ['data','.tools','.runtime'])assert.equal(await readFile(path.join(f.root,name,'personal.txt'),'utf8'),'PRESERVE-'+name);assert.equal(await readFile(path.join(f.root,'atelier.log'),'utf8'),'PRESERVE-LOG');assert.equal(await readFile(path.join(f.dataDir,'missions.txt'),'utf8'),'PRESERVE-MISSIONS');}
+async function preserved(f){for(const name of ['data','.tools','.runtime'])assert.equal(await readFile(path.join(f.root,name,'personal.txt'),'utf8'),'PRESERVE-'+name);assert.equal(JSON.parse(await readFile(path.join(f.root,'.runtime','installation.json'),'utf8')).dataDirectory,f.dataDir);assert.equal(await readFile(path.join(f.root,'atelier.log'),'utf8'),'PRESERVE-LOG');assert.equal(await readFile(path.join(f.dataDir,'missions.txt'),'utf8'),'PRESERVE-MISSIONS');}
 function workerDependencies(f,changes={}){return{waitParent:async()=>assert.equal(await versionAt(f.root),oldVersion),ensurePortFree:async()=>{},start:async()=>({pid:123456}),stop:async()=>{},checkHealth:async(config,child,version)=>{assert.equal(await versionAt(f.root),version);return true;},...changes};}
 
 test('stable release metadata and versions are strict and URLs come only from the official repository',()=>{

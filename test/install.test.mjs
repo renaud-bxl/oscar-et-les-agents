@@ -251,9 +251,13 @@ test('portable runtime download is simulated and its official checksum is requir
   await writeFile(path.join(mocks, 'curl'), '#!/bin/sh\nurl=""\nout=""\nwhile [ "$#" -gt 0 ]; do\n case "$1" in\n  https://*) url=$1; shift;;\n  -o) out=$2; shift 2;;\n  *) shift;;\n esac\ndone\ncase "$url" in\n https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt) cp "$OSCAR_TEST_CHECKSUMS" "$out";;\n https://nodejs.org/dist/latest-v24.x/node-v24.999.0-linux-x64.tar.gz) cp "$OSCAR_TEST_ARCHIVE" "$out";;\n *) echo "Unexpected network request" >&2; exit 1;;\nesac\n', { mode: 0o755 });
   const env = { ...process.env, PATH: `${mocks}:/usr/bin:/bin`, OSCAR_TEST_CHECKSUMS: checksums, OSCAR_TEST_ARCHIVE: archive };
   const installed = path.join(temporary, 'installed');
+  await mkdir(path.join(installed,'.runtime'),{recursive:true});
+  const location=JSON.stringify({version:1,dataDirectory:path.join(temporary,'external-data'),locationId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'});
+  await writeFile(path.join(installed,'.runtime','installation.json'),location);
   const result = await exec('/bin/sh', [path.join(source, 'install.sh'), '--engine', 'claude', '--dir', installed, '--skip-login', '--no-open'], { cwd: source, env });
   assert.match(result.stdout, /SIMULATED_RUNTIME_OK/);
   await access(path.join(installed, '.runtime', 'bin', 'node'));
+  assert.equal(await readFile(path.join(installed,'.runtime','installation.json'),'utf8'),location,'Preparing portable Node must preserve the chosen data location.');
   await writeFile(checksums, `${'0'.repeat(64)}  node-v24.999.0-linux-x64.tar.gz\n`);
   const rejected = path.join(temporary, 'rejected');
   await assert.rejects(exec('/bin/sh', [path.join(source, 'install.sh'), '--engine', 'codex', '--dir', rejected, '--skip-login', '--no-open'], { cwd: source, env }), error => /ne correspond pas à sa somme officielle/.test(error.stderr));
@@ -349,7 +353,7 @@ test('a real source reinstall with spaces preserves preferences, missions and co
   await mkdir(path.join(source, 'lib'));
   await mkdir(tools, { recursive: true });
   await mkdir(path.join(documents, 'missions'), { recursive: true });
-  for (const file of ['package.json', 'install.sh', 'scripts/install.mjs', 'lib/state-stream.mjs']) await writeFile(path.join(source, file), await readFile(path.join(root, file)));
+  for (const file of ['package.json', 'install.sh', 'scripts/install.mjs', 'lib/state-stream.mjs','lib/installation-paths.mjs']) await writeFile(path.join(source, file), await readFile(path.join(root, file)));
   await writeFile(path.join(source, 'server.mjs'), '// Installation fixture; no server is started.\n');
   const fakeEngine = '#!/bin/sh\ncase "$1" in\n --version) case "$0" in *claude) echo "2.1.303";; *) echo "codex-cli 0.130.0";; esac;;\n --help) echo "--restricted --output-format --verbose --permission-mode --tools --allowedTools --strict-mcp-config";;\n exec) echo "--json --sandbox --color --skip-git-repo-check --output-schema";;\n *) echo "Login and model calls are forbidden in this test" >&2; exit 97;;\nesac\n';
   for (const provider of ['codex', 'claude']) await writeFile(path.join(tools, provider), fakeEngine, { mode: 0o755 });

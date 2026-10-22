@@ -19,7 +19,7 @@ function summary(mission) {
 
 export class CompletionDialog {
   constructor({ onDelivery = () => {}, onFolder, onFile, onImprove = () => {}, onNew = () => {}, onView, onPublish, onResume, createPreview, onClose = () => {}, avatar } = {}) {
-    Object.assign(this, { onDelivery, onFolder, onFile, onImprove, onNew, onView, onPublish, onResume, createPreview, onClose, avatar }); this.epoch = 0;
+    Object.assign(this, { onDelivery, onFolder, onFile, onImprove, onNew, onView, onPublish, onResume, createPreview, onClose, avatar }); this.epoch = 0; this.pendingRecoveries = new Set();
     this.dialog = node('dialog', 'completion-dialog'); this.dialog.id = 'completion-dialog'; this.dialog.setAttribute('aria-labelledby', 'completion-title');
     this.dialog.addEventListener('close', () => { if (!this.dialog.open) this.closed(); }); document.body.append(this.dialog);
   }
@@ -72,7 +72,8 @@ export class CompletionDialog {
     const actions = node('footer', 'completion-actions');
     if(browser&&typeof this.onView==='function')actions.append(this.button(validated?'Tester le jeu ou le site ↗':'Tester l’aperçu partiel ↗','completion-action completion-action-primary',()=>this.act('onView')));
     else actions.append(this.button(validated?'Voir le résultat ↗':'Voir les fichiers conservés ↗', 'completion-action completion-action-primary', () => this.act(validated&&typeof this.onView==='function'?'onView':'onDelivery')));
-    if(canResume)actions.append(this.button(mission.recovery?.canRecheck===true?'Faire relire les corrections':'Reprendre avec Oscar','completion-action completion-action-primary',()=>{if(this.mission.recovery?.canResume===true||this.mission.recovery?.canRecheck===true)return this.act('onResume');}));
+    this.recoveryButton=null;
+    if(canResume){this.recoveryButton=this.button(mission.recovery?.canRecheck===true?'Faire relire les corrections':'Reprendre avec Oscar','completion-action completion-action-primary',()=>this.runRecovery());this.recoveryButton.disabled=this.pendingRecoveries.has(mission.id);actions.append(this.recoveryButton);}
     if(validated&&!demo&&typeof this.onPublish==='function')actions.append(this.button('Publier le projet ↗','completion-action',()=>this.act('onPublish')));
     actions.append(this.button('Ouvrir le dossier de tous les fichiers ↗','completion-action',()=>this.openFolder()));
     const secondary=node('div','completion-secondary-actions');secondary.append(this.button('Améliorer avec Oscar','completion-action completion-action-new',()=>this.act('onImprove')),this.button('Une nouvelle mission','completion-action completion-action-new',()=>this.act('onNew')));body.append(secondary);
@@ -89,6 +90,14 @@ export class CompletionDialog {
     const mission = this.mission; this.close();
     try { await this[name](mission, ...details); }
     catch { this.open(mission); this.error.textContent = 'Cette action n’a pas abouti. Votre mission et ses fichiers sont conservés.'; this.error.hidden = false; }
+  }
+  async runRecovery() {
+    const mission=this.mission,epoch=this.epoch;
+    if(this.destroyed||!this.dialog.open||typeof this.onResume!=='function'||this.pendingRecoveries.has(mission.id)||mission.recovery?.canResume!==true&&mission.recovery?.canRecheck!==true)return;
+    this.pendingRecoveries.add(mission.id);this.recoveryButton.disabled=true;this.error.hidden=true;
+    try{await this.onResume(mission);if(epoch===this.epoch&&this.dialog.open)this.close();}
+    catch{if(epoch===this.epoch&&this.dialog.open){this.error.textContent='Cette action n’a pas abouti. Votre mission et ses fichiers sont conservés.';this.error.hidden=false;}}
+    finally{this.pendingRecoveries.delete(mission.id);if(epoch===this.epoch&&this.recoveryButton)this.recoveryButton.disabled=false;}
   }
   open(mission) {
     if (this.destroyed || !mission || !['completed', 'needs_review', 'failed', 'cancelled'].includes(mission.status)) return;

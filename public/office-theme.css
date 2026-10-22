@@ -33,8 +33,8 @@
   color-scheme:dark!important;background:var(--night-panel)!important;color:var(--night-ink)!important;border-color:var(--night-line)!important;box-shadow:0 16px 48px #0005!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important
 }
 :root[data-office-theme="dark"] dialog::backdrop{background:#050d1680!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
-:root[data-office-theme="dark"] dialog :is(header,footer,section,article,form){background:transparent!important;border-color:var(--night-line)!important}
-:root[data-office-theme="dark"] :is(dialog,.office-hud,.office-dock,.office-onboarding,.office-speech,.office-toast,.office-credit,.hud-language-menu,.hud-theme-menu,.update-notice) :is(h1,h2,h3,h4,h5,h6,p,legend,label,a,small,summary,strong,b,span,dt,dd,li,time,pre,output){color:var(--night-ink)!important}
+:root[data-office-theme="dark"] dialog :is(header,footer,section,article,form):not(:where(.office-word-page,.office-word-page *,.office-workbook-grid,.office-workbook-grid *)){background:transparent!important;border-color:var(--night-line)!important}
+:root[data-office-theme="dark"] :is(dialog,.office-hud,.office-dock,.office-onboarding,.office-speech,.office-toast,.office-credit,.hud-language-menu,.hud-theme-menu,.update-notice) :is(h1,h2,h3,h4,h5,h6,p,legend,label,a,small,summary,strong,b,span,dt,dd,li,time,pre,output):not(:where(.office-word-page,.office-word-page *,.office-workbook-grid,.office-workbook-grid *)){color:var(--night-ink)!important}
 :root[data-office-theme="dark"] :is(dialog,.office-hud) :is(small,.section-kicker,[class$="-hint"],[class$="-note"],[class$="-description"],[class$="-eyebrow"],[class$="-subtitle"],[class$="-intro"],.provider-message){color:var(--night-muted)!important}
 :root[data-office-theme="dark"] :is(dialog,.office-hud,.office-dock,.hud-theme-menu,.hud-language-menu) :is(button,summary){color:var(--night-ink)!important;border-color:var(--night-line)!important}
 :root[data-office-theme="dark"] dialog :is(button,[role="button"]),
@@ -47,7 +47,7 @@
 :root[data-office-theme="dark"] dialog :is(input[type="checkbox"],input[type="radio"]){accent-color:#abd4e9}
 :root[data-office-theme="dark"] dialog :is(input,textarea,select):focus-visible{outline-color:#b2dcf7!important;border-color:#a2c9e0!important;box-shadow:0 0 0 3px #a2c9e026!important}
 :root[data-office-theme="dark"] :is(dialog,.office-hud,.office-dock,.hud-theme-menu) :focus-visible{outline:3px solid #b2dcf7!important;outline-offset:3px}
-:root[data-office-theme="dark"] dialog :is(table,th,td,hr,fieldset){border-color:var(--night-line)!important}
+:root[data-office-theme="dark"] dialog :is(table,th,td,hr,fieldset):not(:where(.office-word-page,.office-word-page *,.office-workbook-grid,.office-workbook-grid *)){border-color:var(--night-line)!important}
 
 /* Cards and retained form sections are restyled, never removed or rebuilt. */
 :root[data-office-theme="dark"] dialog :is([class*="card"],[class$="-note"],[class$="-hint"],[class$="-status"],[class$="-preview"],[class$="-empty"],[class$="-progress"],[class$="-install"],[class$="-confirm"],[class$="-row"],[class$="-tabs"],[class$="-draft"],[class$="-summary"],.connectors-scope,.connectors-assistant,.connectors-handoff,.automation-preset,.automation-schedule-preview,.secretary-context,.secretary-side,.secretary-benefits,.voice-mode,.welcome-option,.welcome-note,.welcome-preview,.coffee-option,.coffee-summary,.creative-canvas,.document-library-runtime,.document-library-item,.artifact-text,.artifact-preview-bar,.artifact-toolbar,.artifact-document-icon,.role-services,.member-quip,.member-task,.team-member,.history-item,.file-link,.report-toggle,.task,.task-review,.team-panel-note,.mission-overview,.settings-section,.brief-examples button,.writing-draft,.history-tools,.office-theme-settings){background:var(--night-surface)!important;border-color:var(--night-line)!important}
@@ -60,6 +60,9 @@
 :root[data-office-theme="dark"] .clock-dial text{fill:#d1e2eb}
 :root[data-office-theme="dark"] .clock-dial line{stroke:#c3d6e1}
 :root[data-office-theme="dark"] dialog .artifact-pdf-canvas{background:#fff!important}
+/* Document pages retain their own ink and paper; only reader controls follow the office theme. */
+:root[data-office-theme="dark"] dialog :is(.office-word-page,.office-workbook-scroll){color-scheme:light}
+:root[data-office-theme="dark"] dialog .artifact-pdf-navigation{background:var(--night-surface)!important;color:var(--night-ink)!important;border-color:var(--night-line)!important}
 :root[data-office-theme="dark"] dialog .creative-artwork{background:transparent!important}
 :root[data-office-theme="dark"] :is(dialog,.office-dock,.hud-language-menu,.hud-theme-menu) :is([aria-pressed="true"],[aria-current="true"],.selected,[data-selected="true"],.dock-primary,.coffee-option[data-selected="true"],.creative-preset[aria-pressed="true"],.voice-mode:has(input:checked),.document-library-format:has(input:checked)){
   background:#29483f!important;border-color:#8ab8a4!important;color:#e1faef!important;box-shadow:inset 0 0 0 1px #8ab8a455

@@ -10,6 +10,7 @@ import { BrowserPreviews } from './lib/browser-preview.mjs';
 import { AppUpdates } from './lib/app-updates.mjs';
 import { UpdateMaintenance, updateBlockers } from './lib/update-maintenance.mjs';
 import { assertUpdateStartup } from './lib/update-startup.mjs';
+import { resolveInstallationDataLocation, dataDirectoryHash } from './lib/installation-paths.mjs';
 import { Atelier } from './lib/orchestrator.mjs';
 import { detectProviders, runAgent, findBinary } from './lib/providers.mjs';
 import { BrowserLogin } from './lib/auth.mjs';
@@ -21,6 +22,7 @@ import { VoiceService } from './lib/voice-service.mjs';
 import { DictationService, DICTATION_BODY_LIMIT } from './lib/dictation.mjs';
 import { Personalization } from './lib/personalization.mjs';
 import { DocumentLibrary } from './lib/document-library.mjs';
+import { PassiveOfficePreview } from './lib/passive-office-preview.mjs';
 import { MissionArchives } from './lib/mission-archive.mjs';
 import { MissionRequests } from './lib/mission-requests.mjs';
 import { StateStream } from './lib/state-stream.mjs';
@@ -159,7 +161,7 @@ export async function openMissionDownload(workDirectory, relative) {
   }
 }
 export function resolveServerDataDirectory(env = process.env) {
-  return path.resolve(env.OSCAR_DATA_DIR || env.ATELIER_DATA_DIR || path.join(os.homedir(), 'Documents', 'Oscar et les agents'));
+  return resolveInstallationDataLocation({ root: ROOT, env }).dataDir;
 }
 function openDataFolder(folder) {
   const command = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
@@ -200,6 +202,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
   };
   const documents = documentFactory({ dataDir, onChange: () => engine?.emit('change', engine.state()) });
   await documents.ready;
+  const officePreview = new PassiveOfficePreview({documents});
   const checkedMissionDirectory = missionDirectoryGuard(dataDir);
   const personalization = personalizationFactory({ dataDir });
   await personalization.ready;
@@ -297,7 +300,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
         if(maintenance.active||updates.isBusy)throw fileError('Le bureau se met à jour. Votre texte reste conservé ; attendez son redémarrage.','UPDATE_BUSY');
         releaseUpdateOperation=maintenance.track(res);
       }
-      if(pathname==='/api/updates/health'&&req.method==='GET'){json(res,200,{app:'oscar-et-les-agents',version,pid:process.pid,restartId:process.env.OSCAR_UPDATE_RESTART_ID||null});return;}
+      if(pathname==='/api/updates/health'&&req.method==='GET'){json(res,200,{app:'oscar-et-les-agents',version,pid:process.pid,restartId:process.env.OSCAR_UPDATE_RESTART_ID||null,dataDirectoryHash:dataDirectoryHash(engine.dataDir)});return;}
       if(pathname==='/api/updates'&&req.method==='GET'){json(res,200,updates.state);return;}
       if (pathname === '/api/events' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
@@ -384,7 +387,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
         }
         if(maintenance.active||updates.isBusy)throw fileError('Le bureau se met à jour. Votre texte reste conservé ; attendez son redémarrage.','UPDATE_BUSY');
         const documentRoute = pathname.match(/^\/api\/documents\/([a-f0-9]{24})$/);
-        if (documentRoute && req.method === 'DELETE') { json(res, 200, await documents.remove(documentRoute[1])); return; }
+        if (documentRoute && req.method === 'DELETE') { if (Object.keys(body).some(key => key !== 'revision') || typeof body.revision !== 'string' || !/^[a-f0-9]{64}$/u.test(body.revision)) throw fileError('La version de cet exemple n’est pas valide.', 'DOCUMENT_INVALID'); json(res, 200, await documents.remove(documentRoute[1], {revision:body.revision})); return; }
         if (pathname === '/api/automations/preview' && req.method === 'POST') { json(res, 200, automations.preview(body)); return; }
         if (pathname === '/api/automations' && req.method === 'POST') { json(res, 201, automations.create(body)); return; }
         const automationRoute = pathname.match(/^\/api\/automations\/([^/]+)(?:\/(run|pause))?$/);
@@ -525,6 +528,19 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
             json(res, 202, mission); return;
           } finally { receipt.finish?.(); }
         }
+        const officeRoute = pathname.match(/^\/api\/missions\/([^/]+)\/document-preview$/);
+        if (officeRoute && req.method === 'POST') {
+          if (url.search || Object.keys(body).length !== 1 || typeof body.path !== 'string') throw fileError('Choisissez un livrable de cette mission.', 'DOCUMENT_INVALID');
+          const mission = engine.missions.get(officeRoute[1]);
+          if (!mission) { json(res, 404, {error:'Mission inconnue.'}); return; }
+          if (!mission.files?.some(file => file.path === body.path)) throw fileError('Choisissez un livrable de cette mission.', 'MISSION_FILE_FORBIDDEN');
+          const file = resolveNativeMissionFile(checkedMissionDirectory(engine.workDir(mission.id)), body.path);
+          const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
+          res.once('close', disconnected);
+          try { const result = await officePreview.preview(file, {signal:controller.signal}); if (!res.destroyed) json(res, 200, result); }
+          finally { res.off('close', disconnected); }
+          return;
+        }
         const exportRoute = pathname.match(/^\/api\/missions\/([^/]+)\/export$/);
         if (exportRoute) {
           const mission = engine.missions.get(exportRoute[1]);
@@ -619,13 +635,13 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
       if (!['GET', 'HEAD'].includes(req.method)) { json(res, 405, { error: 'Méthode non prise en charge.' }); return; }
       const staticName = pathname === '/' ? 'index.html' : pathname.replace(/^\//, '');
       if(pdfVendor.assets.has(staticName)){res.writeHead(200,{'Content-Type':MIME[path.extname(staticName)],'Content-Security-Policy':CSP,'Cache-Control':'public, max-age=31536000, immutable'});res.end(req.method==='HEAD'?undefined:pdfVendor.assets.get(staticName));return;}
-      if (!['index.html', 'style.css', 'immersive.css', 'app.js', 'pixel-world.js', 'pixel-scene.css', 'mission-catalog.js', 'mission-catalog.css', 'mission-extras.js', 'coffee-dialog.js', 'coffee-dialog.css', 'ambience.js', 'welcome-guide.js', 'welcome-guide.css', 'i18n.js', 'translations-catalog.js', 'translations-interface.js', 'translations-guide.js', 'publication-dialog.js', 'publication-dialog.css', 'office-speech.js', 'clock-dialog.js', 'clock-dialog.css', 'creative-studio.js', 'creative-studio.css', 'automations-dialog.js', 'automations-dialog.css', 'connectors-dialog.js', 'connectors-dialog.css', 'completion-dialog.js', 'completion-dialog.css', 'artifact-viewer.js', 'artifact-viewer.css', 'pdf-preview.js', 'secretary-dialog.js', 'secretary-dialog.css', 'voice-dialog.js', 'voice-preview-oscar-paul-v2-fr.wav', 'voice-preview-oscar-paul-v2-en.wav', 'voice-preview-oscar-paul-v2-nl.wav', 'voice-preview-zoe-vera-v2-fr.wav', 'voice-preview-zoe-vera-v2-en.wav', 'voice-preview-zoe-vera-v2-nl.wav', 'voice-preview-zoe-fr.wav', 'voice-preview-zoe-en.wav', 'voice-preview-zoe-nl.wav', 'voice-dialog.css', 'voice-preview-oscar-2-fr.wav', 'voice-preview-oscar-2-en.wav', 'voice-preview-oscar-2-nl.wav', 'personalization-dialog.js', 'personalization-dialog.css', 'character-lines.js', 'document-library.js', 'document-library.css', 'dictation-dialog.js', 'dictation-dialog.css', 'office-theme.js', 'office-theme-init.js', 'office-theme.css', 'translations-theme.js', 'mission-timing.js', 'mission-timing.css', 'translations-performance.js', 'translations-team.js', 'translations-voices.js', 'dictation-entry.js', 'calendar-event-dialog.js', 'calendar-event-dialog.css', 'translations-calendar.js', 'draft-storage.js','delivery-progress.js','translations-delivery-progress.js','delivery-preview.js','translations-delivery-preview.js','delivery-experience.css','delivery-library.js','delivery-library.css','delivery-navigation.js','translations-delivery-library.js','mission-recovery.js','translations-recovery.js','app-updates.js','app-updates.css','translations-updates.js'].includes(staticName)) { res.writeHead(404); res.end('Introuvable'); return; }
+      if (!['index.html', 'style.css', 'immersive.css', 'app.js', 'pixel-world.js', 'pixel-scene.css', 'mission-catalog.js', 'mission-catalog.css', 'mission-extras.js', 'coffee-dialog.js', 'coffee-dialog.css', 'ambience.js', 'welcome-guide.js', 'welcome-guide.css', 'i18n.js', 'translations-catalog.js', 'translations-interface.js', 'translations-guide.js', 'publication-dialog.js', 'publication-dialog.css', 'office-speech.js', 'clock-dialog.js', 'clock-dialog.css', 'creative-studio.js', 'creative-studio.css', 'automations-dialog.js', 'automations-dialog.css', 'connectors-dialog.js', 'connectors-dialog.css', 'completion-dialog.js', 'completion-dialog.css', 'artifact-viewer.js', 'artifact-viewer.css', 'office-viewer.js', 'office-viewer.css', 'translations-office.js', 'pdf-preview.js', 'secretary-dialog.js', 'secretary-dialog.css', 'voice-dialog.js', 'voice-preview-oscar-paul-v2-fr.wav', 'voice-preview-oscar-paul-v2-en.wav', 'voice-preview-oscar-paul-v2-nl.wav', 'voice-preview-zoe-vera-v2-fr.wav', 'voice-preview-zoe-vera-v2-en.wav', 'voice-preview-zoe-vera-v2-nl.wav', 'voice-preview-zoe-fr.wav', 'voice-preview-zoe-en.wav', 'voice-preview-zoe-nl.wav', 'voice-dialog.css', 'voice-preview-oscar-2-fr.wav', 'voice-preview-oscar-2-en.wav', 'voice-preview-oscar-2-nl.wav', 'personalization-dialog.js', 'personalization-dialog.css', 'character-lines.js', 'document-library.js', 'document-library.css', 'dictation-dialog.js', 'dictation-dialog.css', 'office-theme.js', 'office-theme-init.js', 'office-theme.css', 'translations-theme.js', 'mission-timing.js', 'mission-timing.css', 'translations-performance.js', 'translations-team.js', 'translations-voices.js', 'dictation-entry.js', 'calendar-event-dialog.js', 'calendar-event-dialog.css', 'translations-calendar.js', 'draft-storage.js','delivery-progress.js','translations-delivery-progress.js','delivery-preview.js','translations-delivery-preview.js','delivery-experience.css','delivery-library.js','delivery-library.css','delivery-navigation.js','translations-delivery-library.js','mission-recovery.js','translations-recovery.js','app-updates.js','app-updates.css','translations-updates.js'].includes(staticName)) { res.writeHead(404); res.end('Introuvable'); return; }
       const content = await readFile(path.join(ROOT, 'public', staticName));
       res.writeHead(200, { 'Content-Type': MIME[path.extname(staticName)], 'Content-Security-Policy': CSP, 'Cache-Control': 'no-cache' }); res.end(req.method === 'HEAD' ? undefined : content);
     } catch (error) {
       if (res.destroyed) return;
       if (!res.headersSent&&error.code?.startsWith('BROWSER_PREVIEW_')) {json(res,error.status||400,{error:error.message?.slice(0,2000),code:error.code,...(Array.isArray(error.entries)?{entries:error.entries}:{})});return;}
-      if (!res.headersSent) json(res, ['PUBLICATION_NOT_FOUND', 'AUTOMATION_NOT_FOUND', 'MISSION_FILE_NOT_FOUND', 'VOICE_AUDIO_NOT_FOUND', 'CALENDAR_NOT_FOUND'].includes(error.code) ? 404 : ['MISSION_FILE_FORBIDDEN', 'ARCHIVE_FORBIDDEN'].includes(error.code) ? 403 : ['UPDATE_BUSY', 'UPDATE_CHANGED', 'SERVER_CLOSING', 'MISSION_CAPACITY', 'PUBLICATION_BUSY', 'PUBLICATION_CHANGED', 'CONNECTOR_BUSY', 'AUTOMATION_BUSY', 'AUTOMATION_REQUEST_CHANGED', 'AUTOMATION_REQUEST_DELETED', 'VOICE_BUSY', 'DICTATION_BUSY', 'DOCUMENT_BUSY', 'SECRETARY_REQUEST_CHANGED', 'SECRETARY_RETRY', 'ARCHIVE_BUSY', 'ARCHIVE_CHANGED', 'MISSION_REQUEST_CHANGED', 'MISSION_REQUEST_RETRY', 'CALENDAR_BUSY', 'CALENDAR_CHANGED', 'CALENDAR_UNCERTAIN', 'MISSION_RECOVERY_LIMIT', 'MISSION_RECOVERY_UNAVAILABLE', 'MISSION_RECOVERY_PROVIDER', 'MISSION_RECHECK_LIMIT', 'MISSION_RECHECK_UNAVAILABLE'].includes(error.code) ? 409 : 400, { error: error.message?.slice(0, 2000) ?? 'La demande a échoué.', ...(/^(?:UPDATE|DICTATION|DOCUMENT|CALENDAR|MISSION_RECOVERY|MISSION_RECHECK)_[A-Z_]{1,50}$/u.test(error.code||'') ? {code:error.code} : {}) });
+      if (!res.headersSent) json(res, ['PUBLICATION_NOT_FOUND', 'AUTOMATION_NOT_FOUND', 'MISSION_FILE_NOT_FOUND', 'VOICE_AUDIO_NOT_FOUND', 'CALENDAR_NOT_FOUND'].includes(error.code) ? 404 : ['MISSION_FILE_FORBIDDEN', 'ARCHIVE_FORBIDDEN'].includes(error.code) ? 403 : ['UPDATE_BUSY', 'UPDATE_CHANGED', 'SERVER_CLOSING', 'MISSION_CAPACITY', 'PUBLICATION_BUSY', 'PUBLICATION_CHANGED', 'CONNECTOR_BUSY', 'AUTOMATION_BUSY', 'AUTOMATION_REQUEST_CHANGED', 'AUTOMATION_REQUEST_DELETED', 'VOICE_BUSY', 'DICTATION_BUSY', 'DOCUMENT_BUSY', 'DOCUMENT_CHANGED', 'SECRETARY_REQUEST_CHANGED', 'SECRETARY_RETRY', 'ARCHIVE_BUSY', 'ARCHIVE_CHANGED', 'MISSION_REQUEST_CHANGED', 'MISSION_REQUEST_RETRY', 'CALENDAR_BUSY', 'CALENDAR_CHANGED', 'CALENDAR_UNCERTAIN', 'MISSION_RECOVERY_LIMIT', 'MISSION_RECOVERY_UNAVAILABLE', 'MISSION_RECOVERY_PROVIDER', 'MISSION_RECHECK_LIMIT', 'MISSION_RECHECK_UNAVAILABLE'].includes(error.code) ? 409 : 400, { error: error.message?.slice(0, 2000) ?? 'La demande a échoué.', ...(/^(?:UPDATE|DICTATION|DOCUMENT|CALENDAR|MISSION_RECOVERY|MISSION_RECHECK)_[A-Z_]{1,50}$/u.test(error.code||'') ? {code:error.code} : {}) });
       else res.destroy();
     } finally { releaseUpdateOperation?.(); }
   });
@@ -643,6 +659,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
     await updatesClosed;
     for (const m of engine.missions.values()) if (engine.runs.has(m.id)) engine.stop(m.id);
     await personalization.close();
+    await officePreview.close();
     await documents.close?.();
     await documents.installation;
     await voice.close();
@@ -660,7 +677,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
     })();
     return closePromise;
   };
-  return { server, engine, publishing, connectors, automations, voice, personalization, documents, dictation, archives, calendar, browserPreviews, updates, maintenance, close };
+  return { server, engine, publishing, connectors, automations, voice, personalization, documents, officePreview, dictation, archives, calendar, browserPreviews, updates, maintenance, close };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

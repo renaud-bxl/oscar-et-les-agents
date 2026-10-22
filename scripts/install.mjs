@@ -7,6 +7,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { randomUUID } from 'node:crypto';
+import {resolveInstallationDataLocation,configureInstallationDataLocation} from '../lib/installation-paths.mjs';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LABELS = { codex: 'Codex pour ChatGPT', claude: 'Claude Code' };
@@ -21,6 +22,8 @@ export function parseArgs(argv = process.argv.slice(2)) {
       if (!engine || engine.startsWith('--')) throw new Error('Précisez codex, claude ou both après --engine.');
       options.engine = engine;
     } else if (arg.startsWith('--engine=')) options.engine = arg.slice('--engine='.length);
+    else if (arg === '--data-dir') {const directory=argv[++index];if(!directory||directory.startsWith('--'))throw new Error('Précisez un dossier absolu après --data-dir.');options.dataDir=directory;}
+    else if (arg.startsWith('--data-dir=')) options.dataDir=arg.slice('--data-dir='.length);
     else if (arg === '--skip-login') options.skipLogin = true;
     else if (arg === '--no-open') options.noOpen = true;
     else if (arg === '--dry-run') options.dryRun = true;
@@ -28,6 +31,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
     else throw new Error(`Option inconnue : ${arg}. Utilisez --help.`);
   }
   if (options.engine !== null && !['codex', 'claude', 'both'].includes(options.engine)) throw new Error('Le moteur doit être codex, claude ou both.');
+  if(options.dataDir!==undefined&&(!path.isAbsolute(options.dataDir)||!options.dataDir))throw new Error('Le dossier des données doit être un chemin absolu complet.');
   return options;
 }
 
@@ -133,8 +137,8 @@ async function prepareTools(root) {
   await mkdir(folder, { recursive: true, mode: 0o700 });
 }
 
-export function resolveInstallerDataDirectory({ env = process.env, home = homedir() } = {}) {
-  return path.resolve(env.OSCAR_DATA_DIR || env.ATELIER_DATA_DIR || path.join(home, 'Documents', 'Oscar et les agents'));
+export function resolveInstallerDataDirectory({ env = process.env, home = homedir(),root=PROJECT_ROOT,dataDir,platform=process.platform } = {}) {
+  return resolveInstallationDataLocation({root,env,home,dataDir,platform}).dataDir;
 }
 
 async function savePreferences(_root, preferences, { dataDir = resolveInstallerDataDirectory(), preservePreferredProvider = false } = {}) {
@@ -213,7 +217,9 @@ export async function runInstaller(options, dependencies = {}) {
   const nodeVersion = dependencies.nodeVersion || process.versions.node;
   const log = dependencies.log || console.log;
   const env = subscriptionEnvironment(dependencies.env || process.env, { root, nodePath });
-  const dataDir = resolveInstallerDataDirectory({ env, home });
+  const locationEnv={...env};
+  const dataDir = resolveInstallerDataDirectory({ env, home,root,dataDir:options.dataDir,platform });
+  env.OSCAR_DATA_DIR=dataDir;
   const context = { root, home, platform, env, dataDir };
   const runCapture = dependencies.capture || capture;
   const runInteractive = dependencies.interactive || interactive;
@@ -225,6 +231,7 @@ export async function runInstaller(options, dependencies = {}) {
   const providers = engine === 'both' ? ['codex', 'claude'] : [engine];
   let preferredProvider = providers[0];
   log('\nOscar et les agents — préparons votre équipe.');
+  log(`Logiciel : ${root}\nDonnées : ${dataDir}`);
   const binaries = {};
   const missing = [];
   for (const provider of providers) {
@@ -298,7 +305,9 @@ export async function runInstaller(options, dependencies = {}) {
     log(`Votre abonnement ${provider === 'codex' ? 'ChatGPT' : 'Claude'} est connecté.`);
   }
 
+  resolveInstallationDataLocation({root,env:locationEnv,home,dataDir:options.dataDir,platform});
   const savedPreferences = await (dependencies.savePreferences || savePreferences)(root, { preferredProvider, setupComplete: true }, { dataDir, preservePreferredProvider: engine === 'both' });
+  if(options.dataDir!==undefined)(dependencies.configureDataLocation||configureInstallationDataLocation)({root,dataDir,home,platform});
   if (['codex', 'claude'].includes(savedPreferences?.preferredProvider)) preferredProvider = savedPreferences.preferredProvider;
   try { await (dependencies.createShortcut || createShortcut)(context); }
   catch { log('Le raccourci n’a pas pu être créé. Le bureau reste disponible dans son dossier d’installation.'); }
@@ -313,7 +322,7 @@ export async function runInstaller(options, dependencies = {}) {
 export async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log('Oscar et les agents\n\n  node scripts/install.mjs [--engine codex|claude|both] [--skip-login] [--no-open] [--dry-run]\n\nChoisissez votre abonnement. La connexion se fait dans le navigateur officiel ; les sessions existantes sont conservées.');
+    console.log('Oscar et les agents\n\n  node scripts/install.mjs [--engine codex|claude|both] [--data-dir /chemin/absolu] [--skip-login] [--no-open] [--dry-run]\n\nLe dossier de données peut être choisi sur un SSD monté. Il est mémorisé ; aucune donnée existante n’est déplacée. Choisissez votre abonnement. La connexion se fait dans le navigateur officiel ; les sessions existantes sont conservées.');
     return;
   }
   await runInstaller(options);

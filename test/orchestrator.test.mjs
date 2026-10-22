@@ -230,7 +230,7 @@ test('quatre missions indépendantes travaillent ensemble ; annuler l’une pré
   assert.equal(app.state().maxConcurrentMissions, 4);
   assert.equal(app.state().activeMissions.length, 4);
   assert.equal(app.state().active.id, missions[3].id);
-  assert.equal(app.state().dataLocation, 'Documents/Oscar et les agents');
+  assert.equal(app.state().dataLocation, app.dataDir);
   assert.throws(() => app.start({ prompt: 'Un cinquième projet' }), error => error.code === 'MISSION_CAPACITY');
   assert.equal(app.state().missions.length, 4);
 
