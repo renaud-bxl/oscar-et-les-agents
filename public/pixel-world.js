@@ -904,9 +904,13 @@ export class PixelWorld {
     this._line(c,0,offsetY+212*scale,width,offsetY+212*scale,palette.trim,6*scale);
     this._line(c,0,offsetY+218*scale,width,offsetY+218*scale,palette.trimLight,4*scale);
     const maxRow=Math.ceil(((height-offsetY)/scale-224)/38),firstCol=Math.floor((-offsetX/scale-42)/220)-1,lastCol=Math.ceil(((width-offsetX)/scale-42)/220)+1;
-    for(let row=0;row<=maxRow;row++) {
+    // The decorative grid must not grow with inverse room scale when the
+    // navigation leaves almost no vertical space (zoom or a very short view).
+    const rowStep=Math.max(1,Math.ceil(12/(38*scale)),Math.ceil((maxRow+1)/64));
+    const colStep=Math.max(1,Math.ceil(24/(220*scale)),Math.ceil((lastCol-firstCol+1)/96));
+    for(let row=0;row<=maxRow;row+=rowStep) {
       const y=offsetY+(224+row*38)*scale;this._line(c,0,y,width,y,palette.seam,Math.max(.4,scale));
-      for(let j=firstCol;j<=lastCol;j++){const x=offsetX+(42+j*220+(row%2)*110)*scale;this._line(c,x,y,x,y+38*scale,palette.joint,Math.max(.4,scale));}
+      for(let j=firstCol;j<=lastCol;j+=colStep){const x=offsetX+(42+j*220+(row%2)*110)*scale;this._line(c,x,y,x,y+38*rowStep*scale,palette.joint,Math.max(.4,scale));}
     }
   }
   _makeBackground() {

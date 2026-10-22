@@ -43,3 +43,12 @@ test('resizing measures real navigation bounds and keeps clicks aligned with the
   headerBottom=160;dockTop=850;world._resizeViewport();
   assert.equal(world.viewport.insets.top,142);assert.equal(world.viewport.insets.bottom,192);assert.equal(draws,2);
 });
+
+test('very short windows keep the decorative grid bounded instead of freezing the office',()=>{
+  const world=Object.create(PixelWorld.prototype),ctx={createLinearGradient:()=>({addColorStop(){}}),fillRect(){}};
+  for(const frame of [{width:390,height:360,top:206,bottom:228},{width:844,height:280,top:108,bottom:172},{width:3840,height:2160,top:108,bottom:112}]) {
+    let lines=0;world._theme='dark';world.viewport=fitOfficeViewport(frame);
+    world._line=()=>{lines++;if(lines>6500)throw Error('Decorative grid exceeded the frame budget');};
+    world._drawViewportBackdrop(ctx);assert.ok(lines>2&&lines<=6500,JSON.stringify({frame,lines}));
+  }
+});
