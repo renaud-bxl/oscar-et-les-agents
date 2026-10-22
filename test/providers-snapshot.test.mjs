@@ -21,9 +21,10 @@ else if(args.includes('--help')){
  else if(spec.featuresFailure){console.error('PRIVATE-CONFIG secret-example');process.exitCode=1;}
  else if(spec.featuresMalformed)console.log('not a feature inventory');
  else{
-  const features=spec.features||{apps:true,plugins:true,shell_tool:true,unified_exec:true,browser_use:true,computer_use:true,image_generation:true,multi_agent:true,goals:true,hooks:true,shell_snapshot:true,workspace_dependencies:true,memories:true,future_assistant_tools:true,'guardianv2.thread_context':false,item_ids:true,resize_all_images:true,tool_search_always_defer_mcp_tools:true,tui_app_server:true,personality:true,network_proxy:true,enable_request_compression:true};
+  const features=spec.features||{apps:true,plugins:true,shell_tool:true,unified_exec:true,browser_use:true,computer_use:true,image_generation:true,view_image:true,code_mode_host:true,multi_agent:true,goals:true,hooks:true,shell_snapshot:true,workspace_dependencies:true,memories:true,future_assistant_tools:true,'guardianv2.thread_context':false,transcript_v2:false,web_search_cached:false,web_search_request:false,item_ids:true,resize_all_images:true,tool_search_always_defer_mcp_tools:true,tui_app_server:true,personality:true,network_proxy:true,enable_request_compression:true};
   const removed=new Set(['guardianv2.thread_context','item_ids','resize_all_images','tool_search_always_defer_mcp_tools','tui_app_server']);
-  for(const[name,enabled]of Object.entries(features))console.log(name+' '+(spec.featureStages?.[name]||(removed.has(name)?'removed':'stable'))+' '+(disabled.has(name)&&spec.featuresIgnoreDisable!==name&&!removed.has(name)?false:enabled));
+  const deprecated=new Set(['transcript_v2','web_search_cached','web_search_request']);
+  for(const[name,enabled]of Object.entries(features))console.log(name+' '+(spec.featureStages?.[name]||(removed.has(name)?'removed':deprecated.has(name)?'deprecated':'stable'))+' '+(disabled.has(name)&&spec.featuresIgnoreDisable!==name&&!removed.has(name)?false:enabled));
  }
 }else if(args.includes('mcp')){
  if(args.includes('--strict-config')){console.error('Error: strict-config is not supported for mcp');process.exitCode=1;}
@@ -45,7 +46,7 @@ else if(args.includes('--help')){
    emit({type:'thread.started',thread_id:'snapshot-test'});emit({type:'turn.started'});
    if(spec.tool)emit({type:'item.started',item:{type:spec.tool,command:'PRIVATE-TOOL-ARGUMENT'}});
    if(spec.errorItem)emit({type:'item.completed',item:{id:'passive-diagnostic',type:'error',message:spec.errorItem}});
-   emit({type:'item.completed',item:{type:'agent_message',text:'Réponse sur l’instantané'}});emit({type:'turn.completed',usage:{input_tokens:2,output_tokens:3}});
+   emit({type:'item.completed',item:{type:'agent_message',text:'Réponse sur l’instantané'}});if(!spec.missingTerminal)emit({type:'turn.completed',usage:{input_tokens:2,output_tokens:3}});if(spec.exitNonzero)process.exitCode=1;
   }else{
    if(!spec.noInit){
     const available=args.includes('--tools')?args[args.indexOf('--tools')+1].split(',').filter(Boolean):['Bash','Read'];
@@ -87,8 +88,8 @@ test('Codex snapshot : vérifie la fermeture effective des outils avant l’appe
  const [call]=await calls(),args=call.args;
  assert.equal((await calls()).length,1);assert.equal(call.cwd,await realpath(cwd));assert.equal(call.home,process.env.HOME);assert.equal(call.codexHome,process.env.CODEX_HOME);assert.equal(call.apiKeysPresent,false);
  assert.equal(flag(args,'--sandbox'),'read-only');assert.equal(flag(args,'-a'),'never');assert.ok(args.includes('--ephemeral'));assert.ok(args.includes('--strict-config'));
- assert.equal(args.includes('--search'),false);assert.ok(args.includes('web_search="disabled"'));assert.ok(args.includes('tools.web_search=false'));assert.ok(args.includes('tools.view_image=false'));assert.ok(args.includes('apps._default.enabled=false'));assert.ok(args.includes('project_doc_max_bytes=0'));assert.ok(args.includes('notify=[]'));
- for(const feature of['apps','plugins','shell_tool','unified_exec','browser_use','computer_use','image_generation','multi_agent','goals','hooks','shell_snapshot','workspace_dependencies','memories','future_assistant_tools'])assert.ok(disabledFeatures(args).includes(feature),feature);
+ assert.equal(args.includes('--search'),false);assert.ok(args.includes('web_search="disabled"'));assert.ok(args.includes('tools.web_search=false'));assert.equal(args.includes('tools.view_image=false'),false);assert.ok(args.includes('apps._default.enabled=false'));assert.ok(args.includes('project_doc_max_bytes=0'));assert.ok(args.includes('notify=[]'));
+ for(const feature of['apps','plugins','shell_tool','unified_exec','browser_use','computer_use','image_generation','view_image','code_mode_host','multi_agent','goals','hooks','shell_snapshot','workspace_dependencies','memories','future_assistant_tools'])assert.ok(disabledFeatures(args).includes(feature),feature);
  for(const feature of['personality','network_proxy','enable_request_compression'])assert.equal(disabledFeatures(args).includes(feature),false,feature);
  assert.equal(args.some(arg=>arg==='--model'||/^model=/u.test(arg)),false);assert.ok(args.includes('model_reasoning_effort="high"'));assert.equal(args.includes('model_reasoning_effort="medium"'),false);
  assert.ok(args.includes(`mcp_servers={${['office.read','name "quoted"','two words'].map(name=>`${JSON.stringify(name)}={enabled=false}`).join(',')}}`));
@@ -101,7 +102,12 @@ test('Codex snapshot : vérifie la fermeture effective des outils avant l’appe
 
 test('Codex snapshot : unified_exec figé reste accepté seulement si shell_tool est confirmé fermé',async()=>fixture(async({cwd,spec,calls})=>{
  await spec({featuresIgnoreDisable:'unified_exec'});await ask('codex',cwd);
- const [call]=await calls();assert.ok(disabledFeatures(call.args).includes('unified_exec'));assert.ok(disabledFeatures(call.args).includes('shell_tool'));assert.ok(disabledFeatures(call.args).includes('guardianv2.thread_context'));
+ const [call]=await calls();assert.ok(disabledFeatures(call.args).includes('unified_exec'));assert.ok(disabledFeatures(call.args).includes('shell_tool'));
+ for(const alias of['guardianv2.thread_context','transcript_v2','web_search_cached','web_search_request'])assert.equal(disabledFeatures(call.args).includes(alias),false);
+}));
+
+test('Codex snapshot : la fermeture des images utilise le champ ancien seulement sans feature view_image',async()=>fixture(async({cwd,spec,calls})=>{
+ await spec({features:{apps:true,plugins:true,shell_tool:true,unified_exec:true}});await ask('codex',cwd);const[call]=await calls();assert.ok(call.args.includes('tools.view_image=false'));assert.ok(call.args.includes('--strict-config'));
 }));
 
 test('Codex snapshot : un inventaire MCP vide est confirmé sans modifier les réglages globaux',async()=>fixture(async({cwd,spec,calls,probes})=>{
@@ -152,6 +158,17 @@ test('snapshot : toute activité outil signalée arrête la réponse sans permis
 test('Codex snapshot : les diagnostics error restent des échecs classifiés, jamais des activités outil ni des succès',async()=>{
  for(const[message,code]of[['usage limit quota PRIVATE-DIAGNOSTIC','PROVIDER_USAGE_LIMIT'],['OAuth token expired PRIVATE-DIAGNOSTIC','PROVIDER_AUTH_REQUIRED'],['unknown option --new PRIVATE-DIAGNOSTIC','PROVIDER_UNSUPPORTED'],['upstream issue PRIVATE-DIAGNOSTIC','PROVIDER_UNAVAILABLE']])await fixture(async({cwd,spec,calls})=>{
   await spec({errorItem:message});await assert.rejects(ask('codex',cwd),error=>error.code===code&&!/PRIVATE|upstream|--new/u.test(error.message));assert.equal((await calls()).length,1);
+ });
+});
+
+test('Codex snapshot : seul l’avertissement fixe du code mode fermé accompagne une fin réelle réussie',async()=>{
+ const warning='Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.';
+ await fixture(async({cwd,spec})=>{await spec({errorItem:warning});assert.equal((await ask('codex',cwd)).text,'Réponse sur l’instantané');});
+ for(const settings of[{errorItem:warning+' PRIVATE-DIAGNOSTIC'},{errorItem:warning,features:{apps:true,plugins:true,shell_tool:true,unified_exec:true}},{errorItem:'Code Mode is unavailable PRIVATE-DIAGNOSTIC'}])await fixture(async({cwd,spec})=>{
+  await spec(settings);await assert.rejects(ask('codex',cwd),error=>error.code==='PROVIDER_UNAVAILABLE'&&!/PRIVATE/u.test(error.message));
+ });
+ for(const[settings,code]of[[{errorItem:warning,missingTerminal:true},'PROVIDER_NO_RESULT'],[{errorItem:warning,exitNonzero:true},'PROVIDER_UNAVAILABLE'],[{errorItem:warning,tool:'command_execution'},'PROVIDER_TOOL_UNAVAILABLE']])await fixture(async({cwd,spec})=>{
+  await spec(settings);await assert.rejects(ask('codex',cwd),{code});
  });
 });
 
