@@ -1,6 +1,6 @@
 # Oscar et les Agents
 
-Version 0.6.19 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
+Version 0.6.20 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
 
 ## Installer et lancer pour une personne
 
@@ -160,3 +160,9 @@ La dictée partagée s’ouvre uniquement sur clic ; l’insertion nécessite re
 - Un banc de rendu nommé et limité dans tests/ avec un vrai module JS/CSS reste un composant ; ses chemins de ressources futures peuvent être absents si le composant fournit son propre repli. Un index.html, un jeu autonome ou une tâche d’intégration conserve le contrôle strict de toutes ses ressources. Les fichiers présents restent vérifiés et transmis avec leurs empreintes.
 - La relecture technique package-policy-v2 ne s’ouvre qu’après preuve exacte du faux refus matériel de l’ancienne politique. Elle réserve un reçu durable unique et une sauvegarde distincte, sans remettre à zéro les budgets. Les contrôles des collègues bloqués restent réels ; un refus persistant reste refusé.
 - À l’ouverture d’une mission historique arrêtée ou terminée, ne rejoue ni recrutement ni remise des contributions approuvées. Les collègues non validés attendent sans simuler de frappe ; une reprise réelle les rappelle.
+
+
+## Correction externe prouvée (0.6.20)
+
+- Après le contrôle technique package-policy-v2, une correction externe réelle d’un composant encore refusé peut recevoir une seule relecture explicite. Compare les livrables courants au manifeste et aux fichiers préservés de cette sauvegarde ; exige des fichiers sains, au moins un changement, des approuvés intacts et seulement des dépendants bloqués. Sans cette preuve, aucun nouveau contrôle n’est ouvert.
+- Réserve external-correction-1 et son reçu durable avant l’appel. Aucun budget n’est modifié ; aucun spécialiste ne régénère de fichier durant cette vague. Un refus réel interrompt la chaîne. L’assemblage et la vérification finale exigent toutes les contributions approuvées.

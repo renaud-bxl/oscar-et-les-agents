@@ -1,5 +1,11 @@
 # Historique des versions
 
+## 0.6.20 — 22 octobre 2026
+
+- Permet une unique relecture volontaire après une correction externe prouvée des fichiers d’un composant précédemment bloqué par le contrôle technique. Les empreintes sont comparées à la sauvegarde préservée avant de proposer cette action.
+- Cette relecture conserve les budgets, interdit toute nouvelle création des spécialistes et s’arrête à un refus réel. L’assemblage attend les contrôles effectifs de toutes les contributions.
+- Le reçu durable reste reconnu après une réponse réseau perdue, sans seconde soumission.
+
 ## 0.6.19 — 22 octobre 2026
 
 - Corrige un faux refus de contribution : un banc de test de rendu avec formes de repli n’est plus confondu avec le jeu complet. Les applications intégrées conservent le contrôle de leurs ressources obligatoires.
