@@ -32,6 +32,14 @@ test('un abonnement déjà connecté est conservé sans ouvrir de navigateur ni 
  assert.equal(installations,0);assert.equal(spawned,0);await login.close();
 });
 
+test('la connexion Codex surcharge uniquement son invocation pour rester compatible avec ultra',async()=>{
+ const child=fake(),calls=[];let connected=false;
+ const login=new BrowserLogin({find:async()=>'/fake/codex',detect:async()=>[{id:'codex',available:true,auth:{loggedIn:connected,method:'chatgpt'}}],spawnImpl:(...args)=>{calls.push(args);return child;}});
+ await login.start('codex');await until(()=>calls.length===1);
+ assert.deepEqual(calls[0][1],['-c','model_reasoning_effort="medium"','login']);
+ connected=true;child.emit('close',0);await until(()=>login.logins.codex.status==='connected');await login.close();
+});
+
 test('la préparation installe localement une seule fois puis connecte sans exposer les sorties npm ni OAuth',async()=>{
  let installed=false,authenticated=false;const installations=[],calls=[],changes=[],children=[];
  const login=new BrowserLogin({

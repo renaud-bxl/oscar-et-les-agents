@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { randomUUID } from 'node:crypto';
 import {resolveInstallationDataLocation,configureInstallationDataLocation} from '../lib/installation-paths.mjs';
+import {codexArguments} from '../lib/codex-compat.mjs';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LABELS = { codex: 'Codex pour ChatGPT', claude: 'Claude Code' };
@@ -291,13 +292,17 @@ export async function runInstaller(options, dependencies = {}) {
       log(`Connexion à ${LABELS[provider]} reportée à votre demande.`);
       continue;
     }
-    const statusArgs = provider === 'codex' ? ['login', 'status'] : ['auth', 'status'];
-    if (hasSubscription(provider, await runCapture(binaries[provider], statusArgs, childOptions))) {
+    const statusArgs = provider === 'codex' ? codexArguments(['login', 'status']) : ['auth', 'status'];
+    const currentStatus = await runCapture(binaries[provider], statusArgs, childOptions);
+    if (provider === 'codex' && /error loading configuration|failed to load (?:the )?config(?:uration)?/iu.test(`${currentStatus.stderr || ''}\n${currentStatus.stdout || ''}`)) {
+      throw new Error('Codex ne peut pas charger sa configuration partagée avec cette version du client. Vérifiez sa compatibilité ou mettez-le à jour. Votre configuration et votre connexion ont été conservées ; aucune nouvelle connexion n’a été lancée.');
+    }
+    if (hasSubscription(provider, currentStatus)) {
       log(`${LABELS[provider]} est déjà connecté à votre abonnement ; la connexion est conservée.`);
       continue;
     }
     log(`Connectez votre abonnement ${provider === 'codex' ? 'ChatGPT' : 'Claude'} dans la fenêtre officielle de votre navigateur.`);
-    const login = await runInteractive(binaries[provider], provider === 'codex' ? ['login'] : ['auth', 'login'], childOptions);
+    const login = await runInteractive(binaries[provider], provider === 'codex' ? codexArguments(['login']) : ['auth', 'login'], childOptions);
     if (login.code !== 0) throw new Error(`La connexion à ${LABELS[provider]} n’a pas abouti. Vous pouvez relancer la préparation pour la terminer.`);
     if (!hasSubscription(provider, await runCapture(binaries[provider], statusArgs, childOptions))) {
       throw new Error(`La connexion à l’abonnement ${provider === 'codex' ? 'ChatGPT' : 'Claude'} n’a pas été confirmée. Relancez la préparation et choisissez votre abonnement dans le navigateur.`);

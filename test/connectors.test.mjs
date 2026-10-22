@@ -19,7 +19,12 @@ async function fixture(t, options = {}) {
   const controls = { loginHelp: true, loginCode: 0, listCode: 0, ...options.controls };
   const find = async client => options.missing === client ? null : `/fake/${client}`;
   const run = async (binary, args, settings) => {
-    const client = path.basename(binary); calls.push({ client, args: [...args], settings });
+    const client = path.basename(binary), rawArgs = [...args];
+    if (client === 'codex') {
+      assert.deepEqual(args.slice(0, 2), ['-c', 'model_reasoning_effort="medium"'], 'Codex must parse the inherited configuration with a compatible per-process effort');
+      args = args.slice(2);
+    }
+    calls.push({ client, args: [...args], rawArgs, settings });
     const withoutPlugins=args[0]==='--disable'&&args[1]==='plugins';if(withoutPlugins)args=args.slice(2);
     if (args[1] === 'list') return { code: controls.listCode, stdout: client === 'codex' ? JSON.stringify(rows.codex.filter(row=>!withoutPlugins||!row.plugin)) : rows.claude.map(row => `${row.name}: https://example.test/secret?token=NEVER_DISPLAY - ${row.status === 'connected' ? '✓ Connected' : '⚠ Needs authentication'}`).join('\n') };
     if (args.includes('--help')) return { code: controls.loginHelp ? 0 : 1, stdout: controls.loginHelp ? 'Usage: mcp login <name>' : '' };
@@ -141,6 +146,7 @@ test('setup reserves a name and uses official Codex add without replacing accoun
   assert.equal(job.status, 'configuring'); await f.settle();
   const add = f.calls.find(call => call.args[1] === 'add');
   assert.deepEqual(add.args, ['mcp', 'add', 'oscar-video', '--url', 'https://mcp.higgsfield.ai/mcp']);
+  assert.deepEqual(add.rawArgs, ['-c', 'model_reasoning_effort="medium"', ...add.args]);
   const saved = JSON.parse(await readFile(path.join(f.dataDir, 'connectors.json'), 'utf8'));
   assert.deepEqual(Object.keys(saved.connections[0]).sort(), ['client', 'connectorId', 'name', 'url']);
   assert.deepEqual(f.manager.disabledNames(), ['oscar-video']);
@@ -151,6 +157,25 @@ test('Claude setup explicitly uses user scope and never weakens its agent restri
   const f = await fixture(t);
   await f.manager.setup({ client: 'claude', connectorId: 'custom', name: 'notes', url: 'https://notes.example.test/mcp' }); await f.settle();
   assert.deepEqual(f.calls.find(call => call.args[1] === 'add').args, ['mcp', 'add', '--transport', 'http', '--scope', 'user', 'oscar-notes', 'https://notes.example.test/mcp']);
+  assert.ok(f.calls.filter(call => call.client === 'claude').every(call => JSON.stringify(call.rawArgs) === JSON.stringify(call.args)));
+});
+
+test('Codex MCP discovery, metadata and browser authorization share only the compatible process override', async t => {
+  const f = await fixture(t);
+  const before = { HOME: f.manager.env.HOME, CODEX_HOME: f.manager.env.CODEX_HOME };
+  await f.manager.setup({ client: 'codex', connectorId: 'higgsfield' }); await f.settle();
+  await f.manager.auth({ client: 'codex', name: 'oscar-higgsfield' }); await f.settle();
+  f.configs.set('oscar-higgsfield', { name: 'oscar-higgsfield', transport: { type: 'streamable_http', url: GMAIL_MCP_URL } });
+  await f.manager.readPlan({ client: 'codex', name: 'oscar-higgsfield' });
+  const calls = f.calls.filter(call => call.client === 'codex');
+  for (const action of ['list', 'get', 'add', 'login']) assert.ok(calls.some(call => call.args[1] === action), action);
+  for (const call of calls) {
+    assert.deepEqual(call.rawArgs, ['-c', 'model_reasoning_effort="medium"', ...call.args]);
+    assert.equal(call.settings.cwd, f.dataDir);
+    assert.equal(call.settings.env.HOME, before.HOME);
+    assert.equal(call.settings.env.CODEX_HOME, before.CODEX_HOME);
+    assert.ok(!call.rawArgs.includes('--dangerously-bypass-approvals-and-sandbox'));
+  }
 });
 
 test('a duplicate name is refused before any client configuration is changed', async t => {
@@ -403,12 +428,13 @@ test('a failed Claude metadata refresh keeps names but revokes the exact in-memo
  f.manager.claudeInspector=async()=>{throw new Error('SECRET-CONFIG-DIAGNOSTIC');};const state=await f.manager.state({refresh:true}),gmail=state.connections.find(row=>row.name==='claudeai-gmail');assert.equal(gmail.status,'unverified');assert.equal(gmail.readOnlyAutomation.available,false);assert.ok(!JSON.stringify(state).includes('SECRET'));await assert.rejects(f.manager.readPlan({client:'claude',name:'claudeai-gmail'}),cause=>cause.code==='CONNECTOR_AUTH');
 });
 test('inherited discovery uses metadata-only RPC, refuses incoming actions and stops its dedicated process',async()=>{
- const snapshot=appMetadata(),requests=[],kills=[];let child;
- const spawnImpl=()=>{
+ const snapshot=appMetadata(),requests=[],kills=[],env={HOME:'/unchanged/home',CODEX_HOME:'/unchanged/codex'};let child;
+ const spawnImpl=(binary,args,options)=>{
+  assert.equal(binary,'/fake/codex');assert.deepEqual(args,['-c','model_reasoning_effort="medium"','--enable','apps','app-server','--stdio']);assert.equal(options.env,env);assert.equal(options.cwd,'/local/data');
   child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=kind=>{kills.push(kind);queueMicrotask(()=>child.emit('close',0));};
   child.stdin=new Writable({write(chunk,encoding,callback){const value=JSON.parse(chunk.toString());requests.push(value);if(value.method&&value.id!==undefined){const result=value.method==='initialize'?{}:value.method==='app/installed'?snapshot.installed:value.method==='app/list'?snapshot.list:value.method==='mcpServerStatus/list'?runtimeStatus(snapshot):snapshot.details;queueMicrotask(()=>child.stdout.write(JSON.stringify({id:value.id,result})+'\n'));if(value.method==='initialize')queueMicrotask(()=>child.stdout.write(JSON.stringify({id:'incoming-action',method:'item/tool/call',params:{secret:'NEVER_DISPLAY'}})+'\n'));}callback();}});return child;
  };
- const rows=await inspectCodexApps({binary:'/fake/codex',spawnImpl,timeoutMs:1000});assert.equal(rows.find(row=>row.name==='chatgpt-gmail').readOnlyAutomation.available,true);
+ const rows=await inspectCodexApps({binary:'/fake/codex',cwd:'/local/data',env,spawnImpl,timeoutMs:1000});assert.equal(rows.find(row=>row.name==='chatgpt-gmail').readOnlyAutomation.available,true);
  assert.deepEqual(requests.filter(row=>row.method).map(row=>row.method),['initialize','initialized','app/installed','app/read','mcpServerStatus/list']);assert.equal(requests.find(row=>row.id==='incoming-action').error.code,-32601);assert.ok(kills.includes('SIGTERM'));
  assert.deepEqual(requests.find(row=>row.method==='app/read').params,{appIds:snapshot.installed.apps.map(app=>app.id),includeTools:true});
 });

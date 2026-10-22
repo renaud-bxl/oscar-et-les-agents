@@ -84,7 +84,7 @@ test('the shell bootstrap forwards a quoted data path without executing it or to
 
 test('a complete shell reinstall keeps its chosen disk without requiring an environment override',async t=>{
   const f=await fixture(t),source=path.join(f.base,'source');await mkdir(path.join(source,'scripts'),{recursive:true});await mkdir(path.join(source,'lib'));
-  for(const file of['install.sh','package.json','scripts/install.mjs','lib/installation-paths.mjs'])await writeFile(path.join(source,file),await readFile(path.join(sourceRoot,file)));await writeFile(path.join(source,'server.mjs'),'// No server or model is started.');
+  for(const file of['install.sh','package.json','scripts/install.mjs','lib/installation-paths.mjs','lib/codex-compat.mjs'])await writeFile(path.join(source,file),await readFile(path.join(sourceRoot,file)));await writeFile(path.join(source,'server.mjs'),'// No server or model is started.');
   const tools=path.join(f.root,'.tools','node_modules','.bin');await mkdir(tools,{recursive:true});await writeFile(path.join(tools,'codex'),'#!/bin/sh\ncase "$1" in --version) echo "codex-cli 0.130.0";; exec) echo "--json --sandbox --color --skip-git-repo-check --output-schema";; *) exit 99;; esac\n',{mode:0o755});
   const listener=net.createServer();await new Promise(resolve=>listener.listen(0,'127.0.0.1',resolve));const port=listener.address().port;await new Promise(resolve=>listener.close(resolve));
   const env={...process.env,PORT:String(port),PATH:path.dirname(process.execPath)+':'+process.env.PATH};delete env.OSCAR_DATA_DIR;delete env.ATELIER_DATA_DIR;

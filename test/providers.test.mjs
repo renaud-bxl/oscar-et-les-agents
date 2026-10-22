@@ -208,13 +208,14 @@ test('Codex : prompt stdin, configuration par défaut, sandbox, nettoyage du sch
     assert.equal(invocation.input, 'Une mission avec $() et `texte` littéraux.');
     assert.equal(invocation.cwd, await realpath(cwd));
     assert.equal(invocation.apiKeysPresent, false);
-    assert.deepEqual(invocation.args.slice(0, 6), ['-a','never','--search','--disable','apps','exec']);
+    assert.deepEqual(invocation.args.slice(0, 8), ['-c','model_reasoning_effort="medium"','-a','never','--search','--disable','apps','exec']);
     assert.equal(invocation.args.at(-1), '-');
     assert.equal(invocation.args[invocation.args.indexOf('--sandbox') + 1], 'workspace-write');
     assert.deepEqual(invocation.schema, schema);
     assert.equal((await readdir(cwd)).some(file => file.startsWith('.oscar-schema-')), false);
     assert.doesNotMatch(invocation.args.join(' '), /--model|--ignore|bypass|danger-full/);
-    assert.ok(!invocation.args.some(arg=>arg.startsWith('model_reasoning_effort=')));
+    assert.equal(invocation.args.filter(arg=>arg.startsWith('model_reasoning_effort=')).length,1);
+    assert.ok(invocation.args.includes('model_reasoning_effort="medium"'));
     assert.ok(activities.includes('Recherche sur le Web'));
     assert.doesNotMatch(activities.join(' '), /private|thought|query/);
   });
@@ -233,8 +234,9 @@ test('Codex reasoning effort is a bounded per-call override and keeps model, pro
       assert.equal(invocation.args[invocation.args.indexOf('-a')+1],'never');
       assert.doesNotMatch(invocation.args.join(' '),/--model|bypass|danger-full|ignore-user-config/u);
     }
-    await runAgent({provider:'codex',cwd,prompt:'Une autre mission garde le réglage global.'});
-    assert.ok(!(await capture()).args.some(arg=>arg.startsWith('model_reasoning_effort=')));
+    await runAgent({provider:'codex',cwd,prompt:'Une autre mission utilise la valeur compatible sans changer le réglage global.'});
+    assert.equal((await capture()).args.filter(arg=>arg.startsWith('model_reasoning_effort=')).length,1);
+    assert.ok((await capture()).args.includes('model_reasoning_effort="medium"'));
   });
 });
 
@@ -253,14 +255,14 @@ test('Codex : utilise la configuration officielle live si le drapeau search est 
     process.env.FAKE_NO_SEARCH = '1';
     await runAgent({provider:'codex',cwd,prompt:'Rechercher une source actuelle'});
     const invocation = await capture();
-    assert.deepEqual(invocation.args.slice(0, 7), ['-a','never','-c','web_search="live"','--disable','apps','exec']);
+    assert.deepEqual(invocation.args.slice(0, 9), ['-c','model_reasoning_effort="medium"','-a','never','-c','web_search="live"','--disable','apps','exec']);
   });
 });
 test('Codex inherited execution exposes only the selected read tools and keeps sandbox and approvals',async()=>{
  await fixture(async({cwd,capture})=>{
   process.env.FAKE_MODE='connector-success';
   const app=INHERITED_APPS.gmail,manager=new Connectors({dataDir:cwd,find:async()=>'/fake/codex',run:async()=>({code:0,stdout:'[]'}),appInspector:async()=>parseInheritedApps({installed:{apps:[{id:app.id,enabled:true,callable:true},{id:'other-plugin',enabled:true,callable:true}]},list:{data:[{id:app.id,isEnabled:true,isAccessible:true}]},details:{apps:[{id:app.id,distributionChannel:'DEFAULT_OAI_CATALOG',toolSummaries:[...app.tools.map(name=>({name,isEnabled:true,isReadOnly:true})),{name:'send_email',isEnabled:true,isReadOnly:false}]}]}})});
-  try{const connectorPlan=await manager.readPlan({name:app.name});await runAgent({provider:'codex',cwd,prompt:'Préparer un bilan local',connectorPlan,readOnly:true});const {args}=await capture();assert.equal(args[args.indexOf('-a')+1],'never');assert.equal(args[args.indexOf('--sandbox')+1],'read-only');assert.ok(args.includes('apps._default.enabled=false'));assert.ok(args.includes('apps.other-plugin.enabled=false'));assert.ok(args.find(arg=>arg.startsWith(`apps.${app.id}.tools=`)).includes('"send_email"={enabled=false}'));assert.deepEqual(args.slice(2,6),['--disable','plugins','--enable','apps']);assert.ok(!args.includes('--search'));}
+  try{const connectorPlan=await manager.readPlan({name:app.name});await runAgent({provider:'codex',cwd,prompt:'Préparer un bilan local',connectorPlan,readOnly:true});const {args}=await capture();assert.equal(args[args.indexOf('-a')+1],'never');assert.equal(args[args.indexOf('--sandbox')+1],'read-only');assert.ok(args.includes('apps._default.enabled=false'));assert.ok(args.includes('apps.other-plugin.enabled=false'));assert.ok(args.find(arg=>arg.startsWith(`apps.${app.id}.tools=`)).includes('"send_email"={enabled=false}'));assert.deepEqual(args.slice(4,8),['--disable','plugins','--enable','apps']);assert.ok(!args.includes('--search'));}
   finally{await manager.close();}
  });
 });

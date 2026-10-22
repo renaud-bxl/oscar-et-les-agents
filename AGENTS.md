@@ -1,6 +1,6 @@
 # Oscar et les Agents
 
-Version 0.6.14 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
+Version 0.6.15 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
 
 ## Installer et lancer pour une personne
 
@@ -134,7 +134,7 @@ La dictée partagée s’ouvre uniquement sur clic ; l’insertion nécessite re
 ## Reprise et aperçu vérifiable (0.6.12)
 
 - Le contrôleur peut sauvegarder les fichiers et l’état hors de travail/, relire les livrables déjà présents et effectuer une unique vague de réparation ciblée par mission. Le compteur est durable. Une tâche récupérée n’est approuvée qu’après contrôle réel et empreintes ; un échec persistant reste explicite avec fichiers conservés. La reprise manuelle garde le même identifiant, dossier et plan, et doit être confirmée par l’action de l’utilisateur. Une réponse HTTP perdue se résout par GET, sans nouvelle soumission aveugle.
-- Pour les petites créations et jeux locaux reconnus, les appels Codex utilisent un effort medium uniquement pour l’invocation. Le modèle, les réglages personnels, les permissions et les connexions restent identiques. Les autres missions conservent leur effort hérité. Les rapports et recherches sont proportionnés au brief ; pas de longue étude pour un petit jeu.
+- Pour les petites créations et jeux locaux reconnus, les appels Codex utilisent un effort medium uniquement pour l’invocation. Le modèle, les réglages personnels, les permissions et les connexions restent identiques. Depuis 0.6.15, les autres invocations Codex utilisent aussi medium par défaut pour rester compatibles avec les clients qui ne comprennent pas ultra. Un effort explicitement demandé à Oscar reste prioritaire ; le fichier de configuration global n’est jamais réécrit. Les rapports et recherches sont proportionnés au brief ; pas de longue étude pour un petit jeu.
 - Une image de décor conservée n’est jamais présentée comme un jeu jouable. Les entrées HTML compilées connues sont choisies explicitement en cas d’ambiguïté. Les essais gardent le serveur isolé, le sandbox sans same-origin, le refus des comptes/réseaux externes et les limites de fichiers. Les diagnostics d’un aperçu sont des textes non fiables et ne déclenchent ni commande ni réparation.
 - Le bilan peut proposer Tester, mais ne lance pas automatiquement le code livré. L’essai volontaire propose clavier, formats d’écran et agrandissement. Les erreurs réelles restent visibles et actionnables ; ne les masque pas et ne promets pas une absence universelle de panne.
 

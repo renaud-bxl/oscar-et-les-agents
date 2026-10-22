@@ -1,5 +1,17 @@
 # Historique des versions
 
+## 0.6.15 — 22 octobre 2026
+
+- Corrige le blocage d’installation quand un client Codex ne reconnaît pas le réglage partagé `ultra`. Les commandes d’Oscar utilisent une surcharge locale compatible, sans modifier les réglages globaux ni les comptes.
+- Le correctif couvre connexion, missions, découverte des connecteurs et calendrier ; les efforts explicites et toutes les protections sont conservés.
+- Une autre erreur de chargement de configuration n’est plus présentée comme un abonnement déconnecté.
+
+## 0.6.14 — 22 octobre 2026
+
+- Choix indépendant du logiciel et des données sur un SSD externe, conservé lors des mises à jour.
+- Lecteurs Word et Excel locaux et contrastes des documents corrigés en mode sombre.
+- Corrections des réponses tardives dans les dialogues, des routines et de l’état de mise à jour.
+
 ## 0.6.13 — 22 octobre 2026
 
 - Les dessins vectoriels passifs avec styles simples et références internes vérifiées ne sont plus rejetés comme des fichiers absents. Les références distantes et contenus actifs restent refusés.

@@ -157,9 +157,17 @@ test('browser onboarding uses stock subscription login and verifies it before sa
     await runInstaller(parseArgs(['--engine', provider, '--no-open']), state.dependencies);
     const logins = state.calls.filter(call => call.type === 'interactive');
     assert.equal(logins.length, 1);
-    assert.deepEqual(logins[0].args, provider === 'codex' ? ['login'] : ['auth', 'login']);
+    assert.deepEqual(logins[0].args, provider === 'codex' ? ['-c', 'model_reasoning_effort="medium"', 'login'] : ['auth', 'login']);
     assert.equal(state.saved.length, 1);
   }
+});
+
+test('a shared configuration error is not mistaken for a disconnected subscription',async()=>{
+  const state=fixture(),normalCapture=state.dependencies.capture;
+  state.dependencies.capture=async(binary,args,options)=>args.includes('status')?{code:1,stdout:'',stderr:'Error loading configuration: unknown setting — private detail'}:normalCapture(binary,args,options);
+  await assert.rejects(runInstaller({engine:'codex',noOpen:true},state.dependencies),error=>/configuration partagée/u.test(error.message)&&!error.message.includes('private detail'));
+  assert.equal(state.calls.filter(call=>call.type==='interactive').length,0);
+  assert.equal(state.saved.length,0);
 });
 
 test('unconfirmed login does not mark setup complete or launch the application', async () => {
@@ -353,7 +361,7 @@ test('a real source reinstall with spaces preserves preferences, missions and co
   await mkdir(path.join(source, 'lib'));
   await mkdir(tools, { recursive: true });
   await mkdir(path.join(documents, 'missions'), { recursive: true });
-  for (const file of ['package.json', 'install.sh', 'scripts/install.mjs', 'lib/state-stream.mjs','lib/installation-paths.mjs']) await writeFile(path.join(source, file), await readFile(path.join(root, file)));
+  for (const file of ['package.json', 'install.sh', 'scripts/install.mjs', 'lib/state-stream.mjs','lib/installation-paths.mjs','lib/codex-compat.mjs']) await writeFile(path.join(source, file), await readFile(path.join(root, file)));
   await writeFile(path.join(source, 'server.mjs'), '// Installation fixture; no server is started.\n');
   const fakeEngine = '#!/bin/sh\ncase "$1" in\n --version) case "$0" in *claude) echo "2.1.303";; *) echo "codex-cli 0.130.0";; esac;;\n --help) echo "--restricted --output-format --verbose --permission-mode --tools --allowedTools --strict-mcp-config";;\n exec) echo "--json --sandbox --color --skip-git-repo-check --output-schema";;\n *) echo "Login and model calls are forbidden in this test" >&2; exit 97;;\nesac\n';
   for (const provider of ['codex', 'claude']) await writeFile(path.join(tools, provider), fakeEngine, { mode: 0o755 });

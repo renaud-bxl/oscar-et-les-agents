@@ -27,8 +27,10 @@ async function fixture(t,{execute,...options}={}){
 }
 const finish=async actions=>{await Promise.allSettled([...actions.jobs.values()].map(job=>job.completion));};
 function rpc(snapshot=metadata(),result={content:[],structuredContent:{result:{id:'event-created',summary:'Rendez-vous de vérification',htmlLink:'https://calendar.google.com/calendar/event?eid=fake'}}}){
-  const requests=[],kills=[];
+  const requests=[],kills=[],spawns=[];
   const spawnImpl=(binary,args,options)=>{
+    spawns.push({binary,args,options});
+    assert.deepEqual(args.slice(0,2),['-c','model_reasoning_effort="medium"']);
     const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=signal=>kills.push(signal);let partial='';
     const reply=(request,result)=>queueMicrotask(()=>child.stdout.write(JSON.stringify({id:request.id,result})+'\n'));
     child.stdin=new Writable({write(chunk,_encoding,done){partial+=chunk.toString();let end;while((end=partial.indexOf('\n'))>=0){const request=JSON.parse(partial.slice(0,end));partial=partial.slice(end+1);requests.push(request);switch(request.method){
@@ -42,7 +44,7 @@ function rpc(snapshot=metadata(),result={content:[],structuredContent:{result:{i
       default:assert.fail('Unexpected official request: '+request.method);
     }}done();}});child.args=args;child.options=options;return child;
   };
-  return{spawnImpl,requests,kills};
+  return{spawnImpl,requests,kills,spawns};
 }
 
 test('calendar creation requires canonical owner, declared write action and exact runtime schema while read plans stay read-only',async t=>{
@@ -79,7 +81,10 @@ test('an interrupted dispatch is durable uncertainty, never a successful event a
 test('official direct transport revalidates within an ephemeral thread and sends only one exact invitation-free create call',async t=>{
   const f=await fixture(t),plan=await f.connectors.calendarCreatePlan({client:'codex',name:app.name}),wire=rpc();let dispatches=0;
   const preview=await f.actions.preview({client:'codex',name:app.name,event});
-  const result=await executeCalendarCreate({binary:'/fake/codex',cwd:f.dataDir,env:{HOME:'/unchanged'},plan,event:preview.event,spawnImpl:wire.spawnImpl,onDispatch:async()=>{dispatches++;}});
+  const env={HOME:'/unchanged',CODEX_HOME:'/unchanged/codex'};
+  const result=await executeCalendarCreate({binary:'/fake/codex',cwd:f.dataDir,env,plan,event:preview.event,spawnImpl:wire.spawnImpl,onDispatch:async()=>{dispatches++;}});
+  assert.equal(wire.spawns.length,1);assert.equal(wire.spawns[0].options.env,env);assert.equal(wire.spawns[0].options.cwd,f.dataDir);
+  const args=wire.spawns[0].args;assert.deepEqual(args.slice(2,8),['--disable','plugins','--enable','apps','-c','web_search="disabled"']);assert.ok(args.includes('apps._default.enabled=false'));assert.ok(args.includes('app-server'));assert.ok(!args.includes('--dangerously-bypass-approvals-and-sandbox'));
   assert.equal(result.eventId,'event-created');assert.equal(dispatches,1);const calls=wire.requests.filter(row=>row.method==='mcpServer/tool/call');assert.equal(calls.length,1);assert.equal(calls[0].params.server,'codex_apps');assert.equal(calls[0].params.tool,'google_calendar.create_event');
   assert.deepEqual(calls[0].params.arguments,{calendar_id:'primary',title:event.title,attendees:[],start_time:preview.event.start,end_time:preview.event.end,timezone_str:'Europe/Brussels',location:event.location,description:event.description,add_google_meet:false,self_attendance:'omit',event_type:'default',guests_can_modify:false,reminders:{use_default:false,overrides:[]}});
   assert.equal(wire.requests.find(row=>row.method==='thread/start').params.ephemeral,true);assert(!wire.requests.some(row=>row.method==='turn/start'));assert(wire.kills.includes('SIGTERM'));
