@@ -91,3 +91,29 @@ test('a legacy five-file approval receives a real salvage review before its expa
  assert.equal(trace.some(item=>item.kind==='creation'),false,'Already present files are reviewed, not silently regenerated.');
  assert.equal(done.tasks[1].inputContributions[0].files.length,14);assert.equal(done.tasks[1].recoveryWriteRemaining,1,'Salvage review did not spend or renew a writing retry.');
 });
+
+test('an independent renderer with a fallback bench reaches the integrator and final QA without owning the designers’ sprite',async t=>{
+ const dataDir=mkdtempSync(path.join(os.tmpdir(),'oscar-component-bench-'));let app;const created=[],reviewed=[];
+ const svg='<svg xmlns="http://www.w3.org/2000/svg"><rect width="20" height="20"/></svg>',renderer='export const image=new URL("../assets/building.svg",import.meta.url).href;export const fallback=true;',bench='<script type="module">import {fallback} from "../js/renderer.js";document.body.textContent=String(fallback);</script>';
+ const task=(role,title,deliverables,dependsOn=[])=>({role,title,instruction:title,criteria:'Vérifier le fichier dans son périmètre, sans revendiquer un test de jeu.',deliverables,dependsOn});
+ const tasks=[task('design','Créer le décor',['assets/building.svg']),task('code','Développer le rendu Canvas',['js/renderer.js','tests/rendu.html']),task('code','Assembler le jeu complet',['index.html','js/main.js'],['t1','t2']),task('analyse','Vérifier le paquet complet',['recette.md'],['t3'])];
+ const runAgent=async input=>{
+  if(input.schema===PLAN_SCHEMA)return{text:JSON.stringify({title:'Paquets de composant et application',approach:'Périmètres indépendants puis intégration.',sharedBrief:'Scénario fictif local.',tasks})};
+  if(input.schema?.properties.reviews){const rows=JSON.parse(input.prompt.match(/TÂCHES À CONTRÔLER :\n([^\n]+)/u)[1]);for(const row of rows){reviewed.push(row.taskId);assert.deepEqual(row.packageIssues,[]);}return{text:JSON.stringify({reviews:rows.map(row=>({taskId:row.taskId,approved:true,feedback:'Fichiers du périmètre réellement lus dans le scénario simulé.'}))})};}
+  if(input.schema?.properties.approved)return{text:JSON.stringify({approved:true,feedback:'Contrôle final simulé.'})};
+  const current=[...app.missions.values()][0].tasks.find(item=>path.basename(input.cwd)===`${item.id}-${item.role}`);if(!current)return{text:'Bilan fictif.'};created.push(current.id);
+  const write=(file,value)=>{mkdirSync(path.dirname(path.join(input.cwd,file)),{recursive:true});writeFileSync(path.join(input.cwd,file),value);};
+  if(current.id==='t1')write('assets/building.svg',svg);
+  if(current.id==='t2'){write('js/renderer.js',renderer);write('tests/rendu.html',bench);assert.equal(existsSync(path.join(input.cwd,'assets/building.svg')),false);}
+  if(current.id==='t3'){
+   assert.equal(readFileSync(path.join(input.cwd,'Contributions/t2-code/js/renderer.js'),'utf8'),renderer);
+   write('assets/building.svg',readFileSync(path.join(input.cwd,'Contributions/t1-design/assets/building.svg')));write('js/renderer.js',readFileSync(path.join(input.cwd,'Contributions/t2-code/js/renderer.js')));
+   write('index.html','<script type="module" src="js/main.js"></script>');write('js/main.js','import {fallback} from "./renderer.js";document.body.textContent=String(fallback);');
+  }
+  if(current.id==='t4'){assert.equal(current.inputContributions[0].files.length,4);assert.equal(readFileSync(path.join(input.cwd,'Contributions/t3-code/assets/building.svg'),'utf8'),svg);write('recette.md','Paquet transporté. Aucun vrai essai de jeu revendiqué.');}
+  return{text:'Contribution fictive, sans test navigateur revendiqué.'};
+ };
+ app=new Atelier({dataDir,providers:[{id:'codex',available:true}],runAgent});t.after(async()=>{for(const id of app.runs.keys())app.stop(id);await Promise.all([...app.runs.keys()].map(id=>app.wait(id)));rmSync(dataDir,{recursive:true,force:true});});
+ const initial=app.start({prompt:'Recrute une équipe pour vérifier le rendu indépendant puis son intégration.'}),done=await app.wait(initial.id);
+ assert.equal(done.status,'completed',done.error);assert.equal(done.tasks[1].outputFingerprints.length,2);assert.equal(done.tasks[2].outputFingerprints.length,4);assert.deepEqual(created.slice().sort(),['t1','t2','t3','t4']);assert.equal(reviewed.length,4);assert.equal(done.recovery.used,0);
+});

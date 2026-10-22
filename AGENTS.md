@@ -1,6 +1,6 @@
 # Oscar et les Agents
 
-Version 0.6.18 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
+Version 0.6.19 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
 
 ## Installer et lancer pour une personne
 
@@ -153,3 +153,10 @@ La dictée partagée s’ouvre uniquement sur clic ; l’insertion nécessite re
 - Une question libre explicite utilise un instantané borné et daté de la mission, jamais les comptes ni les fichiers de travail. Le processus séparé reste en lecture seule, sans recherche, shell, applications ou MCP ; vérifie les capacités du moteur et refuse si les protections nécessaires ne sont pas confirmées. Ne modifie pas les réglages globaux.
 - Le reçu est conservé hors des missions. Un GET ne lance ni ne relance un appel ; après une réponse perdue, retrouve ce reçu. Une question par mission et deux au total, délai de 90 secondes ; la maintenance attend aussi ces appels détachés. Ne confonds pas répondre à une question avec valider, reprendre ou publier le projet.
 - Le suivi distingue explicitement un arrêt pour contrôle d’une opération active. Il nomme les contributions refusées, propose une reprise autorisée et garde ces commandes visibles quand le panneau se réduit. Un ancien délai relatif ne doit pas faire croire qu’Oscar travaille encore.
+
+
+## Contrôle des composants et historique (0.6.19)
+
+- Un banc de rendu nommé et limité dans tests/ avec un vrai module JS/CSS reste un composant ; ses chemins de ressources futures peuvent être absents si le composant fournit son propre repli. Un index.html, un jeu autonome ou une tâche d’intégration conserve le contrôle strict de toutes ses ressources. Les fichiers présents restent vérifiés et transmis avec leurs empreintes.
+- La relecture technique package-policy-v2 ne s’ouvre qu’après preuve exacte du faux refus matériel de l’ancienne politique. Elle réserve un reçu durable unique et une sauvegarde distincte, sans remettre à zéro les budgets. Les contrôles des collègues bloqués restent réels ; un refus persistant reste refusé.
+- À l’ouverture d’une mission historique arrêtée ou terminée, ne rejoue ni recrutement ni remise des contributions approuvées. Les collègues non validés attendent sans simuler de frappe ; une reprise réelle les rappelle.

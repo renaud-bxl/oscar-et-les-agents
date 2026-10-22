@@ -4,7 +4,7 @@ import { PixelWorld } from '../public/pixel-world.js';
 
 const roles=['recherche','redaction','code','design','analyse'];
 const twenty=(status='reviewing')=>roles.flatMap(role=>Array.from({length:4},(_,index)=>({id:`${role}-${index}`,role,status,attempt:1})));
-function office(tasks,{reducedMotion=false}={}){
+function office(tasks,{reducedMotion=false,status='running'}={}){
   const world=Object.create(PixelWorld.prototype),events=[];
   Object.assign(world,{mission:null,missionId:null,agents:new Map(),time:0,frame:0,
     oscarState:'idle',oscar:{x:250,y:275,id:'oscar',key:'oscar',role:'oscar',name:'Oscar',direction:'down',path:[],place:'welcome',destination:'welcome',nextVisitAt:18,visitUntil:0,visits:0},
@@ -12,7 +12,7 @@ function office(tasks,{reducedMotion=false}={}){
     onStatus:()=>{},_draw:()=>{},_schedule:()=>{},onEvent:(kind,data)=>events.push({kind,...data,time:world.time,owner:world._emittingActor?.missionId})});
   const emit=world._event;
   world._event=function(kind,actor){this._emittingActor=actor;try{return emit.call(this,kind,actor);}finally{this._emittingActor=null;}};
-  const mission={id:'bureau-a',status:'running',tasks};world.update(mission);
+  const mission={id:'bureau-a',status,tasks};world.update(mission);
   const advance=seconds=>{for(let step=0;step<seconds*10;step++){world.time+=.1;for(const actor of [...world.agents.values()])world._stepAgent(actor,.1);world._updateOscar(.1);}};
   return{world,mission,events,advance};
 }
@@ -140,4 +140,39 @@ test('a mission needing attention keeps only its unapproved colleague, without p
   assert.equal(fixture.world.oscar.place,'desk');assert.equal(JSON.stringify(fixture.mission),original);
   fixture.mission.status='completed';fixture.world.update(fixture.mission);fixture.advance(100);
   assert.equal(current(fixture.world).length,1,'a phase label alone never substitutes for the colleague’s actual approval');
+});
+
+test('opening a historical partial delivery shows only its three unapproved colleagues immediately, without replaying work or handoffs',()=>{
+  const tasks=twenty('approved');tasks[7].status='blocked';tasks[7].attempt=2;tasks[18].status='needs_review';tasks[18].attempt=3;tasks[19].status='blocked';
+  const fixture=office(tasks,{status:'needs_review'}),original=JSON.stringify(fixture.mission);
+  let visible=current(fixture.world);assert.equal(visible.length,3);assert.equal(fixture.world._departedActors.size,17);
+  assert.ok(visible.every(actor=>['waiting_review','needs_review'].includes(actor.state)&&!actor.paper&&!actor.mug&&!actor.path.length&&actor.y>500));
+  assert.equal(fixture.events.length,0,'consulting a historic result is not a hire, creation, approval or handoff');
+  for(let index=0;index<40;index++){fixture.advance(5);fixture.world.update(structuredClone(fixture.mission));}
+  visible=current(fixture.world);assert.equal(visible.length,3);assert.equal(fixture.events.length,0);assert.ok(visible.every(actor=>actor.state!=='working'));assert.equal(JSON.stringify(fixture.mission),original);
+  fixture.world.update({id:'another-office',status:'completed',tasks:[]});fixture.advance(30);fixture.world.update(fixture.mission);
+  assert.equal(current(fixture.world).length,3,'reopening the same historic result also restores the waiting places directly');
+  assert.equal(fixture.events.filter(event=>event.kind==='handoff').length,0);assert.equal(fixture.events.filter(event=>event.kind==='hire').length,0);
+});
+
+test('opening a historical completed delivery leaves all twenty approved colleagues at home from the first frame',()=>{
+  const fixture=office(twenty('approved'),{status:'completed'}),original=JSON.stringify(fixture.mission);
+  assert.equal(current(fixture.world).length,0);assert.equal(fixture.world.agents.size,0);assert.equal(fixture.world._departedActors.size,20);assert.equal(fixture.world.oscar.place,'desk');assert.equal(fixture.events.length,0);
+  for(let index=0;index<30;index++){fixture.advance(5);fixture.world.update(structuredClone(fixture.mission));}
+  assert.equal(current(fixture.world).length,0);assert.equal(fixture.events.length,0);assert.equal(JSON.stringify(fixture.mission),original);
+});
+
+test('a real new attempt recalls one historical approved colleague, then delivers its new result in the live flow',()=>{
+  const fixture=office(twenty('approved'),{status:'completed'}),task=fixture.mission.tasks[0];
+  task.status='revising';task.attempt=2;fixture.mission.status='running';fixture.world.update(fixture.mission);fixture.advance(25);
+  let visible=current(fixture.world);assert.equal(visible.length,1);assert.equal(visible[0].id,task.id);assert.equal(visible[0].state,'working');assert.equal(fixture.events.filter(event=>event.kind==='hire').length,1);assert.equal(fixture.events.filter(event=>event.kind==='handoff').length,0);
+  task.status='reviewing';fixture.world.update(fixture.mission);fixture.advance(30);assert.equal(visible[0].state,'waiting_review');assert.equal(fixture.events.filter(event=>event.kind==='handoff').length,1);assert.deepEqual([...visible[0].handoffAttempts],[1,2]);
+  task.status='approved';fixture.mission.status='completed';fixture.world.update(fixture.mission);fixture.advance(30);
+  assert.equal(current(fixture.world).length,0);assert.equal(fixture.events.filter(event=>event.kind==='handoff').length,1);assert.equal(fixture.events.filter(event=>event.kind==='exit').length,1);
+});
+
+test('an explicit revising state recalls a historical colleague even before its attempt number changes',()=>{
+  const fixture=office(twenty('approved'),{status:'completed'}),task=fixture.mission.tasks[0];task.status='revising';fixture.world.update(fixture.mission);fixture.advance(25);
+  const [actor]=current(fixture.world);assert.ok(actor);assert.equal(actor.state,'working');assert.equal(actor.id,task.id);assert.equal(fixture.events.filter(event=>event.kind==='handoff').length,0);
+  task.status='reviewing';fixture.mission.status='running';fixture.world.update(fixture.mission);fixture.advance(30);assert.equal(fixture.events.filter(event=>event.kind==='handoff').length,1);
 });

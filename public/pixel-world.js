@@ -81,6 +81,7 @@ const SOCIAL=[
 const COFFEE=[{x:188,y:628},{x:228,y:688}];
 const STROLL=[{x:430,y:510},{x:890,y:570},{x:1210,y:510},{x:230,y:570}];
 const BUSY_TASKS=new Set(['working','revising']),WAIT_TASKS=new Set(['queued','blocked']),EXIT_TASKS=new Set(['failed','cancelled']);
+const TERMINAL_MISSIONS=new Set(['completed','needs_review','failed','cancelled']);
 const RESULT_TASKS=new Set(['reviewing','approved','needs_review','failed']);
 const HANDOFF_STATES=new Set(['to_oscar','waiting_oscar','to_review_queue','review_queue','handoff']);
 const TRAVEL_STATES=new Set(['entering','to_desk','to_oscar','to_review_queue','to_review_wait','to_coffee','to_chat','to_lounge','to_stroll','to_collaboration','returning','leaving']);
@@ -171,7 +172,7 @@ export class PixelWorld {
     this.ctx.imageSmoothingEnabled=true;
     this.onSelect=onSelect;this.onStatus=onStatus;this.onEvent=onEvent;this.onInteract=onInteract;this.onAmbience=onAmbience;
     this.getCharacterLine=getCharacterLine;
-    this.mission=null;this.missionId=null;this.agents=new Map();this._departedActors=new Map();
+    this.mission=null;this.missionId=null;this.agents=new Map();this._departedActors=new Map();this._observedActiveMissions=new Set();
     this.frame=0;this.time=0;this.oscarState='idle';this._oscarBubble='Explique-moi ce que tu veux faire';this._oscarBubbleUntil=4;
     this.oscar={...OSCAR_WELCOME,id:'oscar',key:'oscar',role:'oscar',name:'Oscar',direction:'down',path:[],place:'welcome',destination:'welcome',nextVisitAt:18,visitUntil:0,visits:0};
     this._reviewOwner=null;this._raf=null;this._lastTick=null;this._lastPaint=0;
@@ -244,6 +245,9 @@ export class PixelWorld {
   update(mission) {
     if(this._destroyed) return;
     const nextId=mission?.id??null;
+    this._observedActiveMissions??=new Set();
+    if(nextId&&!TERMINAL_MISSIONS.has(mission.status))this._observedActiveMissions.add(nextId);
+    const historical=!!nextId&&TERMINAL_MISSIONS.has(mission.status)&&!this._observedActiveMissions.has(nextId);
     if(nextId!==this.missionId) {
       for(const a of this.agents.values()) a.retiring=true;
       this._reviewOwner=null;this.missionId=nextId;
@@ -251,6 +255,10 @@ export class PixelWorld {
       this._oscarBubbleUntil=this.time+3.5;
       this._lastCompleted=null;
       this._nextCollaborationAt=this.time+12;
+      if(historical){
+        Object.assign(this.oscar,OSCAR_HOME,{path:[],place:'desk',destination:'desk'});
+        this._oscarAnnouncedMission=nextId;this._oscarBubble=mission.status==='completed'?'Du beau travail !':'À vérifier';
+      }
     }
     this.mission=mission||null;
     if(mission) {
@@ -267,15 +275,26 @@ export class PixelWorld {
           if(mission.status==='cancelled'||task.status==='cancelled') return;
           const departed=this._departedActors?.get(key);
           if(departed&&task.status==='approved'&&taskAttempt(task)===departed.attempt)return;
+          if(historical&&task.status==='approved'&&!departed){
+            // This is an existing validated result, not a live result arriving
+            // now. Remember its attempt without replaying a hire or handoff.
+            const attempt=taskAttempt(task);this._departedActors??=new Map();
+            this._departedActors.set(key,{attempt,handoffAttempt:attempt,handoffAttempts:[attempt],approvedAttempts:[attempt],historical:true});
+            return;
+          }
           const random=seeded(hash(key));
+          const handed=new Set(departed?.handoffAttempts),approved=new Set(departed?.approvedAttempts);
+          if(departed&&(taskAttempt(task)!==departed.attempt||BUSY_TASKS.has(task.status)))this._observedActiveMissions.add(nextId);
+          if(departed&&task.status==='revising'){handed.delete(taskAttempt(task));approved.delete(taskAttempt(task));}
           a={key,id:task.id,missionId:nextId,role,name,roleIndex,task,index,slot:-1,
             x:DOOR.x,y:DOOR.y,direction:'down',walkFrame:0,state:'waiting_entry',visible:false,
             target:null,path:[],afterTravel:null,deadline:0,hireAt:this.time+index*.35,
-            workSince:0,handoffAttempt:departed?.handoffAttempt||0,handoffAttempts:new Set(departed?.handoffAttempts),approvedAttempts:new Set(departed?.approvedAttempts),paper:false,mug:false,
+            workSince:0,handoffAttempt:departed?.handoffAttempt||0,handoffAttempts:handed,approvedAttempts:approved,paper:false,mug:false,
             retiring:false,random,bubble:'',bubbleUntil:0,visited:[],speed:165+random()*25,
             nextIdleAt:0,reviewRequestedAt:0,lastAttempt:taskAttempt(task)};
           this.agents.set(key,a);
           this._departedActors?.delete(key);
+          if(historical&&!departed&&!EXIT_TASKS.has(task.status)&&['completed','needs_review'].includes(mission.status))this._placeHistoricalWaiting(a);
         } else {
           const wasRetiring=(a.retiring||a.state==='leaving')&&a.departureReason!=='approved';
           const recalled=a.departureReason==='approved'&&(task.status!=='approved'||taskAttempt(task)!==a.departureAttempt);
@@ -496,7 +515,19 @@ export class PixelWorld {
     const point=this._socialPoint(a);
     this._travel(a,state==='chat'?'to_chat':'to_lounge',point,state);
   }
+  _placeHistoricalWaiting(a){
+    a.retiring=false;a.visible=true;this._claimDesk(a);
+    a.path=[];a.target=null;a.afterTravel=null;a.paper=false;a.mug=false;a.coffeePending=false;
+    a.historicalWaiting={attempt:taskAttempt(a.task),status:a.task.status};
+    a.handoffAttempt=taskAttempt(a.task);
+    if(RESULT_TASKS.has(a.task.status))a.handoffAttempts.add(a.handoffAttempt);
+    const point=this._socialPoint(a),place=this._nearest(point,{actor:a});
+    Object.assign(a,center(place.x,place.y));this._visit(a,a.task.status==='needs_review'?'needs_review':'waiting_review');
+    this._socialPose(a);a.reviewWaitReason=this._reviewWaitLine(a);this._bubble(a,a.reviewWaitReason);
+  }
   _reactivate(a) {
+    if(a.historicalWaiting&&a.historicalWaiting.attempt===taskAttempt(a.task)&&a.historicalWaiting.status===a.task.status&&!this._observedActiveMissions?.has(a.missionId)&&['completed','needs_review'].includes(this.mission?.status)){this._placeHistoricalWaiting(a);return;}
+    a.historicalWaiting=null;
     a.homeAfterApprovalAt=null;a.departureReason=null;a.departureAttempt=null;this._departedActors?.delete(a.key);
     a.retiring=false;a.reactivations=(a.reactivations||0)+1;
     this._releaseReview(a);a.path=[];a.target=null;a.afterTravel=null;a.paper=false;a.mug=false;
@@ -661,6 +692,13 @@ export class PixelWorld {
 
   _stepAgent(a,dt) {
     const activeMission=a.missionId===this.missionId;
+    if(a.historicalWaiting&&!a.retiring){
+      const unchanged=a.historicalWaiting.attempt===taskAttempt(a.task)&&a.historicalWaiting.status===a.task.status;
+      if(activeMission&&['completed','needs_review'].includes(this.mission?.status)&&unchanged){if(this.time>=a.nextSocialAt)this._socialPose(a);return;}
+      a.historicalWaiting=null;
+      if(a.task.status==='revising'){a.handoffAttempts.delete(taskAttempt(a.task));a.approvedAttempts?.delete(taskAttempt(a.task));}
+      if(activeMission){this._observedActiveMissions??=new Set();this._observedActiveMissions.add(a.missionId);}
+    }
     if(a.departureReason==='approved'&&!a.retiring&&!EXIT_TASKS.has(a.task.status)&&(a.task.status!=='approved'||taskAttempt(a.task)!==a.departureAttempt))this._reactivate(a);
     const pendingHandoff=this._pendingDelivery(a);
     const cancelled=a.task.status==='cancelled'||activeMission&&this.mission?.status==='cancelled';

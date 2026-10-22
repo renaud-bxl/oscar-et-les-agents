@@ -1,5 +1,11 @@
 # Historique des versions
 
+## 0.6.19 — 22 octobre 2026
+
+- Corrige un faux refus de contribution : un banc de test de rendu avec formes de repli n’est plus confondu avec le jeu complet. Les applications intégrées conservent le contrôle de leurs ressources obligatoires.
+- Une mission bloquée par ce défaut précis peut recevoir une seule relecture technique sauvegardée, puis les contrôles de ses dépendants. Les budgets de création ne sont pas renouvelés et aucune validation n’est forcée.
+- Ouvrir un ancien dossier ne fait plus revenir les collègues déjà validés pour rejouer leurs remises. Le bureau montre uniquement les contributions encore à contrôler.
+
 ## 0.6.18 — 22 octobre 2026
 
 - Une contribution HTML transmet maintenant ses modules, styles et ressources locales à ses collègues, avec des empreintes vérifiées ; un ancien paquet incomplet doit être relu avant d’être enrichi.

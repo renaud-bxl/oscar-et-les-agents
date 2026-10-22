@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {captureContributionPackage,CONTRIBUTION_PACKAGE_LIMITS} from '../lib/contribution-package.mjs';
+import {captureContributionPackage,CONTRIBUTION_PACKAGE_LIMITS,isComponentVerificationPackage} from '../lib/contribution-package.mjs';
 
-function capture(files,deliverables=['index.html']){
+function capture(files,deliverables=['index.html'],options={}){
   const reads=[];
-  const result=captureContributionPackage({deliverables,listFiles:directory=>Object.keys(files).filter(file=>(file.includes('/')?file.slice(0,file.lastIndexOf('/')):'.')===directory),readFile:relative=>{
+  const result=captureContributionPackage({deliverables,...options,listFiles:directory=>Object.keys(files).filter(file=>(file.includes('/')?file.slice(0,file.lastIndexOf('/')):'.')===directory),readFile:relative=>{
     reads.push(relative);const value=files[relative];if(value===undefined)return null;
     const bytes=Buffer.from(value);return{bytes,hash:createHash('sha256').update(bytes).digest('hex')};
   }});
@@ -61,6 +61,25 @@ test('a CSS or module contribution may reference another colleague’s future re
   assert.deepEqual(result.issues,[]);assert.deepEqual(result.snapshots.map(file=>file.path),['theme.css']);
   const complete=capture({'index.html':'<link rel="stylesheet" href="theme.css">','theme.css':'body{background:url(assets/future.svg)}'});
   assert.ok(complete.issues.some(issue=>issue.includes('assets/future.svg')));
+});
+
+test('a known component rendering bench may test missing-image fallbacks without owning the designers’ future sprites',()=>{
+  const task={role:'code',title:'Développer le rendu Canvas',instruction:'Créer un module de rendu avec des formes de repli.',deliverables:['js/renderer.js','tests/rendu.html']};
+  assert.equal(isComponentVerificationPackage(task),true);
+  const result=capture({'js/renderer.js':'const image=new URL("../assets/building.svg",import.meta.url);export function draw(){return "fallback";}',
+    'tests/rendu.html':'<script type="module">import {draw} from "../js/renderer.js";draw();</script>'},task.deliverables,{componentVerification:isComponentVerificationPackage(task)});
+  assert.deepEqual(result.issues,[]);assert.deepEqual(new Set(result.snapshots.map(file=>file.path)),new Set(task.deliverables));
+});
+
+test('a tests folder alone never exempts an application or its integration from complete package validation',()=>{
+  const module={role:'code',title:'Développer le rendu',instruction:'Créer le composant de rendu.'};
+  for(const deliverables of [['tests/index.html','js/renderer.js'],['tests/jeu.html','js/renderer.js'],['tests/rendu.html'],['index.html','js/renderer.js','tests/rendu.html']])assert.equal(isComponentVerificationPackage({...module,deliverables}),false,deliverables.join(','));
+  for(const role of ['analyse','recherche','redaction'])assert.equal(isComponentVerificationPackage({...module,role,deliverables:['js/renderer.js','tests/rendu.html']}),false,role);
+  assert.equal(isComponentVerificationPackage({...module,title:'Assembler le jeu complet',deliverables:['js/renderer.js','tests/rendu.html']}),false);
+  for(const entry of ['index.html','tests/index.html','tests/jeu.html']){
+    const task={...module,deliverables:[entry,'js/renderer.js']},result=capture({[entry]:'<script src="/js/renderer.js"></script>','js/renderer.js':'const image=new URL("../assets/building.svg",import.meta.url);'},task.deliverables,{componentVerification:isComponentVerificationPackage(task)});
+    assert.ok(result.issues.some(issue=>issue.includes('assets/building.svg')),entry);
+  }
 });
 
 test('a missing referenced script or style prevents a favorable model from treating the package as complete',()=>{

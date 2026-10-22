@@ -38,7 +38,7 @@ export function deliveryProgressSnapshot(mission,{now=Date.now(),locale=getLocal
   const unapproved=mission.status==='needs_review'?tasks.filter(task=>task.status!=='approved').slice(0,20).map(task=>({id:clean(task.id,80),name:clean(task.agentName,60)||tr('Un collègue'),title:clean(task.title,180)||tr('Contribution à vérifier'),feedback:clean(task.review?.feedback,360)||tr('Cette contribution n’est pas encore validée.')})):[];
   const finalFeedback=mission.status==='needs_review'&&mission.finalReview?.approved===false?clean(mission.finalReview.feedback,500):'';
   const recoveryKind=terminal&&mission.recovery?.canRecheck===true?'recheck':terminal&&mission.recovery?.canResume===true?'resume':null;
-  const recoveryAction=recoveryKind?{kind:recoveryKind,label:tr(recoveryKind==='recheck'?'Faire relire les corrections':'Reprendre avec Oscar'),key:JSON.stringify([mission.id,recoveryKind,mission.recovery?.used??0,mission.recovery?.rechecksUsed??0])}:null;
+  const recoveryAction=recoveryKind?{kind:recoveryKind,label:tr(recoveryKind==='recheck'?'Faire relire les corrections':'Reprendre avec Oscar'),key:JSON.stringify([mission.id,recoveryKind,mission.recovery?.used??0,mission.recovery?.rechecksUsed??0,mission.recovery?.packagePolicyRechecksUsed??0])}:null;
   let title,phase,note;
   if(terminal){
     title={completed:'Votre livraison est disponible',needs_review:'Votre livraison demande une reprise',failed:'La mission a rencontré un problème',cancelled:'La mission a été arrêtée'}[mission.status];
