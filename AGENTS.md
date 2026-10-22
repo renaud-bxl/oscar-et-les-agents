@@ -1,6 +1,6 @@
 # Oscar et les Agents
 
-Version 0.6.20 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
+Version 0.6.21 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
 
 ## Installer et lancer pour une personne
 
@@ -166,3 +166,9 @@ La dictée partagée s’ouvre uniquement sur clic ; l’insertion nécessite re
 
 - Après le contrôle technique package-policy-v2, une correction externe réelle d’un composant encore refusé peut recevoir une seule relecture explicite. Compare les livrables courants au manifeste et aux fichiers préservés de cette sauvegarde ; exige des fichiers sains, au moins un changement, des approuvés intacts et seulement des dépendants bloqués. Sans cette preuve, aucun nouveau contrôle n’est ouvert.
 - Réserve external-correction-1 et son reçu durable avant l’appel. Aucun budget n’est modifié ; aucun spécialiste ne régénère de fichier durant cette vague. Un refus réel interrompt la chaîne. L’assemblage et la vérification finale exigent toutes les contributions approuvées.
+
+
+## Correction restante après relecture (0.6.21)
+
+- Après une relecture externe, un refus de qualité d’un dépendant peut encore disposer de sa véritable écriture restante. Une action explicite unique permet de consommer ce budget conservé, sans en ajouter ni remettre à zéro les compteurs. Les contributions déjà approuvées doivent rester intactes.
+- Réserve remaining-correction-1 et une sauvegarde distincte avant l’appel. Les tâches refusées éligibles passent directement en correction avec leur vrai retour ; les dépendants attendent les approbations réelles. Une écriture consommée demeure consommée et un nouveau refus sans budget reste un refus. Les comptes, permissions, quotas et erreurs de moteur ne sont pas concernés.

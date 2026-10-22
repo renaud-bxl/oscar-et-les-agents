@@ -1,5 +1,10 @@
 # Historique des versions
 
+## 0.6.21 — 22 octobre 2026
+
+- Une relecture externe ne bloque plus définitivement une contribution qui dispose encore de sa correction autorisée. Une action volontaire unique permet de terminer ce travail dans le même dossier, avec le retour réel d’Oscar.
+- Le budget restant est consommé, jamais renouvelé. Sauvegarde et reçu durable précèdent le travail ; les contributions approuvées restent vérifiées et un refus persistant demeure explicite.
+
 ## 0.6.20 — 22 octobre 2026
 
 - Permet une unique relecture volontaire après une correction externe prouvée des fichiers d’un composant précédemment bloqué par le contrôle technique. Les empreintes sont comparées à la sauvegarde préservée avant de proposer cette action.

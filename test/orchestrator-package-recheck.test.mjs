@@ -9,7 +9,7 @@ import {preserveRecoveryFiles} from '../lib/mission-recovery.mjs';
 
 const deferred=()=>{let resolve;const promise=new Promise(done=>{resolve=done;});return{promise,resolve};};
 async function fixture(t){
- const dataDir=mkdtempSync(path.join(os.tmpdir(),'oscar-package-policy-recheck-')),trace=[];let app,gate=null,deny=false,denyId='t2';
+ const dataDir=mkdtempSync(path.join(os.tmpdir(),'oscar-package-policy-recheck-')),trace=[],creationInputs=[];let app,gate=null,deny=false,denyId='t2',creationGate=null;
  const svg='<svg xmlns="http://www.w3.org/2000/svg"><rect width="20" height="20"/></svg>',renderer='export const sprite=new URL("../assets/building.svg",import.meta.url).href;export const fallback=true;';
  const task=(role,title,deliverables,dependsOn=[])=>({role,title,instruction:title,criteria:'Fichiers du périmètre présents ; contrôles honnêtes.',deliverables,dependsOn});
  const tasks=[task('design','Créer le décor',['assets/building.svg']),task('code','Développer le rendu Canvas',['js/renderer.js','tests/rendu.html']),task('code','Assembler le jeu complet',['index.html','js/main.js'],['t1','t2']),task('analyse','Vérifier le résultat',['recette.md'],['t3'])];
@@ -24,6 +24,7 @@ async function fixture(t){
   const current=[...app.missions.values()][0].tasks.find(item=>path.basename(input.cwd)===`${item.id}-${item.role}`);
   if(!current){trace.push({kind:'assembly'});return{text:'Bilan fictif de la livraison.'};}
   trace.push({kind:'creation',id:current.id});
+  creationInputs.push(input);if(creationGate){creationGate.started.resolve();await creationGate.release.promise;if(input.signal.aborted)throw Object.assign(new Error('Fixture cancelled'),{name:'AbortError',code:'PROVIDER_CANCELLED'});}
   const write=(file,value)=>{mkdirSync(path.dirname(path.join(input.cwd,file)),{recursive:true});writeFileSync(path.join(input.cwd,file),value);};
   if(current.id==='t1')write('assets/building.svg',svg);
   if(current.id==='t2'){write('js/renderer.js',renderer+([...app.missions.values()][0].recovery?.packagePolicyRecheck?'\n// A real specialist rewrite during the technical review wave.':''));write('tests/rendu.html','<script type="module">import {fallback} from "../js/renderer.js";</script>');}
@@ -35,7 +36,7 @@ async function fixture(t){
   return{text:'Rapport fictif local.'};
  };
  app=new Atelier({dataDir,providers:[{id:'codex',available:true}],runAgent:runner});
- t.after(async()=>{gate?.release.resolve();for(const id of app.runs.keys())app.stop(id);await Promise.all([...app.runs.keys()].map(id=>app.wait(id)));rmSync(dataDir,{recursive:true,force:true});});
+ t.after(async()=>{gate?.release.resolve();creationGate?.release.resolve();for(const id of app.runs.keys())app.stop(id);await Promise.all([...app.runs.keys()].map(id=>app.wait(id)));rmSync(dataDir,{recursive:true,force:true});});
  const initial=app.start({prompt:'Recrute une équipe pour ce scénario de composant et de contrôle.'}),first=await app.wait(initial.id);assert.equal(first.status,'completed',first.error);
  const m=app.missions.get(initial.id);m.status='needs_review';m.phase='Oscar demande une reprise';m.error=null;m.errorInfo=null;
  const component=m.tasks[1],cwd=path.join(app.workDir(m.id),'t2-code');
@@ -45,13 +46,17 @@ async function fixture(t){
  for(const row of m.tasks.slice(2)){row.status='blocked';row.recoveryMode='salvage';row.recoveryWriteRemaining=1;row.review={approved:false,feedback:'Une contribution nécessaire n’a pas été validée par Oscar.'};}
  const backup=preserveRecoveryFiles({missionDirectory:app.missionDir(m.id),workDirectory:app.workDir(m.id),state:m}),recheck=preserveRecoveryFiles({missionDirectory:app.missionDir(m.id),workDirectory:app.workDir(m.id),state:m,name:'manual-recheck-1'});
  m.recovery={used:1,rechecksUsed:1,backup,recheck:{startedAt:1,backup:recheck,taskIds:['t2','t3','t4']}};app.save(m);trace.length=0;
- return{app,m,trace,dataDir,runner,setDeny:(value,id='t2')=>{deny=value;denyId=id;},setGate:()=>{gate={started:deferred(),release:deferred()};return gate;}};
+ return{app,m,trace,creationInputs,dataDir,runner,setDeny:(value,id='t2')=>{deny=value;denyId=id;},setGate:()=>{gate={started:deferred(),release:deferred()};return gate;},setCreationGate:()=>{creationGate={started:deferred(),release:deferred()};return creationGate;}};
 }
 
 async function externalFixture(t){
  const f=await fixture(t);f.setDeny(true);f.app.recheck(f.m.id);const refused=await f.app.wait(f.m.id);assert.equal(refused.status,'needs_review');assert.equal(refused.tasks[1].review.materialFailure,undefined);assert.equal(refused.recovery.packagePolicyRechecksUsed,1);f.trace.length=0;f.setDeny(false);
  f.correct=()=>{const root=f.app.workDir(f.m.id);writeFileSync(path.join(root,'t2-code/js/renderer.js'),readFileSync(path.join(root,'t2-code/js/renderer.js'),'utf8')+'\n// External fixture correction: preserve the public API.');writeFileSync(path.join(root,'t2-code/tests/rendu.html'),readFileSync(path.join(root,'t2-code/tests/rendu.html'),'utf8')+'\n<!-- External fixture verification, no real game result claimed. -->');};
  return f;
+}
+
+async function remainingFixture(t,id='t4'){
+ const f=await externalFixture(t);f.correct();f.setDeny(true,id);f.app.recheck(f.m.id);const done=await f.app.wait(f.m.id);assert.equal(done.status,'needs_review');assert.equal(done.tasks.find(row=>row.id===id).recoveryWriteRemaining,1);f.setDeny(false);f.trace.length=0;f.creationInputs.length=0;return f;
 }
 
 test('the package-policy-v2 recheck reserves one durable receipt and genuinely rereads the blocked chain without resetting any budget',async t=>{
@@ -120,7 +125,8 @@ test('an externally corrected component receives one durably reserved read-only 
 test('an external recheck never creates specialists or assembles after a real refusal, even where an old writing budget remains',async t=>{
  for(const id of ['t2','t3','t4'])await t.test(id,async t=>{
   const f=await externalFixture(t);f.correct();f.setDeny(true,id);const before=f.m.tasks.map(row=>row.recoveryWriteRemaining);f.app.recheck(f.m.id);const done=await f.app.wait(f.m.id);
-  assert.equal(done.status,'needs_review',done.error);assert.equal(done.tasks.find(row=>row.id===id).review.approved,false);assert.deepEqual(done.tasks.map(row=>row.recoveryWriteRemaining),before);assert.ok(f.trace.every(row=>row.kind==='review'&&row.readOnly===true));assert.equal(done.recovery.externalCorrectionRechecksUsed,1);assert.throws(()=>f.app.recheck(f.m.id),{code:'MISSION_RECHECK_LIMIT'});
+  assert.equal(done.status,'needs_review',done.error);assert.equal(done.tasks.find(row=>row.id===id).review.approved,false);assert.deepEqual(done.tasks.map(row=>row.recoveryWriteRemaining),before);assert.ok(f.trace.every(row=>row.kind==='review'&&row.readOnly===true));assert.equal(done.recovery.externalCorrectionRechecksUsed,1);assert.equal(done.recovery.remainingCorrectionPassesUsed,0);
+  if(id==='t2')assert.throws(()=>f.app.recheck(f.m.id),{code:'MISSION_RECHECK_LIMIT'});else assert.equal(done.recovery.canRecheck,true,'A remaining correction is a distinct explicit action, never launched by the read-only wave.');
  });
 });
 
@@ -165,4 +171,50 @@ test('external proof requires completed read-only post-checkpoint review history
   {calls:original.calls.map(call=>call.startedAt>=checkpoint?{...call,status:'failed'}:call)}];
  for(const history of histories){f.m.performance=structuredClone(history);assert.equal(f.app.externalCorrectionRecheckProof(f.m),null);assert.equal(f.app.get(f.m.id).recovery.canRecheck,false);}
  f.m.performance=original;assert.ok(f.app.externalCorrectionRecheckProof(f.m));assert.equal(f.trace.length,0);
+});
+
+test('the explicit remaining correction repairs the refused QA report directly, spends its existing one and genuinely reviews before delivery',async t=>{
+ const f=await remainingFixture(t),{app,m,trace}=f,id=m.id,target=m.tasks[3],feedback=target.review.feedback,attempt=target.attempt,legacy={used:m.recovery.used,rechecksUsed:m.recovery.rechecksUsed,policy:structuredClone(m.recovery.packagePolicyRecheck),external:structuredClone(m.recovery.externalCorrectionRecheck)},gate=f.setCreationGate();
+ const approved=m.tasks.filter(row=>row.status==='approved').flatMap(row=>row.outputFingerprints.map(file=>({path:`${row.id}-${row.role}/${file.path}`,bytes:readFileSync(path.join(app.workDir(id),`${row.id}-${row.role}`,file.path))})));
+ assert.equal(app.get(id).recovery.remainingCorrectionPassesUsed,0);assert.equal(app.get(id).recovery.canRecheck,true);assert.deepEqual(app.remainingCorrectionPassProof(m).taskIds,['t4']);
+ const accepted=app.recheck(id),reserved=JSON.parse(readFileSync(path.join(app.missionDir(id),'state.json'),'utf8'));assert.equal(accepted.recovery.remainingCorrectionPassesUsed,1);assert.equal(reserved.recovery.remainingCorrectionPass.version,'remaining-correction-1');assert.equal(reserved.recovery.remainingCorrectionPass.used,1);assert.equal(reserved.tasks[3].recoveryWriteRemaining,1);assert.equal(reserved.recovery.remainingCorrectionPass.proof.tasks[0].feedback,feedback);assert.throws(()=>app.recheck(id),{code:'MISSION_RECHECK_UNAVAILABLE'});
+ await gate.started.promise;assert.deepEqual(trace,[{kind:'creation',id:'t4'}]);assert.equal(m.tasks[3].recoveryMode,'repair');assert.equal(m.tasks[3].recoveryWriteRemaining,0);assert.equal(m.tasks[3].attempt,attempt+1);assert.match(f.creationInputs[0].prompt,/CORRECTIONS DEMANDÉES PAR OSCAR/u);assert.ok(f.creationInputs[0].prompt.includes(feedback));assert.equal(f.creationInputs[0].readOnly,false);assert.notEqual(m.status,'completed');
+ gate.release.resolve();const done=await app.wait(id);assert.equal(done.status,'completed',done.error);assert.deepEqual(trace,[{kind:'creation',id:'t4'},{kind:'review',id:'t4',readOnly:true},{kind:'assembly'}]);assert.equal(done.tasks[3].review.approved,true);assert.equal(done.tasks[3].recoveryWriteRemaining,0);assert.equal(done.recovery.used,legacy.used);assert.equal(done.recovery.rechecksUsed,legacy.rechecksUsed);assert.deepEqual(done.recovery.packagePolicyRecheck,legacy.policy);assert.deepEqual(done.recovery.externalCorrectionRecheck,legacy.external);assert.deepEqual(done.recovery.remainingCorrectionPass.taskIds,['t4']);assert.equal(done.recovery.remainingCorrectionPassesUsed,1);assert.equal(done.recovery.canRecheck,false);
+ for(const row of approved)assert.deepEqual(readFileSync(path.join(app.workDir(id),row.path)),row.bytes,row.path);
+ const previous=JSON.parse(readFileSync(path.join(app.missionDir(id),'recovery/remaining-correction-1/previous-state.json'),'utf8'));assert.equal(previous.recovery.remainingCorrectionPass,undefined);assert.equal(previous.tasks[3].recoveryWriteRemaining,1);assert.equal(previous.tasks[3].review.feedback,feedback);assert.equal(done.workDirectory,app.workDir(id));
+ const restored=new Atelier({dataDir:f.dataDir,providers:[{id:'codex',available:true}],runAgent:f.runner});assert.equal(restored.get(id).recovery.remainingCorrectionPassesUsed,1);assert.throws(()=>restored.recheck(id),{code:'MISSION_RECHECK_LIMIT'});assert.throws(()=>app.recheck(id),{code:'MISSION_RECHECK_LIMIT'});
+});
+
+test('a remaining correction that is genuinely refused consumes no second write and never assembles a delivery',async t=>{
+ const f=await remainingFixture(t);f.setDeny(true,'t4');f.app.recheck(f.m.id);const done=await f.app.wait(f.m.id);
+ assert.equal(done.status,'needs_review');assert.equal(done.tasks[3].review.approved,false);assert.equal(done.tasks[3].recoveryWriteRemaining,0);assert.equal(done.recovery.remainingCorrectionPassesUsed,1);assert.deepEqual(f.trace,[{kind:'creation',id:'t4'},{kind:'review',id:'t4',readOnly:true}]);assert.equal(done.recovery.canRecheck,false);assert.throws(()=>f.app.recheck(f.m.id),{code:'MISSION_RECHECK_LIMIT'});
+});
+
+test('the remaining pass corrects only its originally refused targets and rereads healthy blocked dependents without writing them',async t=>{
+ const f=await remainingFixture(t,'t3');f.app.recheck(f.m.id);const done=await f.app.wait(f.m.id);
+ assert.equal(done.status,'completed',done.error);assert.deepEqual(f.trace,[{kind:'creation',id:'t3'},{kind:'review',id:'t3',readOnly:true},{kind:'review',id:'t4',readOnly:true},{kind:'assembly'}]);assert.equal(done.tasks[2].recoveryWriteRemaining,0);assert.equal(done.tasks[3].recoveryWriteRemaining,1);assert.equal(done.recovery.remainingCorrectionPassesUsed,1);
+});
+
+test('zero or malformed budgets, private-account errors, interrupted states and unrelated refusals never grant the remaining pass',async t=>{
+ const f=await remainingFixture(t),original=structuredClone(f.m),restore=()=>{for(const key of Object.keys(f.m))delete f.m[key];Object.assign(f.m,structuredClone(original));};
+ const changes=[m=>{m.tasks[3].recoveryWriteRemaining=0;},m=>{m.tasks[3].recoveryWriteRemaining=2;},m=>{m.tasks[3].recoveryWriteRemaining='1';},m=>{m.tasks[3].review.materialFailure=true;},m=>{m.tasks[3].runtimeError={code:'PROVIDER_TOOL_UNAVAILABLE'};},m=>{m.assistant=true;},m=>{m.connectorRequired=true;},m=>{m.provider='demo';},m=>{m.error='Permission denied';},m=>{m.errorInfo={code:'PROVIDER_AUTH_REQUIRED'};},m=>{m.errorInfo={code:'PROVIDER_USAGE_LIMIT'};},m=>{m.errorInfo={code:'PROVIDER_PERMISSION_REQUIRED'};},m=>{m.status='cancelled';},m=>{m.status='paused';},m=>{m.status='running';},m=>{m.recovery.externalCorrectionRecheck.taskIds=[];},m=>{m.recovery.remainingCorrectionPass={version:'remaining-correction-1',used:1};},m=>{m.tasks[0].status='blocked';}];
+ for(const change of changes){restore();change(f.m);assert.equal(f.app.remainingCorrectionPassProof(f.m),null);assert.equal(f.app.get(f.m.id).recovery.canRecheck,false);assert.throws(()=>f.app.recheck(f.m.id));}restore();assert.equal(f.trace.length,0);
+});
+
+test('a missing or linked QA report and a changed approved game cannot unlock the remaining correction',async t=>{
+ for(const kind of ['missing','linked','approved'])await t.test(kind,async t=>{
+  const f=await remainingFixture(t),root=f.app.workDir(f.m.id),file=path.join(root,'t4-analyse/recette.md');
+  if(kind==='missing')rmSync(file);if(kind==='linked'){const outside=path.join(f.dataDir,'outside.md');writeFileSync(outside,'Keep private');rmSync(file);symlinkSync(outside,file);}if(kind==='approved')writeFileSync(path.join(root,'t3-code/index.html'),'<h1>Changed after approval</h1>');
+  assert.equal(f.app.get(f.m.id).recovery.canRecheck,false);assert.throws(()=>f.app.recheck(f.m.id),{code:'MISSION_RECHECK_LIMIT'});assert.equal(f.trace.length,0);
+ });
+});
+
+test('remaining pass save rollback preserves the one while changed files before preparation consume only the explicit receipt',async t=>{
+ const f=await remainingFixture(t),save=f.app.save.bind(f.app);f.app.save=()=>{throw Object.assign(new Error('Disk full fixture'),{code:'ENOSPC'});};assert.throws(()=>f.app.recheck(f.m.id),{code:'ENOSPC'});assert.equal(f.app.get(f.m.id).recovery.remainingCorrectionPassesUsed,0);assert.equal(f.app.get(f.m.id).tasks[3].recoveryWriteRemaining,1);assert.equal(f.app.get(f.m.id).recovery.canRecheck,true);f.app.save=save;
+ f.app.recheck(f.m.id);writeFileSync(path.join(f.app.workDir(f.m.id),'t4-analyse/recette.md'),'Changed after the durable reservation.');const done=await f.app.wait(f.m.id);assert.equal(done.status,'failed');assert.equal(done.errorInfo.code,'MISSION_RECHECK_REMAINING_CHANGED');assert.equal(done.recovery.remainingCorrectionPassesUsed,1);assert.equal(done.tasks[3].recoveryWriteRemaining,1);assert.equal(f.trace.length,0);assert.throws(()=>f.app.recheck(f.m.id),{code:'MISSION_RECHECK_LIMIT'});
+});
+
+test('stopping a remaining correction cancels its task and never restores its spent one or starts a review',async t=>{
+ const f=await remainingFixture(t),gate=f.setCreationGate();f.app.recheck(f.m.id);await gate.started.promise;assert.equal(f.m.tasks[3].recoveryWriteRemaining,0);f.app.stop(f.m.id);gate.release.resolve();const done=await f.app.wait(f.m.id);
+ assert.equal(done.status,'cancelled');assert.equal(done.tasks[3].recoveryWriteRemaining,0);assert.equal(done.recovery.remainingCorrectionPassesUsed,1);assert.deepEqual(f.trace,[{kind:'creation',id:'t4'}]);assert.equal(f.app.runs.size,0);assert.equal(f.app.get(f.m.id).recovery.canRecheck,false);
 });
