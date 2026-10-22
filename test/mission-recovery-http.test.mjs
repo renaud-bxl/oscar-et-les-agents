@@ -22,6 +22,13 @@ test('a rejected or unconfirmed repair is never silently submitted again',async(
   await assert.rejects(requestMissionRecovery(()=>assert.fail('No request is allowed'),{...mission,recovery:{canResume:false}}));
 });
 
+test('a manual correction review uses its own route and resolves a lost response by GET only',async()=>{
+  const mission={id:'project',status:'needs_review',recovery:{used:1,rechecksUsed:0,canResume:false,canRecheck:true}},calls=[];
+  const result=await requestMissionRecovery(async(route,options)=>{calls.push({route,options});if(options)throw new Error('Lost response');return{...mission,status:'reviewing',recovery:{used:1,rechecksUsed:1,canRecheck:false,reason:'active'}};},mission);
+  assert.equal(result.recovery.rechecksUsed,1);assert.equal(calls.length,2);assert.equal(calls[0].route,'/api/missions/project/recheck');assert.equal(calls.filter(call=>call.options?.method==='POST').length,1);
+  await assert.rejects(requestMissionRecovery(async(_route,options)=>{if(options)throw new Error('Lost response');return mission;},mission),/reprise n’a pas pu être confirmée/u);
+});
+
 test('HTTP repair requires its explicit action, preserves the project and rejects duplicates',async t=>{
   const dataDir=await mkdtemp(path.join(os.tmpdir(),'oscar-http-recovery-'));
   const id=randomUUID(),folder=path.join(dataDir,'missions','Projet conservé'),work=path.join(folder,'travail');

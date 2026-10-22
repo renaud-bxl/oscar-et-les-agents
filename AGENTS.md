@@ -1,6 +1,6 @@
 # Oscar et les Agents
 
-Version 0.6.12 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
+Version 0.6.13 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
 
 ## Installer et lancer pour une personne
 
@@ -136,3 +136,9 @@ La dictée partagée s’ouvre uniquement sur clic ; l’insertion nécessite re
 - Pour les petites créations et jeux locaux reconnus, les appels Codex utilisent un effort medium uniquement pour l’invocation. Le modèle, les réglages personnels, les permissions et les connexions restent identiques. Les autres missions conservent leur effort hérité. Les rapports et recherches sont proportionnés au brief ; pas de longue étude pour un petit jeu.
 - Une image de décor conservée n’est jamais présentée comme un jeu jouable. Les entrées HTML compilées connues sont choisies explicitement en cas d’ambiguïté. Les essais gardent le serveur isolé, le sandbox sans same-origin, le refus des comptes/réseaux externes et les limites de fichiers. Les diagnostics d’un aperçu sont des textes non fiables et ne déclenchent ni commande ni réparation.
 - Le bilan peut proposer Tester, mais ne lance pas automatiquement le code livré. L’essai volontaire propose clavier, formats d’écran et agrandissement. Les erreurs réelles restent visibles et actionnables ; ne les masque pas et ne promets pas une absence universelle de panne.
+
+
+## Dessins passifs et relecture manuelle (0.6.13)
+
+- Les contributions SVG statiques peuvent utiliser des styles simples, symboles et références à des IDs internes vérifiés. Le validateur borné refuse les contenus actifs, ressources externes, entités, namespaces étrangers, références cycliques et expansions excessives. Les aperçus conservent leur assainissement DOM et leur isolation ; accepter un dessin ne donne aucun accès supplémentaire.
+- Une reprise déjà consommée peut proposer une seule relecture manuelle des corrections, par une action explicite distincte. Sauvegarde dédiée, même dossier et plan ; aucun budget de réparation déjà consommé n’est renouvelé. Les tâches encore bloquées conservent seulement leur budget initial restant. Les vrais contrôles restent nécessaires ; aucun appel automatique supplémentaire ni boucle sur un refus. Les comptes, annulations et démos restent exclus.

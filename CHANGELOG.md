@@ -1,5 +1,10 @@
 # Historique des versions
 
+## 0.6.13 — 22 octobre 2026
+
+- Les dessins vectoriels passifs avec styles simples et références internes vérifiées ne sont plus rejetés comme des fichiers absents. Les références distantes et contenus actifs restent refusés.
+- Après une reprise, une relecture manuelle unique permet de contrôler les corrections et de poursuivre les contributions restantes, sans renouveler les budgets déjà consommés.
+
 ## 0.6.12 — 22 octobre 2026
 
 - Oscar récupère les fichiers déjà produits et peut effectuer une unique reprise ciblée après une panne temporaire, avec sauvegarde privée et validations réelles. Les reprises manuelles gardent le même dossier.

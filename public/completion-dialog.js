@@ -68,11 +68,11 @@ export class CompletionDialog {
     else folderCopy.append(node('p', 'completion-folder-path', 'Le chemin exact sera disponible en rouvrant cette mission.'));
     this.folderButton = this.button('Ouvrir le dossier de tous les fichiers ↗', 'completion-action completion-folder-open', () => this.openFolder()); this.folderButton.disabled=typeof this.onFolder!=='function';folderCopy.append(this.folderButton);folder.append(folderCopy); body.append(folder);
     this.error = node('p', 'completion-error'); this.error.hidden = true; this.error.setAttribute('role', 'alert'); body.append(this.error);
-    const browser=deliveryPreviewEntries(mission).length>0,canResume=!validated&&!demo&&mission.recovery?.canResume===true&&typeof this.onResume==='function';
+    const browser=deliveryPreviewEntries(mission).length>0,canResume=!validated&&!demo&&(mission.recovery?.canResume===true||mission.recovery?.canRecheck===true)&&typeof this.onResume==='function';
     const actions = node('footer', 'completion-actions');
     if(browser&&typeof this.onView==='function')actions.append(this.button(validated?'Tester le jeu ou le site ↗':'Tester l’aperçu partiel ↗','completion-action completion-action-primary',()=>this.act('onView')));
     else actions.append(this.button(validated?'Voir le résultat ↗':'Voir les fichiers conservés ↗', 'completion-action completion-action-primary', () => this.act(validated&&typeof this.onView==='function'?'onView':'onDelivery')));
-    if(canResume)actions.append(this.button('Reprendre avec Oscar','completion-action completion-action-primary',()=>{if(this.mission.recovery?.canResume===true)return this.act('onResume');}));
+    if(canResume)actions.append(this.button(mission.recovery?.canRecheck===true?'Faire relire les corrections':'Reprendre avec Oscar','completion-action completion-action-primary',()=>{if(this.mission.recovery?.canResume===true||this.mission.recovery?.canRecheck===true)return this.act('onResume');}));
     if(validated&&!demo&&typeof this.onPublish==='function')actions.append(this.button('Publier le projet ↗','completion-action',()=>this.act('onPublish')));
     actions.append(this.button('Ouvrir le dossier de tous les fichiers ↗','completion-action',()=>this.openFolder()));
     const secondary=node('div','completion-secondary-actions');secondary.append(this.button('Améliorer avec Oscar','completion-action completion-action-new',()=>this.act('onImprove')),this.button('Une nouvelle mission','completion-action completion-action-new',()=>this.act('onNew')));body.append(secondary);

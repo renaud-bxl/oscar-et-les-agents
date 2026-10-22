@@ -491,9 +491,12 @@ function renderDeliveries() {
   $('delivery-folder-path').textContent=mission?.workDirectory||mission?.folderName||'';
   const previewCandidate=deliveryPreviewCandidate(mission),previewEntries=deliveryPreviewEntries(mission);$('delivery-view-result').hidden=(!previewCandidate&&!previewEntries.length)||isRunning(mission);$('delivery-view-result').textContent=previewCandidate?.kind==='browser'||previewEntries.length?(mission?.status==='completed'?'Lancer le jeu ou le site ↗':'Tester l’aperçu partiel ↗'):'Voir le résultat ↗';
   const repairing=recoveryPending.has(mission?.id);
-  $('mission-recovery').hidden=mission?.recovery?.canResume!==true&&!repairing;
+  const recheck=mission?.recovery?.canRecheck===true;
+  $('mission-recovery').hidden=mission?.recovery?.canResume!==true&&!recheck&&!repairing;
+  $('mission-recovery-heading').textContent=translate(recheck?'Faire relire les corrections':'Oscar peut reprendre ce projet');
+  $('mission-recovery-description').textContent=translate(recheck?'Oscar relit les fichiers corrigés et poursuit les contributions encore possibles. Cette vérification supplémentaire est volontaire et disponible une seule fois ; elle ne renouvelle aucun budget de réparation.':'Les fichiers existants restent dans ce dossier. Oscar examine ce qui est déjà prêt, répare les contributions manquantes et vérifie la livraison. Une seule reprise est disponible ; elle utilise votre moteur connecté.');
   $('mission-recovery-button').disabled=repairing;
-  $('mission-recovery-button').textContent=translate(repairing?'Oscar prépare la reprise…':'Faire reprendre ce projet par Oscar');
+  $('mission-recovery-button').textContent=translate(repairing?'Oscar prépare la reprise…':recheck?'Faire relire les corrections':'Faire reprendre ce projet par Oscar');
   $('mission-access-help').hidden=!mission||isRunning(mission)||!['reconnect','check-connection','review-permissions','review-tools','update-engine'].includes(mission.errorInfo?.action);
   if($('mission-recovery-status').dataset.mission!==mission?.id){$('mission-recovery-status').dataset.mission=mission?.id||'';$('mission-recovery-status').textContent='';$('mission-recovery-status').hidden=true;}
   const files=mission?.files || [];
@@ -866,7 +869,7 @@ async function viewResult(item){
   if(selectedId!==item.id)activateDeliveryProject(item);showDeliveryDetail();
 }
 async function resumeMission(item){
-  if(recoveryPending.has(item.id)||item.recovery?.canResume!==true)return;
+  if(recoveryPending.has(item.id)||item.recovery?.canResume!==true&&item.recovery?.canRecheck!==true)return;
   recoveryPending.add(item.id);renderDeliveries();
   try{
     const current=await requestMissionRecovery(request,item);

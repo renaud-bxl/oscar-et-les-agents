@@ -566,14 +566,14 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
           const file = resolveNativeMissionFile(checkedMissionDirectory(engine.workDir(id)), body.path);
           await openFile(file); json(res, 200, { ok: true }); return;
         }
-        const resume = pathname.match(/^\/api\/missions\/([^/]+)\/resume$/);
+        const resume = pathname.match(/^\/api\/missions\/([^/]+)\/(resume|recheck)$/);
         if (resume) {
           if (url.search || Object.keys(body).some(key => key !== 'confirmed') || body.confirmed !== true) throw fileError('Confirmez la reprise depuis le dossier de cette mission.', 'MISSION_RECOVERY_INVALID');
           const mission = engine.get(resume[1]);
           if (!mission) { json(res, 404, { error: 'Mission inconnue.' }); return; }
           assertOpen();
           if (connectors.active?.has(mission.provider) || ['installing', 'connecting'].includes(engine.logins?.[mission.provider]?.status)) throw fileError('Ce moteur est en cours de préparation. Attendez sa connexion ou choisissez un autre moteur.', 'CONNECTOR_BUSY');
-          json(res, 202, engine.resume(mission.id)); return;
+          json(res, 202, resume[2]==='recheck'?engine.recheck(mission.id):engine.resume(mission.id)); return;
         }
         const stop = pathname.match(/^\/api\/missions\/([^/]+)\/stop$/);
         if (stop) { if (!engine.get(stop[1])) { json(res, 404, { error: 'Mission inconnue.' }); return; } json(res, 200, engine.stop(stop[1])); return; }
@@ -625,7 +625,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
     } catch (error) {
       if (res.destroyed) return;
       if (!res.headersSent&&error.code?.startsWith('BROWSER_PREVIEW_')) {json(res,error.status||400,{error:error.message?.slice(0,2000),code:error.code,...(Array.isArray(error.entries)?{entries:error.entries}:{})});return;}
-      if (!res.headersSent) json(res, ['PUBLICATION_NOT_FOUND', 'AUTOMATION_NOT_FOUND', 'MISSION_FILE_NOT_FOUND', 'VOICE_AUDIO_NOT_FOUND', 'CALENDAR_NOT_FOUND'].includes(error.code) ? 404 : ['MISSION_FILE_FORBIDDEN', 'ARCHIVE_FORBIDDEN'].includes(error.code) ? 403 : ['UPDATE_BUSY', 'UPDATE_CHANGED', 'SERVER_CLOSING', 'MISSION_CAPACITY', 'PUBLICATION_BUSY', 'PUBLICATION_CHANGED', 'CONNECTOR_BUSY', 'AUTOMATION_BUSY', 'AUTOMATION_REQUEST_CHANGED', 'AUTOMATION_REQUEST_DELETED', 'VOICE_BUSY', 'DICTATION_BUSY', 'DOCUMENT_BUSY', 'SECRETARY_REQUEST_CHANGED', 'SECRETARY_RETRY', 'ARCHIVE_BUSY', 'ARCHIVE_CHANGED', 'MISSION_REQUEST_CHANGED', 'MISSION_REQUEST_RETRY', 'CALENDAR_BUSY', 'CALENDAR_CHANGED', 'CALENDAR_UNCERTAIN', 'MISSION_RECOVERY_LIMIT', 'MISSION_RECOVERY_UNAVAILABLE', 'MISSION_RECOVERY_PROVIDER'].includes(error.code) ? 409 : 400, { error: error.message?.slice(0, 2000) ?? 'La demande a échoué.', ...(/^(?:UPDATE|DICTATION|DOCUMENT|CALENDAR|MISSION_RECOVERY)_[A-Z_]{1,50}$/u.test(error.code||'') ? {code:error.code} : {}) });
+      if (!res.headersSent) json(res, ['PUBLICATION_NOT_FOUND', 'AUTOMATION_NOT_FOUND', 'MISSION_FILE_NOT_FOUND', 'VOICE_AUDIO_NOT_FOUND', 'CALENDAR_NOT_FOUND'].includes(error.code) ? 404 : ['MISSION_FILE_FORBIDDEN', 'ARCHIVE_FORBIDDEN'].includes(error.code) ? 403 : ['UPDATE_BUSY', 'UPDATE_CHANGED', 'SERVER_CLOSING', 'MISSION_CAPACITY', 'PUBLICATION_BUSY', 'PUBLICATION_CHANGED', 'CONNECTOR_BUSY', 'AUTOMATION_BUSY', 'AUTOMATION_REQUEST_CHANGED', 'AUTOMATION_REQUEST_DELETED', 'VOICE_BUSY', 'DICTATION_BUSY', 'DOCUMENT_BUSY', 'SECRETARY_REQUEST_CHANGED', 'SECRETARY_RETRY', 'ARCHIVE_BUSY', 'ARCHIVE_CHANGED', 'MISSION_REQUEST_CHANGED', 'MISSION_REQUEST_RETRY', 'CALENDAR_BUSY', 'CALENDAR_CHANGED', 'CALENDAR_UNCERTAIN', 'MISSION_RECOVERY_LIMIT', 'MISSION_RECOVERY_UNAVAILABLE', 'MISSION_RECOVERY_PROVIDER', 'MISSION_RECHECK_LIMIT', 'MISSION_RECHECK_UNAVAILABLE'].includes(error.code) ? 409 : 400, { error: error.message?.slice(0, 2000) ?? 'La demande a échoué.', ...(/^(?:UPDATE|DICTATION|DOCUMENT|CALENDAR|MISSION_RECOVERY|MISSION_RECHECK)_[A-Z_]{1,50}$/u.test(error.code||'') ? {code:error.code} : {}) });
       else res.destroy();
     } finally { releaseUpdateOperation?.(); }
   });
