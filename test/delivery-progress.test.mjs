@@ -95,7 +95,7 @@ test('visible updates preserve nodes, focus and actions while durations keep adv
   assert.equal(widget.root.hidden,false);assert.equal(widget.elapsed.textContent,'8 s');assert.equal(widget.countNodes.submitted.value.textContent,'2');assert.equal(time.queue.size,1);assert.equal(widget.dismissButton.hidden,true);
   const children=[...widget.root.children],openButton=widget.openButton;openButton.focus();widget.openButton.click();assert.deepEqual(opened,['progress']);
   time.tick(1500);assert.equal(widget.elapsed.textContent,'9 s');widget.update(structuredClone(mission()));assert.equal(widget.openButton,openButton);assert.equal(document.activeElement,openButton);assert.deepEqual(widget.root.children,children);
-  widget.update(mission({status:'completed'}));assert.equal(time.queue.size,0);assert.equal(widget.openButton.textContent,'Voir la livraison');widget.openButton.click();assert.deepEqual(opened,['progress','delivery']);
+  widget.update(mission({status:'completed'}));assert.equal(time.queue.size,1,'A normal delivery only keeps its bounded auto-collapse timer.');assert.equal(widget.openButton.textContent,'Voir la livraison');widget.openButton.click();assert.deepEqual(opened,['progress','delivery']);
   widget.dismissButton.click();assert.equal(widget.root.hidden,true);widget.update(mission({status:'completed'}));assert.equal(widget.root.hidden,true);
   widget.update(mission());assert.equal(widget.root.hidden,false,'A resumed active cycle clears a terminal dismissal.');assert.equal(time.queue.size,1);
   widget.update(mission({id:'mission-2',status:'needs_review'}));assert.equal(widget.root.hidden,false);assert.equal(time.queue.size,0);widget.destroy();assert.equal(container.children.length,0);
@@ -119,4 +119,55 @@ test('empty missions hide the notice and a new mission cannot inherit the previo
   widget.update(mission({status:'failed'}));widget.dismissButton.click();assert.equal(widget.root.hidden,true);
   widget.update(mission({id:'new-mission',status:'failed'}));assert.equal(widget.root.hidden,false);assert.equal(time.queue.size,0);
   widget.update(mission({performance:{calls:[]}}));assert.equal(widget.root.hidden,true);widget.update(null);assert.equal(time.queue.size,0);widget.destroy();
+});
+
+test('normal details collapse after ten visible seconds without restarting on state polling',()=>{
+  setLocale('fr');const{container}=dom(),time=clock(),opened=[];
+  const widget=new DeliveryProgress({container,now:time.now,timers:time.timers,onOpen:action=>opened.push(action)});widget.update(mission());
+  const details=widget.details,submitted=widget.countNodes.submitted.value,children=[...widget.root.children];
+  assert.equal(widget.toggleButton['aria-expanded'],'true');assert.equal(widget.toggleButton['aria-controls'],details.id);
+  time.tick(4000);widget.update(structuredClone(mission()));time.tick(4000);widget.update(structuredClone(mission()));
+  time.tick(1999);assert.equal(details.hidden,false);time.tick(1);
+  assert.equal(widget.collapsed,true);assert.equal(details.hidden,true);assert.equal(widget.root.hidden,false);assert.equal(widget.toggleButton['aria-expanded'],'false');assert.equal(time.queue.size,0,'Hidden details need no live clock.');
+  assert.equal(widget.title.textContent,'Oscar vérifie les contributions');assert.equal(widget.openButton.textContent,'Suivi');widget.openButton.click();assert.deepEqual(opened,['progress']);
+  widget.update(mission({performance:{calls:[call({stage:'assembly'})]},tasks:[{status:'approved'}]}));
+  assert.equal(widget.collapsed,true);assert.equal(widget.title.textContent,'Oscar prépare votre livraison');assert.equal(widget.countNodes.submitted.value,submitted);assert.equal(submitted.textContent,'1');assert.deepEqual(widget.root.children,children);
+  widget.toggleButton.click();assert.equal(widget.collapsed,false);assert.equal(widget.details,details);assert.equal(widget.details.hidden,false);assert.equal(widget.toggleButton['aria-expanded'],'true');
+  widget.destroy();assert.equal(time.queue.size,0);
+});
+
+test('manual collapse and expansion survive repeated polling and real stage changes',()=>{
+  const{document,container}=dom(),time=clock(),widget=new DeliveryProgress({container,now:time.now,timers:time.timers});widget.update(mission());
+  widget.toggleButton.focus();widget.toggleButton.click();assert.equal(widget.collapsed,true);
+  for(const stage of['review','assembly','final-review']){time.tick(4000);widget.update(mission({performance:{calls:[call({stage})]}}));assert.equal(widget.collapsed,true);assert.equal(document.activeElement,widget.toggleButton);}
+  widget.toggleButton.click();assert.equal(widget.collapsed,false);document.activeElement=null;
+  for(let index=0;index<4;index++){time.tick(30000);widget.update(structuredClone(mission()));assert.equal(widget.collapsed,false);}
+  assert.equal(widget.toggleButton.type,'button');assert.equal(widget.openButton.type,'button');widget.destroy();
+});
+
+test('a new important problem opens once and stays actionable without an automatic collapse',()=>{
+  const{container}=dom(),time=clock(),opened=[],widget=new DeliveryProgress({container,now:time.now,timers:time.timers,onOpen:action=>opened.push(action)});widget.update(mission());widget.toggleButton.click();
+  widget.update(mission({status:'needs_review'}));assert.equal(widget.collapsed,false);assert.equal(widget.root.dataset.important,'true');assert.equal(time.queue.size,0);assert.equal(widget.note.hidden,false);
+  time.tick(60000);widget.update(mission({status:'needs_review'}));assert.equal(widget.collapsed,false);
+  widget.toggleButton.click();widget.update(mission({status:'needs_review'}));assert.equal(widget.collapsed,true);assert.equal(widget.root.hidden,false);widget.openButton.click();assert.deepEqual(opened,['progress']);
+  widget.update(mission({status:'failed'}));assert.equal(widget.collapsed,false);assert.equal(widget.title.textContent,'La mission a rencontré un problème');assert.equal(time.queue.size,0);
+  widget.toggleButton.click();widget.update(mission({status:'failed'}));assert.equal(widget.collapsed,true);widget.destroy();
+});
+
+test('hidden time does not consume the attention budget and a completed normal notice stops after collapsing',()=>{
+  const{document,container}=dom(),time=clock(),widget=new DeliveryProgress({container,now:time.now,timers:time.timers});widget.update(mission({status:'completed'}));
+  time.tick(6000);document.hidden=true;document.emit('visibilitychange');assert.equal(time.queue.size,0);
+  time.tick(60000);document.hidden=false;document.emit('visibilitychange');assert.equal(widget.collapsed,false);
+  time.tick(3999);assert.equal(widget.collapsed,false);time.tick(1);assert.equal(widget.collapsed,true);assert.equal(time.queue.size,0);assert.equal(widget.openButton.textContent,'Voir la livraison');
+  widget.update(mission({id:'another',status:'completed'}));assert.equal(widget.collapsed,false);widget.setVisible(false);assert.equal(time.queue.size,0);time.tick(60000);widget.setVisible(true);time.tick(9999);assert.equal(widget.collapsed,false);time.tick(1);assert.equal(widget.collapsed,true);widget.destroy();
+});
+
+test('automatic collapse never hides a focused control and collapsed controls follow the chosen language',()=>{
+  const{document,container}=dom(),time=clock(),widget=new DeliveryProgress({container,now:time.now,timers:time.timers});widget.update(mission());
+  widget.openButton.focus();time.tick(10000);assert.equal(widget.collapsed,false);assert.equal(document.activeElement,widget.openButton);
+  document.activeElement=null;time.tick(500);assert.equal(widget.collapsed,true);
+  setLocale('en');document.emit('oscar:language');assert.equal(widget.toggleButton.textContent,'Details');assert.equal(widget.toggleButton['aria-label'],'Show progress details');assert.equal(widget.openButton.textContent,'Progress');assert.equal(widget.toggleButton['aria-expanded'],'false');
+  setLocale('nl');document.emit('oscar:language');assert.equal(widget.toggleButton['aria-label'],'Voortgangsdetails tonen');assert.equal(widget.openButton.textContent,'Voortgang');assert.equal(widget.details.hidden,true);
+  widget.toggleButton.click();assert.equal(widget.toggleButton.textContent,'Inklappen');assert.equal(widget.toggleButton['aria-expanded'],'true');
+  widget.destroy();assert.equal(time.queue.size,0);assert.equal(widget.toggleButton.handlers.get('click').size,0);setLocale('fr');
 });

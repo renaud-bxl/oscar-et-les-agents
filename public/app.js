@@ -5,6 +5,7 @@ import { WelcomeGuide, withTeamPreference } from '/welcome-guide.js';
 import { startI18n, withLocaleInstruction, translate, getLocale, setLocale } from '/i18n.js';
 import { PublicationDialog } from '/publication-dialog.js';
 import { OfficeSpeech } from '/office-speech.js';
+import { OfficeNotice } from '/office-notice.js';
 import { ClockDialog } from '/clock-dialog.js';
 import { CreativeStudio } from '/creative-studio.js';
 import { ConnectorsDialog } from '/connectors-dialog.js';
@@ -31,6 +32,8 @@ import { DraftStorage, draftScope } from '/draft-storage.js';
 
 const $ = (id) => document.getElementById(id);
 const officeTheme = new OfficeTheme();
+const worldNotice=new OfficeNotice({element:$('office-toast'),content:$('pixel-world-status'),closeButton:$('dismiss-office-status'),duration:7000});
+const speechNotice=new OfficeNotice({element:$('speech-caption'),content:$('speech-text'),label:$('speech-name'),closeButton:$('speech-close'),onDismiss:()=>officeSpeech?.stop()});
 const roleInfo = {
   secretaire: {name:'Zoé',label:'Secrétariat',initial:'Z',intro:'Zoé prépare vos e-mails, votre agenda et vos priorités avec les services que vous avez connectés.'},
   oscar: {name: 'Oscar', label: 'Chef d’équipe', initial: 'O', intro: 'Oscar transforme votre idée en plan de travail, confie chaque tâche au bon spécialiste, puis vérifie et assemble les résultats.'},
@@ -116,7 +119,6 @@ function dictateInto(target){dictationReturnPanel=activePanel;closeOfficePanel({
 const completionStatuses = new Map(),pendingCompletions = new Map();
 let completionTimer = null;
 let lastNarrated = null;
-let statusTimer = null;
 let activePanel = null;
 const missionTiming = new MissionTiming({container:$('mission-timing'),isVisible:()=>activePanel==='progress'});
 const deliveryProgress = new DeliveryProgress({container:$('delivery-progress-host'),isVisible:()=>!document.querySelector('dialog[open]'),onOpen:panel=>panel==='delivery'?showDeliveryDetail():openPanel(panel)});
@@ -241,8 +243,8 @@ function timeLabel(value) {
 }
 function announce(message) { if(message && message !== lastAnnouncement) { $('live-announcement').textContent = message; lastAnnouncement = message; } }
 function showError(message) { $('global-error').textContent = message; $('global-error').hidden = !message;$('panel-error').textContent=message;$('panel-error').hidden=!message; }
-function hideWorldStatus(){clearTimeout(statusTimer);$('office-toast').hidden=true;}
-function showWorldStatus(message){clearTimeout(statusTimer);$('pixel-world-status').textContent=String(message).slice(0,200);$('office-toast').hidden=false;statusTimer=setTimeout(hideWorldStatus,7000);}
+function hideWorldStatus(){worldNotice.dismiss();}
+function showWorldStatus(message){const text=String(message).slice(0,200);worldNotice.show({text,id:text});}
 async function request(url, options) {
   let response;try{response=await fetch(url,{credentials:'same-origin',...options});}catch(error){if(error.name==='AbortError')throw error;throw new Error(translate('Le bureau ne répond pas pour le moment. Vos saisies restent dans cette fenêtre.'));}
   let data;
@@ -543,6 +545,8 @@ function renderDeliveries() {
   }
 }
 function renderMission() {
+  const noticeContext=mission?.id||'home';
+  if(speechNotice.context!==noticeContext){officeSpeech?.stop();speechNotice.setContext(noticeContext);worldNotice.setContext(noticeContext);}
   missionTiming.update(mission);deliveryProgress.update(mission);
   $('publish-project').hidden=!mission||mission.status!=='completed'||mission.provider==='demo';
   $('publish-project').disabled=!mission||isRunning(mission);
@@ -584,8 +588,8 @@ function narrateMission(){
   const previous=lastNarrated;lastNarrated=next;
   if(!previous||previous.id!==next.id||!officeSpeech)return;
   if(next.status!==previous.status&&next.status==='completed')officeSpeech.speak('oscar','La mission est livrée ! J’ai assemblé les résultats de l’équipe. Vous pouvez ouvrir les fichiers dans Livraison.',{automatic:true});
-  else if(next.status!==previous.status&&next.status==='needs_review')officeSpeech.speak('oscar','Un point demande votre attention. Ouvrez le suivi : je vous explique ce qui reste à vérifier.',{automatic:true});
-  else if(next.status!==previous.status&&['failed','cancelled'].includes(next.status))officeSpeech.speak('oscar',next.status==='failed'?'La mission a rencontré un problème. Les fichiers sont conservés ; ouvrez le bilan pour voir ce qui manque.':'La mission a été arrêtée. Les fichiers déjà produits restent disponibles dans son dossier.',{automatic:true});
+  else if(next.status!==previous.status&&next.status==='needs_review')officeSpeech.speak('oscar','Un point demande votre attention. Ouvrez le suivi : je vous explique ce qui reste à vérifier.',{automatic:true,persistent:true});
+  else if(next.status!==previous.status&&['failed','cancelled'].includes(next.status))officeSpeech.speak('oscar',next.status==='failed'?'La mission a rencontré un problème. Les fichiers sont conservés ; ouvrez le bilan pour voir ce qui manque.':'La mission a été arrêtée. Les fichiers déjà produits restent disponibles dans son dossier.',{automatic:true,persistent:next.status==='failed'});
   else if(next.tasks>previous.tasks){const roles=[...new Set((mission.tasks||[]).map(t=>translate(getRole(t.role).label)))].join(', ');officeSpeech.speak('oscar',`${translate('Je recrute l’équipe :')} ${roles}. ${translate('Chaque spécialiste reçoit une tâche. Je relirai leurs résultats avant la livraison.')}`,{automatic:true,interrupt:false});}
   else if(next.status!==previous.status&&next.status==='reviewing')officeSpeech.speak('oscar','L’équipe m’a rendu ses dossiers. Je vérifie les résultats et je prépare votre livraison.',{automatic:true});
   else if(next.approved>previous.approved)officeSpeech.speak('oscar','De nouvelles contributions sont validées. L’équipe avance ; vous pouvez suivre les détails dans le suivi.',{automatic:true,interrupt:false});
@@ -803,7 +807,7 @@ $('pixel-fullscreen').addEventListener('click',async()=>{try{if(document.fullscr
 document.querySelectorAll('[data-prompt]').forEach(button=>button.addEventListener('click',()=>{$('mission-input').value=translate(button.dataset.prompt);saveBriefDraft();$('mission-input').focus();}));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshState();});
 window.addEventListener('online',refreshState);
-window.addEventListener('beforeunload',()=>{applicationUpdates.destroy();officeTheme.destroy();deliveryNavigation?.destroy();deliveryLibrary?.destroy();missionTiming.destroy();deliveryProgress.destroy();progressVisibilityObserver.disconnect();resultPreviewDialog?.destroy();deliveryPanelPreview?.destroy();archiveDownload?.abort();clearTimeout(statusTimer);clearTimeout(completionTimer);clearTimeout(weatherTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();dictationDialog?.destroy();documentLibrary?.destroy();personalizationDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
+window.addEventListener('beforeunload',()=>{applicationUpdates.destroy();officeTheme.destroy();worldNotice.destroy();speechNotice.destroy();deliveryNavigation?.destroy();deliveryLibrary?.destroy();missionTiming.destroy();deliveryProgress.destroy();progressVisibilityObserver.disconnect();resultPreviewDialog?.destroy();deliveryPanelPreview?.destroy();archiveDownload?.abort();clearTimeout(completionTimer);clearTimeout(weatherTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();dictationDialog?.destroy();documentLibrary?.destroy();personalizationDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
 
 coffeeDialog = new CoffeeDialog({recipient:'renaud2005@gmail.com'});
 clockDialog=new ClockDialog({onClose:()=>returnFromUtility(clockDialog)});
@@ -856,7 +860,6 @@ $('review-completion').addEventListener('click',()=>{closeOfficePanel({restoreFo
 $('reuse-mission').addEventListener('click',()=>{if(!mission||mission.assistant)return;const url=new URL(location.href);url.search='';url.searchParams.set('new','1');url.searchParams.set('reuse',mission.id);window.open(url.href,'_blank','noopener');});
 for(const id of ['open-connectors','settings-connectors'])$(id).addEventListener('click',()=>openUtility(connectorsDialog));
 for(const id of ['open-automations','settings-automations'])$(id).addEventListener('click',()=>openUtility(automationsDialog));
-$('dismiss-office-status').addEventListener('click',hideWorldStatus);
 function openDeliveryFile(item,file){
   if(selectedId!==item.id)activateDeliveryProject(item);deliveryNavigation?.show(mission?.id===item.id?mission:item);closeOfficePanel({restoreFocus:false});
   return /(?:^|\/)index\.html$/u.test(file.path)&&!isRunning(item)?resultPreviewDialog.open(item,{entry:file.path}):artifactViewer.open(item,file);
@@ -952,7 +955,8 @@ officeSpeech=new OfficeSpeech({onChange:info=>{
   const speaking=info.audioSpeaking??info.speaking,preparing=info.audioPreparing??info.preparing;
   $('speech-stop').hidden=!speaking&&!preparing;
   pixelWorld?.setSpeaking(speaking?roleOf(info.audioRole||info.role):null);
-  if(info.text&&!info.muted){$('speech-caption').hidden=false;$('speech-name').textContent=getRole(info.role).name;$('speech-text').textContent=info.text;}
+  speechNotice.hold(!!speaking||!!preparing);
+  if(info.text&&!info.muted)speechNotice.show({id:`${info.captionId}:${info.role}:${info.text}`,text:info.text,label:getRole(info.role).name,persistent:info.persistent});
   voiceDialog?.refresh();
 },onVoices:voices=>{const selected=$('voice-select').value;const auto=node('option','','Automatique · une voix par personnage');auto.value='auto';$('voice-select').replaceChildren(auto);for(const voice of voices){if(voice.installed===false)continue;const option=node('option','',`${voice.name} · ${voice.lang}`);option.value=voice.id||voice.name;$('voice-select').append(option);}if([...$('voice-select').options].some(o=>o.value===selected))$('voice-select').value=selected;}});
 $('voice-select').value=officeSpeech.voiceName;
@@ -963,7 +967,6 @@ $('voice-enabled').addEventListener('change',()=>officeSpeech.setEnabled($('voic
 $('voice-select').addEventListener('change',()=>officeSpeech.setVoice($('voice-select').value));
 $('voice-test').addEventListener('click',()=>{officeSpeech.setEnabled(true);officeSpeech.speak('oscar','Bonjour, moi c’est Oscar ! Une idée, une équipe, et on se met au travail.');});
 $('speech-stop').addEventListener('click',()=>officeSpeech.stop());
-$('speech-close').addEventListener('click',()=>{officeSpeech.stop();$('speech-caption').hidden=true;});
 startI18n();
 const LANGUAGE_FLAGS={fr:'🇫🇷',en:'🇬🇧',nl:'🇳🇱'};
 function updateLanguageMenu(){const locale=getLocale();$('hud-language-flag').textContent=LANGUAGE_FLAGS[locale];for(const button of document.querySelectorAll('[data-hud-locale]'))button.setAttribute('aria-pressed',String(button.dataset.hudLocale===locale));}

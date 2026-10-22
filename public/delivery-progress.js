@@ -7,6 +7,7 @@ const TERMINAL=new Set(['completed','needs_review','failed','cancelled']);
 const STAGES=new Set(['review','assembly','final-review']);
 const CALL_STATUSES=new Set(['running','completed','failed','cancelled']);
 const SUBMITTED=new Set(['reviewing','approved','needs_review']);
+const IMPORTANT=new Set(['needs_review','failed']);
 const finite=value=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
 const clean=(value,max=320)=>typeof value==='string'?value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu,'').replace(/\s+/gu,' ').trim().slice(0,max):'';
 export const deliveryProgressText=(source,locale=getLocale())=>messages[source]?.[locale]||translate(source,locale);
@@ -50,17 +51,22 @@ export function deliveryProgressSnapshot(mission,{now=Date.now(),locale=getLocal
 }
 
 const text=(node,value)=>{const copy=String(value??'');if(node.textContent!==copy)node.textContent=copy;};
+let nextProgressId=0;
 
-/** A stable, non-modal notice; only a visible active review needs a timer. */
+/** Stable DOM: normal details settle into a compact notice, without hiding problems. */
 export class DeliveryProgress{
-  constructor({container,isVisible,now=()=>Date.now(),intervalMs=500,timers=globalThis,onOpen=()=>{}}={}){
+  constructor({container,isVisible,now=()=>Date.now(),intervalMs=500,autoCollapseMs=10000,timers=globalThis,onOpen=()=>{}}={}){
     if(!container?.ownerDocument||typeof container.append!=='function')throw new TypeError('Un conteneur est nécessaire pour afficher le suivi de la livraison.');
     Object.assign(this,{container,document:container.ownerDocument,now,timers,onOpen});
     this.isVisible=isVisible||(()=>container.isConnected!==false&&!container.closest?.('[hidden],[aria-hidden="true"]')&&(typeof container.getClientRects!=='function'||container.getClientRects().length>0));
     this.intervalMs=Math.max(200,Math.min(1000,finite(intervalMs)?intervalMs:500));
+    this.autoCollapseMs=Math.max(1000,Math.min(60000,finite(autoCollapseMs)?autoCollapseMs:10000));
+    this.collapseRemainingMs=this.autoCollapseMs;this.collapsed=false;this.collapseChoice=null;this.collapseSince=null;
     const node=(tag,cls='')=>{const element=this.document.createElement(tag);element.className=cls;return element;};
     this.root=node('section','delivery-progress');this.root.dataset.noTranslate='';this.root.hidden=true;
-    this.copy=node('div','delivery-progress-copy');this.title=node('h3');this.phase=node('p','delivery-progress-phase');this.phase.setAttribute('role','status');this.copy.append(this.title,this.phase);
+    this.header=node('div','delivery-progress-header');this.copy=node('div','delivery-progress-copy');this.title=node('h3');this.title.id=`delivery-progress-title-${++nextProgressId}`;this.title.setAttribute('aria-live','polite');this.title.setAttribute('aria-atomic','true');this.root.setAttribute('aria-labelledby',this.title.id);this.phase=node('p','delivery-progress-phase');this.phase.setAttribute('role','status');this.copy.append(this.title,this.phase);
+    this.toggleButton=node('button','delivery-progress-toggle');this.toggleButton.type='button';this.header.append(this.copy,this.toggleButton);
+    this.details=node('div','delivery-progress-details');this.details.id=`delivery-progress-details-${nextProgressId}`;this.toggleButton.setAttribute('aria-controls',this.details.id);
     this.stats=node('div','delivery-progress-stats');this.countNodes={};
     for(const key of ['submitted','approved','total']){const item=node('div'),label=node('span'),value=node('strong');item.append(label,value);this.stats.append(item);this.countNodes[key]={label,value};}
     this.timing=node('div','delivery-progress-timing');this.timingLabel=node('span');this.elapsed=node('output');this.elapsed.setAttribute('aria-live','off');this.timing.append(this.timingLabel,this.elapsed);
@@ -69,8 +75,9 @@ export class DeliveryProgress{
     this.openButton=node('button','delivery-progress-open');this.openButton.type='button';this.dismissButton=node('button','delivery-progress-dismiss');this.dismissButton.type='button';this.actions.append(this.openButton,this.dismissButton);
     this.onOpenClick=()=>{if(!this.destroyed&&this.data&&!this.root.hidden)this.onOpen(this.data.action);};
     this.onDismiss=()=>{if(!this.destroyed&&this.data?.dismissible){this.dismissed=true;this.render();this.schedule();}};
-    this.openButton.addEventListener('click',this.onOpenClick);this.dismissButton.addEventListener('click',this.onDismiss);
-    this.root.append(this.copy,this.stats,this.timing,this.activity,this.note,this.actions);container.append(this.root);
+    this.onToggle=()=>{if(this.destroyed||!this.data)return;this.collapsed=!this.collapsed;this.collapseChoice=this.collapsed?'collapsed':'expanded';this.render();this.schedule();};
+    this.openButton.addEventListener('click',this.onOpenClick);this.dismissButton.addEventListener('click',this.onDismiss);this.toggleButton.addEventListener('click',this.onToggle);
+    this.details.append(this.stats,this.timing,this.activity,this.note);this.root.append(this.header,this.details,this.actions);container.append(this.root);
     this.onVisibility=()=>this.refresh();this.onLanguage=()=>this.refresh();
     this.document.addEventListener('visibilitychange',this.onVisibility);this.document.addEventListener('oscar:language',this.onLanguage);
   }
@@ -78,7 +85,12 @@ export class DeliveryProgress{
   update(mission){
     if(this.destroyed)return;
     const previous=this.data,next=deliveryProgressSnapshot(mission,{now:this.now()});
-    if((mission?.id??null)!==(this.mission?.id??null)||next?.active&&!previous?.active)this.dismissed=false;
+    const changedMission=(mission?.id??null)!==(this.mission?.id??null);
+    if(changedMission){this.dismissed=false;this.collapsed=false;this.collapseChoice=null;this.collapseSince=null;this.collapseRemainingMs=this.autoCollapseMs;this.importantKey=null;}
+    else if(next?.active&&!previous?.active)this.dismissed=false;
+    const importantKey=next&&IMPORTANT.has(next.state)?`${next.missionId}:${next.state}`:null;
+    if(importantKey&&importantKey!==this.importantKey){this.dismissed=false;this.collapsed=false;this.collapseChoice=null;this.collapseSince=null;this.collapseRemainingMs=this.autoCollapseMs;}
+    this.importantKey=importantKey;
     this.mission=mission||null;this.render(next);this.schedule();
   }
   setVisible(value){if(this.destroyed)return;this.visibleOverride=Boolean(value);this.refresh();}
@@ -87,15 +99,30 @@ export class DeliveryProgress{
     this.data=data;this.root.hidden=!data||!!this.dismissed;if(!data||this.dismissed)return;
     const tr=deliveryProgressText;
     this.root.dataset.state=data.state;this.root.dataset.stage=data.stage||'';
-    text(this.title,data.title);text(this.phase,data.phase);this.phase.hidden=!data.phase;
+    this.root.dataset.collapsed=String(this.collapsed);this.root.dataset.important=String(IMPORTANT.has(data.state));
+    text(this.title,data.title);text(this.phase,data.phase);this.phase.hidden=this.collapsed||!data.phase;
+    this.details.hidden=this.collapsed;this.toggleButton.setAttribute('aria-expanded',String(!this.collapsed));
+    text(this.toggleButton,tr(this.collapsed?'Détails':'Réduire'));this.toggleButton.setAttribute('aria-label',tr(this.collapsed?'Afficher les détails du suivi':'Réduire le panneau de suivi'));
     for(const[key,label]of Object.entries({submitted:'Contributions remises',approved:'Contributions validées',total:'Contributions prévues'})){text(this.countNodes[key].label,tr(label));text(this.countNodes[key].value,data.counts[key]);}
     text(this.timingLabel,tr('Temps de l’appel en cours'));text(this.elapsed,formatTimingDuration(data.elapsedMs));this.timing.hidden=!data.call;
     text(this.activityLabel,tr('Dernière activité d’Oscar'));text(this.activityText,data.lastActivity?.text||tr('Aucune activité détaillée reçue pour cet appel.'));this.activity.hidden=!data.active&&!data.lastActivity;
     const age=data.lastActivity?.ageMs;text(this.activityAge,finite(age)?`${tr('Depuis le dernier retour')} : ${formatTimingDuration(age)}`:'');this.activityAge.hidden=!finite(age);
     text(this.note,data.note);this.note.hidden=!data.note;this.root.dataset.silent=String(data.silent);
-    text(this.openButton,data.actionLabel);text(this.dismissButton,tr('Masquer'));this.dismissButton.hidden=!data.dismissible;
+    text(this.openButton,this.collapsed&&data.action!=='delivery'?tr('Suivi'):data.actionLabel);this.openButton.setAttribute('aria-label',data.actionLabel);text(this.dismissButton,tr('Masquer'));this.dismissButton.hidden=!data.dismissible;
   }
-  schedule(){this.stop();if(!this.destroyed&&this.data?.active&&!this.root.hidden&&this.visible())this.timer=this.timers.setTimeout(()=>{this.timer=null;if(this.visible())this.render();this.schedule();},this.intervalMs);}
+  autoCollapseEligible(){return Boolean(this.data&&!this.root.hidden&&!IMPORTANT.has(this.data.state)&&!this.collapsed&&this.collapseChoice===null);}
+  focusWithin(){for(let element=this.document.activeElement;element;element=element.parentElement)if(element===this.root)return true;return false;}
+  schedule(){
+    this.stop();
+    const now=this.now();
+    if(this.collapseSince!==null&&finite(now))this.collapseRemainingMs=Math.max(0,this.collapseRemainingMs-Math.max(0,now-this.collapseSince));
+    this.collapseSince=null;
+    if(this.destroyed||!this.data||this.root.hidden||!this.visible())return;
+    if(this.autoCollapseEligible()&&this.collapseRemainingMs===0&&!this.focusWithin()){this.collapsed=true;this.render(this.data);}
+    const auto=this.autoCollapseEligible();
+    if(auto&&finite(now))this.collapseSince=now;
+    if(!this.collapsed&&this.data.active||auto)this.timer=this.timers.setTimeout(()=>{this.timer=null;if(this.visible())this.render();this.schedule();},this.intervalMs);
+  }
   stop(){if(this.timer!=null)this.timers.clearTimeout(this.timer);this.timer=null;}
-  destroy(){if(this.destroyed)return;this.destroyed=true;this.stop();this.document.removeEventListener('visibilitychange',this.onVisibility);this.document.removeEventListener('oscar:language',this.onLanguage);this.openButton.removeEventListener('click',this.onOpenClick);this.dismissButton.removeEventListener('click',this.onDismiss);this.root.remove();this.mission=null;this.data=null;}
+  destroy(){if(this.destroyed)return;this.destroyed=true;this.stop();this.collapseSince=null;this.document.removeEventListener('visibilitychange',this.onVisibility);this.document.removeEventListener('oscar:language',this.onLanguage);this.openButton.removeEventListener('click',this.onOpenClick);this.dismissButton.removeEventListener('click',this.onDismiss);this.toggleButton.removeEventListener('click',this.onToggle);this.root.remove();this.mission=null;this.data=null;}
 }

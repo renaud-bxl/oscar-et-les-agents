@@ -21,7 +21,7 @@ export const supportsCharacter=(voice,role)=>{
 export class OfficeSpeech {
   constructor({host=globalThis,onChange=()=>{},onVoices=()=>{}}={}){
     Object.assign(this,{host,onChange,onVoices});this.synth=host.speechSynthesis;this.systemAvailable=!!this.synth&&typeof host.SpeechSynthesisUtterance==='function';
-    this.enabled=true;this.engine='natural';this.voiceName='auto';this.characterVoices={};this.preferencesVersion=2;this.unlocked=false;this.current=null;this.generation=0;this.lastAutomatic=0;this.destroyed=false;
+    this.enabled=true;this.engine='natural';this.voiceName='auto';this.characterVoices={};this.preferencesVersion=2;this.unlocked=false;this.current=null;this.generation=0;this.captionSequence=0;this.captionInfo=null;this.lastAutomatic=0;this.destroyed=false;
     this.local={status:'not_installed',available:false,voices:[],progress:null,message:''};this.nativeVoices=[];this.voices=[];this.available=false;
     try{const value=JSON.parse(host.localStorage?.getItem(STORE)||'null');if(value){this.preferencesVersion=Number(value.version)>=2?2:1;this.enabled=value.enabled!==false;this.voiceName=typeof value.voice==='string'?value.voice:'auto';if(ENGINES.has(value.engine))this.engine=value.engine;if(value.characters&&typeof value.characters==='object'){for(const role of Object.keys(PROFILE)){if(typeof value.characters[role]==='string')this.characterVoices[role]=value.characters[role];}if(!this.characterVoices.zoe&&typeof value.characters.secretaire==='string')this.characterVoices.zoe=value.characters.secretaire;}}}catch{}
     this.refresh=()=>{try{this.nativeVoices=this.systemAvailable?this.synth.getVoices():[];}catch{this.nativeVoices=[];}this.publishVoices();};
@@ -50,7 +50,7 @@ export class OfficeSpeech {
     }
     this.preferencesVersion=2;this.save();
   }
-  getState(){return{engine:this.engine,enabled:this.enabled,available:this.available,voiceName:this.voiceName,characterVoices:{...this.characterVoices},local:this.local,voices:this.voices,locale:getLocale(),speaking:this.current?.phase==='speaking',preparing:this.current?.phase==='preparing',role:this.current?.role,text:this.current?.text,audioSpeaking:this.current?.phase==='speaking',audioPreparing:this.current?.phase==='preparing',audioRole:this.current?.role};}
+  getState(){return{engine:this.engine,enabled:this.enabled,available:this.available,voiceName:this.voiceName,characterVoices:{...this.characterVoices},local:this.local,voices:this.voices,locale:getLocale(),captionId:this.captionInfo?.id,persistent:this.captionInfo?.persistent===true,speaking:this.current?.phase==='speaking',preparing:this.current?.phase==='preparing',role:this.current?.role,text:this.current?.text,audioSpeaking:this.current?.phase==='speaking',audioPreparing:this.current?.phase==='preparing',audioRole:this.current?.role};}
   message(){if(this.engine==='captions')return'Sous-titres uniquement. Les personnages gardent leurs répliques à l’écran.';if(this.engine==='system')return'Voix du système activées à votre demande. Leur qualité dépend de cet ordinateur.';if(this.available)return'Voix naturelles locales prêtes. Votre texte reste sur cet ordinateur.';if(this.local.status==='installing')return'Installation de la voix locale en cours. Les sous-titres restent disponibles.';if(this.local.voices.some(voice=>voice.installed))return'Aucune voix naturelle installée pour cette langue. Les répliques restent affichées.';return'Les répliques restent affichées. Installez une voix naturelle pour les entendre.';}
   notify(extra={}){if(this.destroyed)return;this.onChange({...this.getState(),status:this.local.status,message:this.message(),speaking:this.current?.phase==='speaking',preparing:this.current?.phase==='preparing',role:this.current?.role,text:this.current?.text,...extra});}
   publishVoices(){
@@ -86,12 +86,13 @@ export class OfficeSpeech {
     const desired=key==='oscar'?'male':'female',gendered=preferred.filter(voice=>voice.gender===desired||voice.gender===(desired==='male'?'masculine':'feminine'));return(gendered.length?gendered:preferred)[0];
   }
   caption(role,text,error,extra={}){this.notify({role,text,fallback:true,caption:true,speaking:false,preparing:false,...(error?{error}: {}),...extra});return false;}
-  speak(role,text,{automatic=false,interrupt=true,voiceId}={}){
+  speak(role,text,{automatic=false,interrupt=true,voiceId,persistent=false}={}){
     if(this.destroyed||!this.enabled||this.host.document?.hidden)return false;
     const spoken=translate(String(text)).replace(/https?:\/\/\S+/g,'').trim().slice(0,500);if(!spoken)return false;
     const key=speaker(role);if(!key)return this.caption(role,spoken,undefined,{muted:true});role=key;
     if(automatic&&(!this.unlocked||!interrupt&&(this.current||Date.now()-this.lastAutomatic<15000)))return false;
     if(automatic)this.lastAutomatic=Date.now();
+    this.captionInfo={id:++this.captionSequence,persistent:persistent===true};
     if(this.engine==='captions')return this.caption(role,spoken);
     const voice=this.chooseVoice(role,voiceId);if(!voice||this.engine==='natural'&&(!['ready','installing'].includes(this.local.status)||typeof this.host.Audio!=='function'))return this.caption(role,spoken);
     this.stop();const generation=++this.generation,profile=PROFILE[role]||PROFILE.oscar;

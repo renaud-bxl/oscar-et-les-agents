@@ -2,6 +2,20 @@
 import {getAmbience} from './ambience.js';
 import {translate} from './i18n.js';
 const W=1440,H=850,TILE=20,COLS=Math.ceil(W/TILE),ROWS=Math.ceil(H/TILE);
+// Fit the complete room between the application controls. Wider windows add
+// scenery on the sides instead of enlarging the office behind the HUD/dock.
+export function fitOfficeViewport({width=W,height=H,top=0,bottom=0,left=0,right=0,dpr=1}={}) {
+  const positive=(value,fallback)=>Number.isFinite(value)&&value>0?value:fallback;
+  width=positive(width,W);height=positive(height,H);
+  const inset=(value,max)=>Math.max(0,Math.min(max,Number.isFinite(value)?value:0));
+  left=inset(left,width-1);right=inset(right,width-left-1);
+  top=inset(top,height-1);bottom=inset(bottom,height-top-1);
+  const availableWidth=width-left-right,availableHeight=height-top-bottom;
+  const scale=Math.min(availableWidth/W,availableHeight/H);
+  return {width,height,scale,offsetX:left+(availableWidth-W*scale)/2,
+    offsetY:top+(availableHeight-H*scale)/2,dpr:Math.max(1,Math.min(2,positive(dpr,1))),
+    insets:{top,bottom,left,right}};
+}
 const P={
   ink:'#344b48',navy:'#3e5960',blue:'#8eb5c4',wall:'#e7eeea',lightwall:'#f6f9f4',
   floor:'#e9dec9',tile:'#e3d6bd',seam:'#d8cbb3',cream:'#fff6e6',white:'#ffffff',
@@ -180,6 +194,8 @@ export class PixelWorld {
     this._initialTitle=canvas.title||'';
     this._onLeave=()=>{this.canvas.style.cursor='';this.canvas.title=this._initialTitle;this._hoveredProp=null;this._draw();};
     this._onResize=()=>this._resizeViewport();
+    this._viewportChrome=document.body?.classList?.contains?.('immersive-office')?
+      [document.querySelector('.office-hud'),document.querySelector('.office-dock')].filter(Boolean):[];
     this._onLanguage=()=>{this._background=this._makeBackground();this._draw();};
     this._onTheme=event=>this._setTheme(event?.detail?.theme||document.documentElement?.dataset?.officeTheme||'light');
     document.addEventListener('oscar:language',this._onLanguage);
@@ -193,7 +209,9 @@ export class PixelWorld {
     this._background=this._makeBackground();
     this._tick=this._tick.bind(this);this._resizeViewport();
     this._resizeObserver=typeof ResizeObserver==='function'?new ResizeObserver(this._onResize):null;
-    this._resizeObserver?.observe(canvas);window.addEventListener?.('resize',this._onResize);
+    this._resizeObserver?.observe(canvas);
+    for(const element of this._viewportChrome)this._resizeObserver?.observe(element);
+    window.addEventListener?.('resize',this._onResize);
     this._draw();this._schedule();
     this._ambienceTimer=setInterval(()=>{if(!this._destroyed){this._refreshAmbience();if(!document.hidden)this._draw();}},30000);
     this._ambienceTimer?.unref?.();
@@ -789,8 +807,16 @@ export class PixelWorld {
     if(this._destroyed)return;
     const r=this.canvas.getBoundingClientRect();
     const width=Math.max(1,r.width||this.canvas.clientWidth||window.innerWidth||W),height=Math.max(1,r.height||this.canvas.clientHeight||window.innerHeight||H);
-    const dpr=Math.max(1,Math.min(2,Number(window.devicePixelRatio)||1)),scale=Math.min(width/W,height/H);
-    this.viewport={width,height,scale,offsetX:(width-W*scale)/2,offsetY:(height-H*scale)/2,dpr};
+    const dpr=Math.max(1,Math.min(2,Number(window.devicePixelRatio)||1));
+    let top=0,bottom=0;
+    for(const element of this._viewportChrome||[]) {
+      const box=element.getBoundingClientRect();
+      if(!box.width||!box.height)continue;
+      if(element.classList.contains('office-hud'))top=Math.max(top,box.bottom-r.top+12);
+      if(element.classList.contains('office-dock'))bottom=Math.max(bottom,r.top+height-box.top+12);
+    }
+    const side=this._viewportChrome?.length?12:0;
+    this.viewport=fitOfficeViewport({width,height,top,bottom,left:side,right:side,dpr});
     const rasterWidth=Math.max(1,Math.round(width*dpr)),rasterHeight=Math.max(1,Math.round(height*dpr));
     if(this.canvas.width!==rasterWidth||this.canvas.height!==rasterHeight){this.canvas.width=rasterWidth;this.canvas.height=rasterHeight;}
     if(this.pixelRatio!==dpr){this.pixelRatio=dpr;this._background=this._makeBackground();}
@@ -1023,7 +1049,9 @@ export class PixelWorld {
     this._ellipse(c,730,733,64,35,'#b99876');this._ellipse(c,730,725,64,35,'#efdbbf');
     this._round(c,701,707,30,22,4,'#fff9ee');this._line(c,708,713,725,713,'#a6b99e',2);this._line(c,708,719,722,719,'#bdcbb6',2);
     this._ellipse(c,749,734,13,5,'#b19c7c25');this._round(c,740,715,17,18,6,'#c99178');this._ellipse(c,748,716,8,3,'#f8ead8');
-    this._utilitySign(c,'Lounge · les idées continuent',730,634,244);
+    // Keep the lounge sign below the furniture: the conversation places at
+    // y=628 have their names at y=637–659, where this sign used to sit.
+    this._utilitySign(c,'Lounge · les idées continuent',730,807,244);
   }
   _plant(c,x,y,scale=1) {
     c.save();c.translate(x,y);c.scale(scale,scale);

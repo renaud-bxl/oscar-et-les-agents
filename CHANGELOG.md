@@ -1,5 +1,12 @@
 # Historique des versions
 
+## 0.6.17 — 22 octobre 2026
+
+- Le bureau entier s’adapte à la zone libre entre le bandeau et le menu, sur écran carré ou large : fenêtres, lampes et lounge restent visibles, avec des cibles de clic alignées après redimensionnement.
+- Le suivi d’Oscar peut être réduit et réouvert. Les détails ordinaires se réduisent après dix secondes visibles ; une ouverture volontaire reste respectée. Un nouveau problème reste expliqué et actionnable.
+- Les répliques courantes disparaissent après huit secondes et les messages du bureau après sept secondes. Le survol, le focus et la lecture audio suspendent ce délai ; les erreurs importantes restent visibles.
+- Vingt postes uniques et accessibles sont vérifiés, quatre par métier. Le panneau du lounge ne masque plus les prénoms des collègues.
+
 ## 0.6.16 — 22 octobre 2026
 
 - L’installation simple présente les disques montés par leur nom et demande où placer le logiciel et ses données. Le récapitulatif doit être confirmé avant toute création ou téléchargement.

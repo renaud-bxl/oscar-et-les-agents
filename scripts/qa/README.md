@@ -22,6 +22,8 @@ Le contrôle prolongé tourne cinq minutes par défaut. `OSCAR_QA_UNTIL` accepte
 
 Ces scénarios complètent les tests de `npm test`. Ils ne prouvent pas l'autorisation d'un vrai compte, la disponibilité d'un fournisseur distant ou la qualité d'une voix : ces vérifications demandent un essai séparé et autorisé.
 
+`node scripts/qa/office-visibility.mjs` vérifie le cadrage entier entre le bandeau et le menu sur six formats, dont carré et très large, avec vingt spécialistes simulés à vingt postes distincts. Il vérifie aussi les commandes de réduction et de réouverture du suivi, sa réduction automatique et la fermeture des répliques et messages du bureau. Les captures et le rapport vont dans `oscar-office-visibility` ou `OSCAR_QA_OUTPUT`. Aucun moteur réel ni compte n’est utilisé.
+
 Deux contrôles ciblés peuvent aussi être lancés avec les mêmes variables Playwright : `node scripts/qa/dialog-lifecycle.mjs` vérifie les fermetures et réouvertures immédiates, sans interrompre la nouvelle dictée ou préécoute ; `node scripts/qa/history-reuse.mjs` vérifie les filtres, la recherche et la reprise d'un brief avec ses révisions de documents. La reprise prépare un formulaire modifiable et ne lance aucune nouvelle mission.
 
 `node scripts/qa/mission-recovery.mjs` laisse le serveur accepter une mission simulée, puis coupe sa réponse avant qu'elle parvienne à l'interface. Il vérifie la reprise après rechargement, la conservation du moteur et de l'effectif, le refus d'une référence modifiée, ainsi que le renouvellement volontaire par une nouvelle demande. Les appels restent simulés : aucun quota réel n'est utilisé.
