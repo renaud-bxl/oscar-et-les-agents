@@ -27,9 +27,9 @@ function refresh(){
   copyButton.disabled=!supported||copying;
   command.textContent=`curl -fsSL ${INSTALLER} | sh -s -- --engine ${engine}`;
   caption.textContent=`TERMINAL · ${ENGINE_NAMES[engine]}`;
-  terminalHelp.textContent=platform==='linux'?'Sur Linux, ouvrez votre application Terminal. Collez la commande ci-dessous et appuyez sur Entrée.':'Sur Mac, ouvrez l’application Terminal depuis Applications → Utilitaires. Collez la commande ci-dessous et appuyez sur Entrée.';
+  terminalHelp.textContent=platform==='linux'?'Sur Linux, ouvrez votre application Terminal. Collez la commande ci-dessous et appuyez sur Entrée. Le choix du disque se fait ensuite dans le Terminal.':'Sur Mac, ouvrez l’application Terminal depuis Applications → Utilitaires. Collez la commande ci-dessous et appuyez sur Entrée. Le choix du disque se fait ensuite dans le Terminal.';
   copyLabel.textContent='Copier la commande';
-  copyStatus.textContent='Cette page ne lance rien sur votre ordinateur. Vous choisissez quand exécuter la commande.';
+  copyStatus.textContent='Cette page ne détecte pas vos disques et ne lance rien. Le Terminal vous proposera leurs noms avant l’installation.';
   delete copyStatus.dataset.state;
 }
 
@@ -41,7 +41,7 @@ copyButton.addEventListener('click',async()=>{
     if(!globalThis.isSecureContext||typeof navigator.clipboard?.writeText!=='function')throw new Error('Copie indisponible.');
     await navigator.clipboard.writeText(text);
     if(at!==revision)return;
-    copyLabel.textContent='Commande copiée';copyStatus.textContent='Commande copiée. Ouvrez votre Terminal, collez-la et appuyez sur Entrée pour démarrer l’installation.';copyStatus.dataset.state='success';
+    copyLabel.textContent='Commande copiée';copyStatus.textContent='Commande copiée. Collez-la dans le Terminal, choisissez votre disque dans la liste, puis confirmez les dossiers proposés.';copyStatus.dataset.state='success';
   }catch{
     if(at!==revision)return;
     copyStatus.textContent='La copie n’a pas été autorisée. Sélectionnez la commande ci-dessus, puis copiez-la manuellement.';copyStatus.dataset.state='error';command.focus({preventScroll:true});

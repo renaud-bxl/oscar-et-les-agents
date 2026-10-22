@@ -1,5 +1,11 @@
 # Historique des versions
 
+## 0.6.16 — 22 octobre 2026
+
+- L’installation simple présente les disques montés par leur nom et demande où placer le logiciel et ses données. Le récapitulatif doit être confirmé avant toute création ou téléchargement.
+- Un SSD externe propose deux dossiers distincts, Logiciel et Donnees. Les chemins explicites restent disponibles pour automatiser une installation ; les données déjà configurées sont préservées.
+- La page publique explique le choix dans le Terminal, sans prétendre détecter les disques depuis le navigateur. Le dépôt et le lien d’installation restent identiques.
+
 ## 0.6.15 — 22 octobre 2026
 
 - Corrige le blocage d’installation quand un client Codex ne reconnaît pas le réglage partagé `ultra`. Les commandes d’Oscar utilisent une surcharge locale compatible, sans modifier les réglages globaux ni les comptes.

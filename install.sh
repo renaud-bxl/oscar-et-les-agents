@@ -5,6 +5,7 @@ umask 077
 
 oscar_engine=''
 oscar_dir="${HOME:?Le dossier personnel est introuvable.}/.local/share/oscar-et-les-agents"
+oscar_dir_explicit=0
 oscar_data_dir=''
 oscar_skip_login=0
 oscar_no_open=0
@@ -22,6 +23,7 @@ Oscar et les agents — installation macOS et Linux
 
   --engine       ChatGPT avec Codex, Claude, ou les deux moteurs.
   --dir          Dossier d’installation ; les missions existantes sont conservées.
+                 Sans cette option, un assistant propose les disques disponibles.
   --data-dir     Dossier des missions, documents et voix, mémorisé pour les relances.
                  Un SSD doit être monté. Aucun ancien dossier n’est déplacé.
   --skip-login   Reporter la connexion à votre abonnement.
@@ -34,8 +36,8 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --engine) [ "$#" -ge 2 ] || oscar_fail 'Précisez le moteur après --engine.'; oscar_engine=$2; shift 2 ;;
     --engine=*) oscar_engine=${1#*=}; shift ;;
-    --dir) [ "$#" -ge 2 ] || oscar_fail 'Précisez le dossier après --dir.'; oscar_dir=$2; shift 2 ;;
-    --dir=*) oscar_dir=${1#*=}; shift ;;
+    --dir) [ "$#" -ge 2 ] || oscar_fail 'Précisez le dossier après --dir.'; oscar_dir=$2; oscar_dir_explicit=1; shift 2 ;;
+    --dir=*) oscar_dir=${1#*=}; oscar_dir_explicit=1; shift ;;
     --data-dir) [ "$#" -ge 2 ] || oscar_fail 'Précisez le dossier après --data-dir.'; oscar_data_dir=$2; shift 2 ;;
     --data-dir=*) oscar_data_dir=${1#*=}; shift ;;
     --skip-login) oscar_skip_login=1; shift ;;
@@ -52,17 +54,108 @@ case "$(uname -s)" in
   *) oscar_fail 'Cet installateur automatique fonctionne sur macOS et Linux.' ;;
 esac
 
+# Never read answers from a downloaded script's stdin. The controlling terminal
+# remains separate from the pipe, and no directory is created before consent.
+oscar_has_terminal=0
+if [ -t 0 ]; then
+  exec 3<&0
+  oscar_has_terminal=1
+elif ( : </dev/tty ) 2>/dev/null; then
+  exec 3</dev/tty
+  oscar_has_terminal=1
+fi
+oscar_ask() {
+  [ "$oscar_has_terminal" -eq 1 ] || oscar_fail 'Aucun terminal interactif. Indiquez --dir et, si nécessaire, --data-dir avec les chemins choisis.'
+  printf '%s' "$1" >&2
+  IFS= read -r oscar_answer <&3 || oscar_fail 'Choix interrompu. Aucun emplacement n’a été accepté.'
+}
+oscar_offer_disk() {
+  [ -d "$oscar_disk" ] && [ ! -L "$oscar_disk" ] && [ -w "$oscar_disk" ] || return 0
+  # Multi-line and control-character names cannot be a safe terminal choice.
+  case "$oscar_disk" in *'
+'*|*'\'*|*"$(printf '\r')"*|*"$(printf '\t')"*) return 0 ;; esac
+  if printf '%s' "$oscar_disk" | LC_ALL=C grep -q '[[:cntrl:]]'; then return 0; fi
+  if [ "$oscar_system" = darwin ]; then
+    oscar_device=$(stat -f %d "$oscar_disk" 2>/dev/null) || return 0
+    oscar_parent_device=$(stat -f %d "$(dirname "$oscar_disk")" 2>/dev/null) || return 0
+  else
+    oscar_device=$(stat -c %d "$oscar_disk" 2>/dev/null) || return 0
+    oscar_parent_device=$(stat -c %d "$(dirname "$oscar_disk")" 2>/dev/null) || return 0
+  fi
+  [ "$oscar_device" != "$oscar_parent_device" ] || return 0
+  oscar_disk_index=$((oscar_disk_index + 1))
+  printf '  %s. %s — %s\n' "$oscar_disk_index" "$(basename "$oscar_disk")" "$oscar_disk"
+  oscar_disk_choices="${oscar_disk_choices}${oscar_device}$(printf '\t')${oscar_disk}
+"
+}
+oscar_disks() {
+  oscar_disk_index=1
+  oscar_disk_choices=''
+  if [ "$oscar_system" = darwin ]; then
+    for oscar_disk in /Volumes/*; do oscar_offer_disk; done
+  else
+    for oscar_disk in /media/* /media/*/* /run/media/*/* /mnt/*; do oscar_offer_disk; done
+  fi
+}
+oscar_location_wizard=0
+if [ "$oscar_dir_explicit" -eq 0 ] && [ "$oscar_dry_run" -eq 0 ]; then
+  [ "$oscar_has_terminal" -eq 1 ] || oscar_fail 'Choisissez le disque d’installation dans un terminal, ou fournissez --dir et --data-dir. Aucun fichier n’a été installé.'
+  oscar_location_wizard=1
+  printf '\n%s\n%s\n' 'Où installer Oscar et les agents ?' 'Le logiciel, les missions, les documents et les outils facultatifs peuvent rester sur le même disque.'
+  oscar_internal_name='Disque de cet ordinateur'
+  if [ "$oscar_system" = darwin ] && command -v diskutil >/dev/null 2>&1 && command -v plutil >/dev/null 2>&1; then
+    oscar_internal_label=$(diskutil info -plist / 2>/dev/null | plutil -extract VolumeName raw -o - - 2>/dev/null) || oscar_internal_label=''
+    if printf '%s' "$oscar_internal_label" | LC_ALL=C grep -q '[[:cntrl:]]'; then oscar_internal_label=''; fi
+    [ -z "$oscar_internal_label" ] || oscar_internal_name=$oscar_internal_label
+  fi
+  printf '  1. %s — %s\n' "$oscar_internal_name" "$HOME"
+  oscar_disks
+  oscar_other_index=$((oscar_disk_index + 1))
+  printf '  %s. Choisir un autre dossier ou disque\n' "$oscar_other_index"
+  printf '%s\n' 'Un disque absent de cette liste doit être branché et monté avant de relancer l’installation.'
+  oscar_ask 'Votre choix [1] : '
+  [ -n "$oscar_answer" ] || oscar_answer=1
+  oscar_selected_disk=''
+  case "$oscar_answer" in *[!0-9]*|0) oscar_fail 'Choisissez le numéro d’un emplacement proposé.' ;; esac
+  if [ "$oscar_answer" != 1 ]; then
+    if [ "$oscar_answer" = "$oscar_other_index" ]; then
+      if [ "$oscar_system" = darwin ] && command -v osascript >/dev/null 2>&1; then
+        printf '%s\n' 'Choisissez un disque ou dossier dans la fenêtre. Un sous-dossier « Oscar et les agents » y sera créé.'
+        oscar_selected_disk=$(osascript -e 'POSIX path of (choose folder with prompt "Où installer Oscar et les agents ? Choisissez le disque ou dossier parent ; le logiciel et ses données seront dans un sous-dossier Oscar et les agents.")' 2>/dev/null) || oscar_fail 'Sélection annulée. Aucun fichier n’a été installé.'
+      else
+        oscar_ask 'Chemin absolu du disque ou dossier parent : '
+        oscar_selected_disk=$oscar_answer
+      fi
+    else
+      # Keep the exact menu snapshot: removing another disk must not renumber
+      # the selection and silently install on a different device.
+      oscar_disk_index=1
+      while IFS="$(printf '\t')" read -r oscar_listed_device oscar_disk; do
+        [ -n "$oscar_disk" ] || continue
+        oscar_disk_index=$((oscar_disk_index + 1))
+        if [ "$oscar_answer" = "$oscar_disk_index" ]; then
+          oscar_selected_disk=$oscar_disk
+          oscar_selected_device=$oscar_listed_device
+        fi
+      done <<OSCAR_DISK_CHOICES
+$oscar_disk_choices
+OSCAR_DISK_CHOICES
+      [ -n "$oscar_selected_disk" ] || oscar_fail 'Ce disque n’est plus disponible. Rebranchez-le et relancez l’installation.'
+    fi
+    while [ "$oscar_selected_disk" != / ] && [ "${oscar_selected_disk%/}" != "$oscar_selected_disk" ]; do oscar_selected_disk=${oscar_selected_disk%/}; done
+    case "$oscar_selected_disk" in /*) ;; *) oscar_fail 'Choisissez un disque ou un dossier avec un chemin absolu.' ;; esac
+    oscar_dir="$oscar_selected_disk/Oscar et les agents/Logiciel"
+    if [ -z "$oscar_data_dir" ] && [ ! -e "$oscar_dir/.runtime/installation.json" ]; then
+      oscar_data_dir="$oscar_selected_disk/Oscar et les agents/Donnees"
+    fi
+  elif [ -z "$oscar_data_dir" ] && [ ! -e "$oscar_dir/.runtime/installation.json" ] && [ -z "${OSCAR_DATA_DIR:-}${ATELIER_DATA_DIR:-}" ]; then
+    oscar_data_dir="$HOME/Documents/Oscar et les agents"
+  fi
+fi
+
 if [ -z "$oscar_engine" ]; then
   printf '\n%s\n%s\n%s\n%s\n' 'Quel abonnement souhaitez-vous utiliser ?' '  1. ChatGPT avec Codex' '  2. Claude' '  3. Les deux'
-  if [ -t 0 ]; then
-    printf '%s' 'Votre choix [1] : '
-    IFS= read -r oscar_answer || oscar_fail 'Choix interrompu.'
-  elif ( : </dev/tty ) 2>/dev/null; then
-    printf '%s' 'Votre choix [1] : ' >/dev/tty
-    IFS= read -r oscar_answer </dev/tty || oscar_fail 'Choix interrompu.'
-  else
-    oscar_fail 'Aucun terminal interactif. Ajoutez --engine codex, --engine claude ou --engine both.'
-  fi
+  oscar_ask 'Votre choix [1] : '
   case "$oscar_answer" in
     ''|1|codex|chatgpt|ChatGPT) oscar_engine=codex ;;
     2|claude|Claude) oscar_engine=claude ;;
@@ -73,6 +166,12 @@ fi
 case "$oscar_engine" in codex|claude|both) ;; *) oscar_fail 'Le moteur doit être codex, claude ou both.' ;; esac
 
 # Reject ambiguous paths and symbolic-link parents before creating anything.
+oscar_clean_path() {
+  case "$1" in *'
+'*|*'\'*|*"$(printf '\r')"*|*"$(printf '\t')"*) oscar_fail 'Le chemin contient un caractère non pris en charge. Choisissez un autre dossier.' ;; esac
+  if printf '%s' "$1" | LC_ALL=C grep -q '[[:cntrl:]]'; then oscar_fail 'Le chemin contient un caractère non pris en charge. Choisissez un autre dossier.'; fi
+}
+oscar_clean_path "$oscar_dir"
 while [ "$oscar_dir" != / ] && [ "${oscar_dir%/}" != "$oscar_dir" ]; do oscar_dir=${oscar_dir%/}; done
 case "$oscar_dir" in
   /*) ;;
@@ -121,14 +220,41 @@ oscar_check_volume() {
 }
 oscar_check_volume "$oscar_dir"
 if [ -n "$oscar_data_dir" ]; then
+  oscar_clean_path "$oscar_data_dir"
+  while [ "$oscar_data_dir" != / ] && [ "${oscar_data_dir%/}" != "$oscar_data_dir" ]; do oscar_data_dir=${oscar_data_dir%/}; done
   case "$oscar_data_dir" in /*) ;; *) oscar_fail 'Le dossier des données doit être un chemin absolu.' ;; esac
   case "$oscar_data_dir/" in *'/../'*|*'/./'*|*'//'*) oscar_fail 'Le chemin des données contient un raccourci ambigu.' ;; esac
+  case "$oscar_data_dir" in
+    /|"$HOME"|/Users|/Volumes|/private|/private/tmp|/private/var|/private/var/tmp|/tmp|/var|/var/tmp|/opt|/home|/mnt|/media|/run/media|/Applications|/Library|/System|/usr|/usr/local|/bin|/sbin|/etc|/dev|/proc|/sys|/root|/System/*|/Library/*|/Applications/*|/usr/*|/bin/*|/sbin/*|/etc/*|/private/etc|/private/etc/*|/dev/*|/proc/*|/sys/*|/root/*)
+      oscar_fail 'Choisissez un sous-dossier réservé aux données d’Oscar.' ;;
+  esac
   oscar_check_parents "$oscar_data_dir"
   oscar_check_volume "$oscar_data_dir"
+  case "$oscar_data_dir" in "$oscar_dir"|"$oscar_dir"/*)
+    [ "$oscar_data_dir" = "$oscar_dir/data" ] || oscar_fail 'Séparez le dossier des données du logiciel.' ;;
+  esac
+  case "$oscar_dir" in "$oscar_data_dir"/*) oscar_fail 'Ne placez pas le logiciel à l’intérieur du dossier de ses données.' ;; esac
 fi
 for oscar_internal in .runtime .runtime/bin .tools .tools/node_modules .tools/node_modules/.bin data; do
   [ ! -L "$oscar_dir/$oscar_internal" ] || oscar_fail 'Un dossier interne est un lien symbolique. Utilisez un dossier d’installation sain.'
 done
+
+if [ "$oscar_location_wizard" -eq 1 ]; then
+  printf '\n%s\n%s\n' 'Vos emplacements :' "  Logiciel : $oscar_dir"
+  if [ -n "$oscar_data_dir" ]; then
+    printf '  Missions, documents, voix et outils : %s\n' "$oscar_data_dir"
+  else
+    printf '%s\n' '  Données : l’emplacement déjà mémorisé ou configuré sera conservé et vérifié.'
+  fi
+  printf '%s\n' 'Aucun ancien dossier ne sera déplacé. Le disque choisi doit rester branché pour utiliser Oscar.'
+  oscar_ask 'Confirmer ces emplacements [o/N] : '
+  case "$oscar_answer" in o|O|oui|Oui|OUI|y|Y|yes|YES) ;; *) printf '%s\n' 'Installation annulée. Aucun fichier n’a été installé.'; exit 0 ;; esac
+  if [ -n "${oscar_selected_device:-}" ]; then
+    if [ "$oscar_system" = darwin ]; then oscar_now_device=$(stat -f %d "$oscar_selected_disk" 2>/dev/null) || oscar_now_device='';
+    else oscar_now_device=$(stat -c %d "$oscar_selected_disk" 2>/dev/null) || oscar_now_device=''; fi
+    [ "$oscar_now_device" = "$oscar_selected_device" ] || oscar_fail 'Le disque choisi a changé ou a été débranché. Aucun fichier n’a été installé.'
+  fi
+fi
 
 if [ "$oscar_dry_run" -eq 1 ]; then
   printf '\n%s\n%s\n%s\n' "Simulation : installer Oscar et les agents dans $oscar_dir." "Moteur choisi : $oscar_engine." 'Le programme vérifiera Node.js, installera les moteurs manquants localement et ouvrira leur connexion officielle. Aucun changement effectué.'
@@ -138,6 +264,8 @@ fi
 
 mkdir -p "$oscar_dir"
 oscar_check_parents "$oscar_dir"
+oscar_check_volume "$oscar_dir"
+[ -z "$oscar_data_dir" ] || oscar_check_volume "$oscar_data_dir"
 oscar_temp=$(mktemp -d "${TMPDIR:-/tmp}/oscar-install.XXXXXXXX") || oscar_fail 'Impossible de préparer un dossier temporaire.'
 oscar_cleanup() { [ -z "$oscar_temp" ] || rm -rf "$oscar_temp"; }
 trap oscar_cleanup EXIT

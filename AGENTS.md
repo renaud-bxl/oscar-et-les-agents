@@ -1,14 +1,15 @@
 # Oscar et les Agents
 
-Version 0.6.15 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
+Version 0.6.16 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
 
 ## Installer et lancer pour une personne
 
 Quand la personne demande d’installer et lancer ce dépôt, effectue le travail :
 
-1. Depuis une copie du dépôt, lance `sh install.sh --engine codex` si tu es Codex/ChatGPT, `sh install.sh --engine claude` si tu es Claude Code, ou `--engine both` si la personne demande les deux. Pour un autre dossier du logiciel, ajoute `--dir` avec son chemin absolu ; pour les missions, documents et outils locaux volumineux, ajoute `--data-dir`. Ces dossiers peuvent être sur un SSD monté. Ne déplace pas les anciennes missions implicitement.
-2. Le programme prépare Node.js et les moteurs manquants sans sudo, conserve les connexions d’abonnement et ouvre la connexion officielle dans le navigateur si nécessaire. Laisse la personne confirmer sa connexion dans son navigateur.
-3. Le bureau s’ouvre sur http://localhost:4850. Les données se trouvent dans `~/Documents/Oscar et les agents` par défaut, ou dans le dossier explicitement configuré. Préserve `.runtime/installation.json`, l’identité du dossier et les choix lors des mises à jour ; refuse un disque absent ou remplacé sans créer un bureau local de secours. Conserve HOME, CODEX_HOME et les connexions officielles.
+1. Respecte un emplacement déjà demandé. Sinon, avant de créer ou télécharger quoi que ce soit, présente les disques montés par leur nom et obtiens le choix de la personne. Ne choisis pas silencieusement le disque interne. Le bootstrap `install.sh` sans `--dir` propose cette liste dans le Terminal, les dossiers et leur confirmation ; il refuse une installation sans terminal interactif ni chemin explicite. Sa simulation `--dry-run` reste sans effet.
+2. Depuis une copie du dépôt, utilise `sh install.sh --engine codex` si tu es Codex/ChatGPT, `--engine claude` si tu es Claude Code, ou `--engine both` si la personne demande les deux. Pour une exécution sans terminal interactif, fournis `--dir` avec le chemin absolu choisi ; fournis aussi `--data-dir` pour un nouveau choix des données. Sur un SSD, propose les sous-dossiers `Oscar et les agents/Logiciel` et `Oscar et les agents/Donnees`. Avec `--dir` mais sans `--data-dir`, conserve la résolution existante des données et leur manifeste. Ne déplace pas les anciennes missions implicitement.
+3. Le programme prépare Node.js et les moteurs manquants sans sudo, conserve les connexions d’abonnement et ouvre la connexion officielle dans le navigateur si nécessaire. Laisse la personne confirmer sa connexion dans son navigateur.
+4. Le bureau s’ouvre sur http://localhost:4850. Les données se trouvent dans le dossier confirmé, Documents par défaut sur le disque interne. Préserve `.runtime/installation.json`, l’identité du dossier et les choix lors des mises à jour ; refuse un disque absent ou remplacé sans créer un bureau local de secours. Conserve HOME, CODEX_HOME et les connexions officielles.
 
 Le guide de première visite, les réglages et les questionnaires permettent aussi de préparer un moteur manquant et de lancer sa connexion dans le navigateur. Une connexion déjà reconnue est conservée. Attends la fin des missions utilisant ce moteur avant de modifier sa connexion.
 

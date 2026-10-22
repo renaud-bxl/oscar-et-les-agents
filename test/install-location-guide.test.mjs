@@ -7,7 +7,7 @@ import os from 'node:os';
 import {buildInstallLocation,quoteInstallPath,installLocationPath,InstallLocationGuide,INSTALL_LOCATION_URL,INSTALL_LOCATION_REPOSITORY} from '../docs/install-location.js';
 
 test('default installation remains the documented quick command, while a data choice is never added implicitly',()=>{
- const quick=buildInstallLocation();assert.equal(quick.command,`curl -fsSL ${INSTALL_LOCATION_URL} | sh -s -- --engine codex`);assert.equal(quick.softwareDirectory,'');assert.equal(quick.dataDirectory,'');assert.match(quick.assistant,/Conserve le dossier de données déjà configuré/u);assert(quick.assistant.includes(INSTALL_LOCATION_REPOSITORY));
+ const quick=buildInstallLocation();assert.equal(quick.command,`curl -fsSL ${INSTALL_LOCATION_URL} | sh -s -- --engine codex`);assert.equal(quick.softwareDirectory,'');assert.equal(quick.dataDirectory,'');assert.match(quick.assistant,/Présente-moi les disques montés par leur nom/u);assert.match(quick.assistant,/confirmer les dossiers avant toute installation/u);assert(quick.assistant.includes(INSTALL_LOCATION_REPOSITORY));
  for(const engine of['codex','claude','both'])assert(buildInstallLocation({engine}).command.endsWith('--engine '+engine));assert(!buildInstallLocation({softwareDirectory:'/Volumes/Mon SSD/Oscar/Logiciel'}).command.includes('--data-dir'));
 });
 
@@ -29,6 +29,12 @@ test('software and heavy data use separate folders and the guide does not claim 
  for(const [softwareDirectory,dataDirectory] of [['/Volumes/SSD/Oscar','/Volumes/SSD/Oscar'],['/Volumes/SSD/Oscar','/Volumes/SSD/Oscar/Data'],['/Volumes/SSD/Oscar/App','/Volumes/SSD/Oscar']])assert.throws(()=>buildInstallLocation({softwareDirectory,dataDirectory}),/deux dossiers distincts/u);
  const result=buildInstallLocation({softwareDirectory:'/Volumes/SSD/Oscar/App',dataDirectory:'/Volumes/SSD/Oscar/Data'});assert(result.command.includes("--dir '/Volumes/SSD/Oscar/App' --data-dir '/Volumes/SSD/Oscar/Data'"));assert.match(result.assistant,/Ne déplace ni ne supprime les missions existantes automatiquement/u);
  const windows=buildInstallLocation({platform:'windows'});assert.equal(windows.command,null);assert.match(windows.assistant,/Windows.*vérifie d’abord la méthode compatible/u);
+});
+
+test('exact software paths bypass the disk question while data-only choices keep it',()=>{
+ const software=buildInstallLocation({softwareDirectory:'/Volumes/SSD/Oscar/Logiciel'});
+ assert.match(software.assistant,/Utilise exactement .* comme dossier du logiciel/u);assert.match(software.assistant,/Conserve le dossier de données déjà configuré/u);assert.doesNotMatch(software.assistant,/Présente-moi les disques/u);
+ const data=buildInstallLocation({dataDirectory:'/Volumes/SSD/Oscar/Donnees'});assert.match(data.assistant,/Présente-moi les disques/u);assert.match(data.assistant,/Utilise exactement .* comme dossier de données/u);assert.ok(!data.command.includes(' --dir '));assert.ok(data.command.includes(' --data-dir '));
 });
 
 class Element{

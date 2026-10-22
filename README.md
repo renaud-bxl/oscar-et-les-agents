@@ -2,7 +2,7 @@
 
 Donnez une mission à Oscar. Il recrute les bons spécialistes, ils arrivent dans un grand bureau illustré et animé, travaillent, rendent leurs dossiers… et prennent un café quand leur travail est validé.
 
-**Version 0.6.15** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
+**Version 0.6.16** — une application locale en **français, anglais et néerlandais**, avec **ChatGPT via Codex** ou **Claude Code**, sans clé API à saisir.
 
 Pour un jeu navigateur au brief clair, Oscar recrute désormais une équipe de sept ou huit spécialistes : recherche, analyse, deux ou trois designers, rédaction et deux développeurs. Les collègues se transmettent leurs contributions validées ; le moteur, l’interface, les dessins et les textes sont réunis dans un seul jeu. Le panneau Équipe montre les métiers et les tâches en attente. Les déplacements contournent les postes et les collègues qui collaborent peuvent échanger au lounge. La détection d’un connecteur ne garantit pas l’autorisation de chaque action : une erreur de permission reste expliquée, sans nouvelle autorisation automatique. Les PDF se lisent directement dans le bureau avec un lecteur local passif, sans dépendre du lecteur PDF du navigateur. Les licences du moteur embarqué sont détaillées dans [PDFJS-NOTICES.md](PDFJS-NOTICES.md).
 
@@ -16,7 +16,7 @@ Dans **Codex** ou **Claude Code**, avec accès à votre ordinateur, vous pouvez 
 
 > Installe et lance Oscar et les agents : https://github.com/renaud-bxl/oscar-et-les-agents
 
-L’agent trouve les instructions du dépôt et prépare le bon moteur.
+L’agent trouve les instructions du dépôt, vous demande où installer le bureau si vous ne l’avez pas précisé, puis prépare le bon moteur.
 
 Sur **macOS ou Linux**, vous pouvez aussi coller cette commande dans un terminal :
 
@@ -24,9 +24,9 @@ Sur **macOS ou Linux**, vous pouvez aussi coller cette commande dans un terminal
 curl -fsSL https://raw.githubusercontent.com/renaud-bxl/oscar-et-les-agents/main/install.sh | sh
 ```
 
-L’installation vous demande votre moteur : **ChatGPT**, **Claude** ou **les deux**. Elle prépare les outils manquants dans le dossier de l’application, ouvre la connexion officielle dans le navigateur si nécessaire, puis ouvre le bureau. Une connexion d’abonnement déjà présente est conservée. Les identifiants restent gérés par les outils officiels.
+Avant de créer un dossier ou de télécharger les outils, l’installation présente les disques montés par leur nom : **disque interne et SSD externes**. Choisissez un numéro, relisez les dossiers proposés pour le logiciel et les données, puis confirmez. Elle vous demande aussi votre moteur : **ChatGPT**, **Claude** ou **les deux**. Les outils manquants sont préparés dans le dossier choisi ; la connexion officielle s’ouvre dans le navigateur si nécessaire, puis le bureau démarre. Une connexion d’abonnement déjà présente est conservée. Les identifiants restent gérés par les outils officiels.
 
-Pour choisir directement :
+Pour choisir directement le moteur, tout en gardant le choix du disque au démarrage :
 
 ```sh
 # ChatGPT / Codex
@@ -45,15 +45,21 @@ Les fois suivantes, ouvrez **Oscar et les agents** dans votre dossier Applicatio
 
 ### Choisir un dossier ou un SSD externe
 
-Sur la page d’installation, ouvrez **Choisir un autre dossier ou un SSD**. Vous pouvez choisir séparément le dossier du logiciel et celui des missions et données locales. Le logiciel, ses outils intégrés, les documents, les modèles vocaux et la dictée peuvent ainsi être conservés sur un SSD branché.
+La commande habituelle suffit : **le choix du disque est proposé automatiquement dans le Terminal**, même avec `--engine codex`, `--engine claude` ou `--engine both`. Branchez votre SSD, repérez son nom dans la liste et tapez son numéro. Le site internet ne lit pas les disques de votre ordinateur.
+
+Sur le disque interne, les dossiers habituels sont `~/.local/share/oscar-et-les-agents` pour le logiciel et `~/Documents/Oscar et les agents` pour les données. Sur un SSD, l’assistant propose deux sous-dossiers distincts dans **Oscar et les agents** : **Logiciel** et **Donnees**. Le récapitulatif affiche les chemins complets avant confirmation. Un dossier de données déjà configuré est conservé lorsque vous choisissez de le garder.
+
+Pour définir des chemins exacts à l’avance, ouvrez **Options avancées : indiquer des chemins exacts** sur la page d’installation. Le logiciel, ses outils intégrés, les missions, les documents, les modèles vocaux et la dictée peuvent être conservés sur le SSD.
 
 Par exemple, sur macOS, en remplaçant `Mon SSD` par le nom réel de votre disque :
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/renaud-bxl/oscar-et-les-agents/main/install.sh | sh -s -- --engine codex --dir '/Volumes/Mon SSD/Oscar/Logiciel' --data-dir '/Volumes/Mon SSD/Oscar/Donnees'
+curl -fsSL https://raw.githubusercontent.com/renaud-bxl/oscar-et-les-agents/main/install.sh | sh -s -- --engine codex --dir '/Volumes/Mon SSD/Oscar et les agents/Logiciel' --data-dir '/Volumes/Mon SSD/Oscar et les agents/Donnees'
 ```
 
-`--dir` choisit le logiciel ; `--data-dir` choisit les données et mémorise ce dossier pour les prochains lancements et mises à jour. Sans ces options, les emplacements habituels sont conservés. Le SSD doit être monté avant l’installation et chaque lancement. Si le dossier configuré ou son disque est absent, le lancement s’arrête avec une explication ; il ne crée pas un bureau vide sur le disque interne. Deux bureaux utilisant des données différentes ne partagent pas automatiquement le même port.
+`--dir` choisit le logiciel et remplace le dialogue de sélection : cette option convient aussi aux installations automatisées. `--data-dir` choisit les données et mémorise ce dossier pour les prochains lancements et mises à jour. Avec `--dir` mais sans `--data-dir`, la résolution existante est conservée : une variable `OSCAR_DATA_DIR` / `ATELIER_DATA_DIR` explicite, sinon le dossier mémorisé, sinon Documents. Sans terminal interactif et sans `--dir`, une vraie installation s’arrête avant toute création ; `--dry-run` permet de consulter une simulation sans rien installer.
+
+Le SSD doit être monté avant l’installation et chaque lancement. Si le dossier configuré ou son disque est absent, le lancement s’arrête avec une explication ; il ne crée pas un bureau vide sur le disque interne. Deux bureaux utilisant des données différentes ne partagent pas automatiquement le même port.
 
 Ce choix **ne déplace pas les anciennes missions** : pour changer une installation existante, terminez les opérations, arrêtez son serveur et conservez une sauvegarde avant un transfert accompagné. Les connexions ChatGPT/Claude restent gérées par leurs clients officiels sur l’ordinateur ; un SSD ne rend pas ces connexions transportables vers une autre machine.
 
