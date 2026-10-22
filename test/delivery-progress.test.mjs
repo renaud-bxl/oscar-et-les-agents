@@ -86,7 +86,7 @@ test('terminal states are honest and a legacy or demo review never claims a meas
   const legacy=snapshot(mission({status:'reviewing',performance:undefined}));assert.equal(legacy.elapsedMs,null);assert.equal(legacy.lastActivity,null);assert.match(legacy.note,/n’est enregistré/u);
   const demo=snapshot(mission({status:'reviewing',provider:'demo'}));assert.equal(demo.demo,true);assert.equal(demo.elapsedMs,null);assert.match(demo.note,/simulée, sans appel/u);
   const finished=mission({status:'completed',updatedAt:10000,performance:{calls:[call({status:'completed',durationMs:6000})]},events:[{at:6000,who:'Oscar',kind:'activity',text:'Final check'},{at:9500,who:'Oscar',kind:'activity',text:'After call'}]});
-  assert.equal(snapshot(finished,20000).lastActivity.text,'Final check');assert.equal(snapshot(finished,90000).lastActivity.ageMs,4000);
+  assert.equal(snapshot(finished,20000).lastActivity,null);assert.equal(snapshot(finished,90000).lastActivity,null);assert.match(snapshot(finished).note,/Aucun appel du moteur n’est en cours/u);
 });
 
 test('visible updates preserve nodes, focus and actions while durations keep advancing',()=>{
@@ -98,7 +98,7 @@ test('visible updates preserve nodes, focus and actions while durations keep adv
   widget.update(mission({status:'completed'}));assert.equal(time.queue.size,1,'A normal delivery only keeps its bounded auto-collapse timer.');assert.equal(widget.openButton.textContent,'Voir la livraison');widget.openButton.click();assert.deepEqual(opened,['progress','delivery']);
   widget.dismissButton.click();assert.equal(widget.root.hidden,true);widget.update(mission({status:'completed'}));assert.equal(widget.root.hidden,true);
   widget.update(mission());assert.equal(widget.root.hidden,false,'A resumed active cycle clears a terminal dismissal.');assert.equal(time.queue.size,1);
-  widget.update(mission({id:'mission-2',status:'needs_review'}));assert.equal(widget.root.hidden,false);assert.equal(time.queue.size,0);widget.destroy();assert.equal(container.children.length,0);
+  widget.update(mission({id:'mission-2',status:'needs_review'}));assert.equal(widget.root.hidden,false);assert.equal(time.queue.size,1);widget.destroy();assert.equal(container.children.length,0);
 });
 
 test('hidden documents and panels stop timers and resume with measured time, then destroy removes listeners',()=>{
@@ -117,7 +117,7 @@ test('empty missions hide the notice and a new mission cannot inherit the previo
   const{container}=dom(),time=clock(),widget=new DeliveryProgress({container,now:time.now,timers:time.timers});
   widget.update(null);assert.equal(widget.root.hidden,true);assert.equal(time.queue.size,0);
   widget.update(mission({status:'failed'}));widget.dismissButton.click();assert.equal(widget.root.hidden,true);
-  widget.update(mission({id:'new-mission',status:'failed'}));assert.equal(widget.root.hidden,false);assert.equal(time.queue.size,0);
+  widget.update(mission({id:'new-mission',status:'failed'}));assert.equal(widget.root.hidden,false);assert.equal(time.queue.size,1);
   widget.update(mission({performance:{calls:[]}}));assert.equal(widget.root.hidden,true);widget.update(null);assert.equal(time.queue.size,0);widget.destroy();
 });
 
@@ -145,13 +145,13 @@ test('manual collapse and expansion survive repeated polling and real stage chan
   assert.equal(widget.toggleButton.type,'button');assert.equal(widget.openButton.type,'button');widget.destroy();
 });
 
-test('a new important problem opens once and stays actionable without an automatic collapse',()=>{
-  const{container}=dom(),time=clock(),opened=[],widget=new DeliveryProgress({container,now:time.now,timers:time.timers,onOpen:action=>opened.push(action)});widget.update(mission());widget.toggleButton.click();
-  widget.update(mission({status:'needs_review'}));assert.equal(widget.collapsed,false);assert.equal(widget.root.dataset.important,'true');assert.equal(time.queue.size,0);assert.equal(widget.note.hidden,false);
-  time.tick(60000);widget.update(mission({status:'needs_review'}));assert.equal(widget.collapsed,false);
-  widget.toggleButton.click();widget.update(mission({status:'needs_review'}));assert.equal(widget.collapsed,true);assert.equal(widget.root.hidden,false);widget.openButton.click();assert.deepEqual(opened,['progress']);
-  widget.update(mission({status:'failed'}));assert.equal(widget.collapsed,false);assert.equal(widget.title.textContent,'La mission a rencontré un problème');assert.equal(time.queue.size,0);
-  widget.toggleButton.click();widget.update(mission({status:'failed'}));assert.equal(widget.collapsed,true);widget.destroy();
+test('important problems settle into a compact actionable notice and preserve explicit user choices',()=>{
+  const{container}=dom(),time=clock(),opened=[],widget=new DeliveryProgress({container,now:time.now,timers:time.timers,onOpen:action=>opened.push(action)});widget.update(mission());
+  widget.update(mission({status:'needs_review'}));assert.equal(widget.collapsed,false);assert.equal(widget.root.dataset.important,'true');assert.equal(time.queue.size,1);assert.equal(widget.note.hidden,false);
+  time.tick(9999);widget.update(mission({status:'needs_review'}));assert.equal(widget.collapsed,false);time.tick(1);assert.equal(widget.collapsed,true);assert.equal(time.queue.size,0);
+  widget.openButton.click();assert.deepEqual(opened,['progress']);
+  widget.toggleButton.click();assert.equal(widget.collapsed,false);time.tick(60000);widget.update(mission({status:'needs_review'}));assert.equal(widget.collapsed,false,'manual expansion is preserved');
+  widget.toggleButton.click();widget.update(mission({status:'failed'}));assert.equal(widget.collapsed,true,'manual collapse is preserved when the problem changes');assert.equal(widget.title.textContent,'La mission a rencontré un problème');assert.equal(time.queue.size,0);widget.destroy();
 });
 
 test('hidden time does not consume the attention budget and a completed normal notice stops after collapsing',()=>{
@@ -170,4 +170,48 @@ test('automatic collapse never hides a focused control and collapsed controls fo
   setLocale('nl');document.emit('oscar:language');assert.equal(widget.toggleButton['aria-label'],'Voortgangsdetails tonen');assert.equal(widget.openButton.textContent,'Voortgang');assert.equal(widget.details.hidden,true);
   widget.toggleButton.click();assert.equal(widget.toggleButton.textContent,'Inklappen');assert.equal(widget.toggleButton['aria-expanded'],'true');
   widget.destroy();assert.equal(time.queue.size,0);assert.equal(widget.toggleButton.handlers.get('click').size,0);setLocale('fr');
+});
+
+test('a terminal partial delivery names the actual unapproved contribution and hides historic activity ages',()=>{
+  const tasks=Array.from({length:20},(_,index)=>({id:'t'+index,status:index===19?'needs_review':'approved',agentName:index===19?'Rémi':'Collègue',title:index===19?'Contrôle du jeu':'Contribution',review:index===19?{approved:false,feedback:'Le démarrage du jeu reste à corriger. '+ 'x'.repeat(700)}:{approved:true}}));
+  const source=mission({status:'needs_review',tasks,recovery:{canResume:true,used:0},performance:{calls:[call({status:'completed',durationMs:5000})]},events:[{at:6000,who:'Oscar',kind:'activity',text:'Ancienne vérification'}]}),before=JSON.stringify(source),data=snapshot(source,900000);
+  assert.deepEqual(data.counts,{submitted:20,approved:19,total:20});assert.equal(data.unapproved.length,1);assert.equal(data.unapproved[0].name,'Rémi');assert.equal(data.unapproved[0].title,'Contrôle du jeu');assert.ok(data.unapproved[0].feedback.startsWith('Le démarrage'));assert.equal(data.unapproved[0].feedback.length,360);
+  assert.equal(data.lastActivity,null);assert.equal(data.elapsedMs,null);assert.equal(data.silent,false);assert.match(data.note,/Aucun appel du moteur n’est en cours/u);assert.equal(data.recoveryAction.kind,'resume');assert.equal(JSON.stringify(source),before);
+  const{container}=dom(),time=clock(),widget=new DeliveryProgress({container,now:time.now,timers:time.timers,onResume:async()=>{}});widget.update(source);
+  assert.equal(widget.activity.hidden,true);assert.equal(widget.activityAge.hidden,true);assert.equal(widget.issues.hidden,false);assert.equal(widget.issueNodes[0].name.textContent,'Rémi');assert.equal(widget.issueNodes[0].feedback.textContent,data.unapproved[0].feedback);assert.equal(widget.recoveryButton.hidden,false);widget.destroy();
+});
+
+test('needs-review auto collapse retains its recovery action and never dispatches during updates or visibility changes',()=>{
+  const{document,container}=dom(),time=clock();let calls=0;const widget=new DeliveryProgress({container,now:time.now,timers:time.timers,onResume:async()=>{calls++;}}),source=mission({status:'needs_review',recovery:{canRecheck:true,used:1,rechecksUsed:0}});
+  widget.update(source);const button=widget.recoveryButton,issues=widget.issues;assert.equal(button.textContent,'Faire relire les corrections');assert.equal(button.parentElement,widget.actions);assert.equal(button.type,'button');
+  time.tick(6000);widget.update(structuredClone(source));time.tick(4000);assert.equal(widget.collapsed,true);assert.equal(widget.details.hidden,true);assert.equal(button.hidden,false);assert.equal(button.disabled,false);assert.equal(widget.root.hidden,false);assert.equal(time.queue.size,0);assert.equal(calls,0);
+  widget.setVisible(false);widget.setVisible(true);document.emit('visibilitychange');widget.update(structuredClone(source));assert.equal(widget.recoveryButton,button);assert.equal(widget.issues,issues);assert.equal(calls,0);
+  setLocale('en');document.emit('oscar:language');assert.equal(button.textContent,'Ask Oscar to review the corrections');setLocale('nl');document.emit('oscar:language');assert.equal(button.textContent,'Laat Oscar de correcties beoordelen');widget.destroy();setLocale('fr');
+});
+
+test('a recovery click is single-dispatch, stays disabled while pending, and exposes a refusal without changing mission state',async()=>{
+  const{container}=dom(),time=clock();let reject,resolve,calls=0;
+  const source=mission({status:'needs_review',recovery:{canResume:true,used:0}}),before=JSON.stringify(source),widget=new DeliveryProgress({container,now:time.now,timers:time.timers,onResume:item=>{calls++;assert.equal(item.id,source.id);return new Promise((yes,no)=>{resolve=yes;reject=no;});}});
+  widget.update(source);time.tick(10000);assert.equal(widget.collapsed,true);const first=widget.recover();assert.equal(calls,1);assert.equal(widget.recoveryButton.disabled,true);widget.recoveryButton.click();await widget.recover();widget.update(structuredClone(source));assert.equal(calls,1);assert.equal(widget.recoveryButton.disabled,true);
+  reject(new Error('Une correction manque encore.'));await first;assert.equal(widget.recoveryButton.disabled,false);assert.equal(widget.recoveryError.hidden,false);assert.equal(widget.recoveryError.textContent,'Une correction manque encore.');assert.equal(widget.details.hidden,true);assert.equal(widget.data.state,'needs_review');assert.equal(JSON.stringify(source),before);
+  const second=widget.recover();assert.equal(calls,2);assert.equal(widget.recoveryError.hidden,true);resolve({...source,status:'reviewing',recovery:{canResume:false,used:1}});await second;assert.equal(widget.recoveryButton.disabled,true,'an accepted request cannot be resent before the real state changes');widget.recoveryButton.click();assert.equal(calls,2);assert.equal(widget.data.state,'needs_review','a resolved callback is not a completed delivery');
+  widget.update(mission({status:'reviewing',recovery:{canResume:false,used:1}}));assert.equal(widget.recoveryButton.hidden,true);widget.destroy();
+});
+
+test('late recovery results cannot display an old problem in another project or unlock its pending action',async()=>{
+  const{container}=dom(),time=clock(),pending=new Map(),calls=[];
+  const widget=new DeliveryProgress({container,now:time.now,timers:time.timers,onResume:item=>{calls.push(item.id);return new Promise((resolve,reject)=>pending.set(item.id,{resolve,reject}));}}),first=mission({status:'needs_review',recovery:{canResume:true,used:0}}),second=mission({id:'mission-2',status:'needs_review',recovery:{canRecheck:true,used:1,rechecksUsed:0}});
+  widget.update(first);const oldRequest=widget.recover();widget.update(second);const newRequest=widget.recover();assert.equal(widget.recoveryButton.disabled,true);pending.get(first.id).reject(new Error('Ancienne erreur.'));await oldRequest;
+  assert.equal(widget.data.missionId,second.id);assert.equal(widget.recoveryError.hidden,true);assert.equal(widget.recoveryButton.disabled,true);assert.deepEqual(calls,[first.id,second.id]);pending.get(second.id).reject(new Error('La relecture doit attendre.'));await newRequest;assert.equal(widget.recoveryError.textContent,'La relecture doit attendre.');assert.equal(widget.recoveryButton.disabled,false);widget.destroy();
+});
+
+test('automatic problem collapse respects the focused recovery button, and unavailable actions cannot dispatch',async()=>{
+  const{document,container}=dom(),time=clock();let calls=0;const widget=new DeliveryProgress({container,now:time.now,timers:time.timers,onResume:async()=>{calls++;}});
+  widget.update(mission({status:'needs_review',recovery:{canResume:true}}));widget.recoveryButton.focus();time.tick(10000);assert.equal(widget.collapsed,false);assert.equal(document.activeElement,widget.recoveryButton);document.activeElement=null;time.tick(500);assert.equal(widget.collapsed,true);assert.equal(widget.recoveryButton.hidden,false);
+  widget.update(mission({status:'needs_review',recovery:{canResume:false,canRecheck:false}}));assert.equal(widget.recoveryButton.hidden,true);await widget.recover();assert.equal(calls,0);widget.destroy();
+});
+
+test('a callback with no accepted mission receipt never locks the action as a false success',async()=>{
+  const{container}=dom(),time=clock();let calls=0;const widget=new DeliveryProgress({container,now:time.now,timers:time.timers,onResume:async()=>{calls++;}}),source=mission({status:'needs_review',recovery:{canResume:true,used:0}});
+  widget.update(source);await widget.recover();assert.equal(calls,1);assert.equal(widget.recoveryButton.disabled,false);assert.equal(widget.data.state,'needs_review');assert.equal(widget.sentRecoveries.size,0);widget.destroy();
 });

@@ -80,8 +80,8 @@ test('mixed batch states retain real work, pending review and a fresh correction
   assert.equal(fixture.events.filter(event=>event.id==='alma'&&event.kind==='handoff').length,2);assert.ok(!fixture.events.some(event=>event.id==='alma'&&['approved','coffee'].includes(event.kind)));
 });
 
-test('twenty approved colleagues share the coffee machine without stacking their standing places',()=>{
-  const fixture=office(twenty('approved'));fixture.advance(500);
+test('twenty approved colleagues share a short coffee or lounge break, then go home without stacking',()=>{
+  const fixture=office(twenty('approved'));
   const peersAtChat=[];const originalEvent=fixture.world.onEvent;
   fixture.world.onEvent=(kind,data)=>{
     if(kind==='chat'){
@@ -90,13 +90,54 @@ test('twenty approved colleagues share the coffee machine without stacking their
     }
     originalEvent(kind,data);
   };
-  for(let step=0;step<1200;step++){
+  for(let step=0;step<4000;step++){
     fixture.advance(.1);
-    const still=current(fixture.world).filter(actor=>!actor.path.length);
+    const still=current(fixture.world).filter(actor=>!actor.path.length&&['coffee','chat','lounge','strolling','waiting_review','needs_review'].includes(actor.state));
     for(let first=0;first<still.length;first++)for(let second=first+1;second<still.length;second++)assert.ok(Math.hypot(still[first].x-still[second].x,still[first].y-still[second].y)>=35,'Coffee and lounge occupants need distinct standing places.');
     assert.ok(still.filter(actor=>actor.state==='coffee').length<=2,'The small machine does not hold the whole team.');
   }
   assert.equal(fixture.events.filter(event=>event.kind==='handoff').length,20);assert.equal(fixture.events.filter(event=>event.kind==='approved').length,20);
-  for(const actor of current(fixture.world))assert.ok(fixture.events.some(event=>event.id===actor.id&&event.kind==='coffee'),'Every approved colleague eventually gets a coffee.');
+  const all=[...fixture.world.agents.values()];assert.equal(all.length,20);assert.equal(current(fixture.world).length,0);
+  assert.equal(fixture.events.filter(event=>event.kind==='exit').length,20);
+  for(const actor of all){
+    assert.equal(actor.state,'home');assert.equal(actor.slot,-1);
+    assert.ok(actor.visited.includes('coffee')||actor.visited.includes('lounge')||actor.visited.includes('chat'),'each approved colleague takes a short break');
+    const approved=fixture.events.find(event=>event.id===actor.id&&event.kind==='approved'),exit=fixture.events.find(event=>event.id===actor.id&&event.kind==='exit');
+    assert.ok(exit.time-approved.time>=20&&exit.time-approved.time<45,'even the full team has a bounded break and journey home');
+  }
   assert.ok(peersAtChat.length>0,'The lounge should support real nearby exchanges.');assert.ok(peersAtChat.every(Boolean),'A chat needs a nearby colleague in the same office.');
+});
+
+test('final validation sends all twenty submitted colleagues home promptly and leaves Oscar at his desk',()=>{
+  const fixture=office(twenty());fixture.advance(200);
+  assert.equal(fixture.events.filter(event=>event.kind==='handoff').length,20);
+  assert.equal(current(fixture.world).length,20);
+  const transitions=[],originalVisit=fixture.world._visit;
+  fixture.world._visit=function(actor,state){if(state==='leaving')transitions.push({id:actor.id,time:this.time});return originalVisit.call(this,actor,state);};
+  for(const task of fixture.mission.tasks)task.status='approved';
+  fixture.mission.status='completed';const original=JSON.stringify(fixture.mission),completedAt=fixture.world.time;fixture.world.update(fixture.mission);
+  fixture.advance(1.6);
+  assert.equal(transitions.length,20);
+  assert.ok(transitions.every(item=>item.time-completedAt<1.6),'completion stops all remaining breaks with a small bounded stagger');
+  assert.ok(new Set(transitions.map(item=>item.time)).size>1);
+  fixture.advance(20);
+  assert.equal(current(fixture.world).length,0);assert.equal(fixture.world.oscar.place,'desk');
+  assert.equal(fixture.events.filter(event=>event.kind==='exit').length,20);assert.equal(fixture.events.filter(event=>event.kind==='coffee').length,0);
+  for(let index=0;index<30;index++){fixture.world.update(structuredClone(fixture.mission));fixture.advance(1);}
+  assert.equal(current(fixture.world).length,0);assert.equal(fixture.events.filter(event=>event.kind==='handoff').length,20);assert.equal(fixture.events.filter(event=>event.kind==='exit').length,20);
+  assert.equal(JSON.stringify(fixture.mission),original);
+});
+
+test('a mission needing attention keeps only its unapproved colleague, without pretending the delivery is complete',()=>{
+  const tasks=twenty('approved');tasks.at(-1).status='needs_review';
+  const fixture=office(tasks);fixture.mission.status='needs_review';fixture.world.update(fixture.mission);
+  const original=JSON.stringify(fixture.mission);fixture.advance(500);
+  const visible=current(fixture.world);assert.equal(visible.length,1);assert.equal(visible[0].id,tasks.at(-1).id);
+  assert.equal(visible[0].state,'needs_review');assert.equal(visible[0].mug,false);
+  assert.equal(fixture.events.filter(event=>event.kind==='handoff').length,20);
+  assert.equal(fixture.events.filter(event=>event.kind==='approved').length,19);
+  assert.equal(fixture.events.filter(event=>event.kind==='exit').length,19);
+  assert.equal(fixture.world.oscar.place,'desk');assert.equal(JSON.stringify(fixture.mission),original);
+  fixture.mission.status='completed';fixture.world.update(fixture.mission);fixture.advance(100);
+  assert.equal(current(fixture.world).length,1,'a phase label alone never substitutes for the colleague’s actual approval');
 });

@@ -6,6 +6,7 @@ import { startI18n, withLocaleInstruction, translate, getLocale, setLocale } fro
 import { PublicationDialog } from '/publication-dialog.js';
 import { OfficeSpeech } from '/office-speech.js';
 import { OfficeNotice } from '/office-notice.js';
+import { OscarAssistant } from '/oscar-assistant.js';
 import { ClockDialog } from '/clock-dialog.js';
 import { CreativeStudio } from '/creative-studio.js';
 import { ConnectorsDialog } from '/connectors-dialog.js';
@@ -95,6 +96,13 @@ let voiceDialog = null;
 let documentLibrary = null;
 let personalizationDialog = null;
 let dictationDialog = null;
+const oscarAssistant = new OscarAssistant({container:$('oscar-assistant-host'),
+  onAsk:({missionId,question,requestId,locale,signal})=>request(`/api/missions/${encodeURIComponent(missionId)}/questions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,requestId,locale}),signal}),
+  onRecover:({missionId,requestId,signal})=>request(`/api/missions/${encodeURIComponent(missionId)}/questions/${encodeURIComponent(requestId)}`,{signal}),
+  onOpen:panel=>{closeMemberForNavigation();openPanel(panel,{deliveryView:panel==='delivery'?'detail':'library'});},
+  onDictate:target=>dictateInto(target),
+});
+oscarAssistant.setVisible(false);
 let dictationReturnPanel = null;
 let personalContext = {profile:{},weather:{status:'disabled'}};
 let weatherTimer = null;
@@ -121,7 +129,7 @@ let completionTimer = null;
 let lastNarrated = null;
 let activePanel = null;
 const missionTiming = new MissionTiming({container:$('mission-timing'),isVisible:()=>activePanel==='progress'});
-const deliveryProgress = new DeliveryProgress({container:$('delivery-progress-host'),isVisible:()=>!document.querySelector('dialog[open]'),onOpen:panel=>panel==='delivery'?showDeliveryDetail():openPanel(panel)});
+const deliveryProgress = new DeliveryProgress({container:$('delivery-progress-host'),onResume:item=>resumeMission(item),isVisible:()=>!document.querySelector('dialog[open]'),onOpen:panel=>panel==='delivery'?showDeliveryDetail():openPanel(panel)});
 let panelReturnFocus = null;
 let memberReturnPanel = null;
 let memberReturnFocus = null;
@@ -548,6 +556,7 @@ function renderMission() {
   const noticeContext=mission?.id||'home';
   if(speechNotice.context!==noticeContext){officeSpeech?.stop();speechNotice.setContext(noticeContext);worldNotice.setContext(noticeContext);}
   missionTiming.update(mission);deliveryProgress.update(mission);
+  oscarAssistant.update(mission);
   $('publish-project').hidden=!mission||mission.status!=='completed'||mission.provider==='demo';
   $('publish-project').disabled=!mission||isRunning(mission);
   $('demo-banner').hidden=mission?.provider !== 'demo';
@@ -568,7 +577,7 @@ function completionKey(item){return `${item.id}:${item.status}`;}
 function observeCompletion(){
   if(!mission)return;
   const previous=completionStatuses.get(mission.id);completionStatuses.set(mission.id,mission.status);
-  if((!previous||['planning','running','reviewing'].includes(previous))&&['completed','needs_review','failed','cancelled'].includes(mission.status)){
+  if(previous!==mission.status&&['completed','needs_review','failed','cancelled'].includes(mission.status)){
     let seen=false;try{seen=localStorage.getItem(`oscar-delivery:${completionKey(mission)}`)==='seen';}catch{}
     if(!seen){pendingCompletions.set(mission.id,mission);scheduleCompletion();}
   }
@@ -702,6 +711,7 @@ async function stopMission() {
   finally { $('stop-mission').disabled=false; }
 }
 function renderMember(role,taskId) {
+  oscarAssistant.setVisible(role==='oscar');
   const info=getRole(role);
   const selected=(mission?.tasks || []).find(t=>t.id===taskId&&roleOf(t.role)===role);
   const dependencyStates=selected?(Array.isArray(selected.dependsOn)?selected.dependsOn:[]).map(id=>{const task=mission.tasks.find(item=>item.id===id);return task?[id,task.agentName,task.role,task.title,task.status]:[id,null];}):null;
@@ -758,6 +768,7 @@ function openMember(role,taskId,spokenLine) {
   openedRole=role;openedTaskId=taskId || null;const quips=QUIPS[role] || QUIPS.oscar;openedQuip=['oscar','secretaire'].includes(role)?spokenLine||characterLine(role):quips[Math.floor(Math.random()*quips.length)];renderMember(role,taskId);
   const dialog=$('member-dialog');
   if(!dialog.open) dialog.showModal();
+  oscarAssistant.setVisible(role==='oscar');
   if(role==='oscar'||role==='secretaire')officeSpeech?.speak(role,openedQuip);
 }
 function setConnection(connected) {
@@ -791,9 +802,10 @@ $('demo-button').addEventListener('click',()=>launch('demo'));
 $('new-mission').addEventListener('click',()=>{if(isRunning(mission)){closeOfficePanel({restoreFocus:false});openAnotherOffice();}else{newMission({reveal:false});openPanel('catalog');}});
 $('free-mission').addEventListener('click',newMission);
 $('stop-mission').addEventListener('click',stopMission);
+$('talk-oscar').addEventListener('click',()=>openMember('oscar'));
 $('close-dialog').addEventListener('click',()=>$('member-dialog').close());
 $('member-dialog').addEventListener('click',event=>{if(event.target===$('member-dialog')) {const box=$('member-dialog').getBoundingClientRect();if(event.clientX<box.left || event.clientX>box.right || event.clientY<box.top || event.clientY>box.bottom) $('member-dialog').close();}});
-$('member-dialog').addEventListener('close',()=>{if($('member-dialog').open)return;openedRole=null;openedTaskId=null;lastMemberSignature='';const previous=memberReturnPanel,focus=memberReturnFocus;memberReturnPanel=null;memberReturnFocus=null;if(previous){openPanel(previous,{focus:false});(focus?.isConnected&&$('office-panel').contains(focus)&&!focus.disabled?focus:$('close-office-panel')).focus({preventScroll:true});}});
+$('member-dialog').addEventListener('close',()=>{if($('member-dialog').open)return;oscarAssistant.setVisible(false);openedRole=null;openedTaskId=null;lastMemberSignature='';const previous=memberReturnPanel,focus=memberReturnFocus;memberReturnPanel=null;memberReturnFocus=null;if(previous){openPanel(previous,{focus:false});(focus?.isConnected&&$('office-panel').contains(focus)&&!focus.disabled?focus:$('close-office-panel')).focus({preventScroll:true});}});
 $('team-oscar').addEventListener('click',()=>openMember('oscar'));
 document.addEventListener('click',event=>{const button=event.target.closest('[data-open-panel]');if(button)openPanel(button.dataset.openPanel);});
 $('close-office-panel').addEventListener('click',()=>closeOfficePanel());
@@ -807,7 +819,7 @@ $('pixel-fullscreen').addEventListener('click',async()=>{try{if(document.fullscr
 document.querySelectorAll('[data-prompt]').forEach(button=>button.addEventListener('click',()=>{$('mission-input').value=translate(button.dataset.prompt);saveBriefDraft();$('mission-input').focus();}));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshState();});
 window.addEventListener('online',refreshState);
-window.addEventListener('beforeunload',()=>{applicationUpdates.destroy();officeTheme.destroy();worldNotice.destroy();speechNotice.destroy();deliveryNavigation?.destroy();deliveryLibrary?.destroy();missionTiming.destroy();deliveryProgress.destroy();progressVisibilityObserver.disconnect();resultPreviewDialog?.destroy();deliveryPanelPreview?.destroy();archiveDownload?.abort();clearTimeout(completionTimer);clearTimeout(weatherTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();dictationDialog?.destroy();documentLibrary?.destroy();personalizationDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
+window.addEventListener('beforeunload',()=>{oscarAssistant.destroy();applicationUpdates.destroy();officeTheme.destroy();worldNotice.destroy();speechNotice.destroy();deliveryNavigation?.destroy();deliveryLibrary?.destroy();missionTiming.destroy();deliveryProgress.destroy();progressVisibilityObserver.disconnect();resultPreviewDialog?.destroy();deliveryPanelPreview?.destroy();archiveDownload?.abort();clearTimeout(completionTimer);clearTimeout(weatherTimer);eventSource?.close();pixelWorld?.destroy();welcomeGuide?.destroy();publicationDialog?.destroy();voiceDialog?.destroy();officeSpeech?.destroy();clockDialog?.destroy();dictationDialog?.destroy();documentLibrary?.destroy();personalizationDialog?.destroy();creativeStudio?.destroy();connectorsDialog?.destroy();automationsDialog?.destroy();artifactViewer?.destroy();completionDialog?.destroy();secretaryDialog?.destroy();});
 
 coffeeDialog = new CoffeeDialog({recipient:'renaud2005@gmail.com'});
 clockDialog=new ClockDialog({onClose:()=>returnFromUtility(clockDialog)});

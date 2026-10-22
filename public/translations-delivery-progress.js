@@ -33,4 +33,12 @@ export default {
   'Temps mesuré, sans estimation de fin.':{en:'Measured time, without a finish-time estimate.',nl:'Gemeten tijd, zonder geschatte eindtijd.'},
   'Démonstration : cette étape est simulée, sans appel du moteur.':{en:'Demo: this step is simulated, without a model call.',nl:'Demonstratie: deze stap is gesimuleerd, zonder modeloproep.'},
   'Aucun appel d’Oscar en cours n’est enregistré.':{en:'No ongoing call from Oscar is recorded.',nl:'Er is geen lopende oproep van Oscar vastgelegd.'},
+  'Aucun appel du moteur n’est en cours pour cette mission.':{en:'No model call is running for this mission.',nl:'Er loopt geen modeloproep voor deze opdracht.'},
+  'Un collègue':{en:'A colleague',nl:'Een collega'},
+  'Contribution à vérifier':{en:'Contribution to review',nl:'Bijdrage ter controle'},
+  'Cette contribution n’est pas encore validée.':{en:'This contribution has not yet been approved.',nl:'Deze bijdrage is nog niet goedgekeurd.'},
+  'Ce qui reste à corriger':{en:'What still needs attention',nl:'Wat nog moet worden verbeterd'},
+  'Faire relire les corrections':{en:'Ask Oscar to review the corrections',nl:'Laat Oscar de correcties beoordelen'},
+  'Reprendre avec Oscar':{en:'Resume with Oscar',nl:'Hervatten met Oscar'},
+  'La reprise n’a pas abouti. Les fichiers sont conservés.':{en:'The recovery did not succeed. Your files are kept.',nl:'Het herstel is niet gelukt. Je bestanden blijven bewaard.'},
 };

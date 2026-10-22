@@ -1,5 +1,14 @@
 # Historique des versions
 
+## 0.6.18 — 22 octobre 2026
+
+- Une contribution HTML transmet maintenant ses modules, styles et ressources locales à ses collègues, avec des empreintes vérifiées ; un ancien paquet incomplet doit être relu avant d’être enrichi.
+- Après deux refus de qualité, Oscar peut effectuer une seule vague de correction ciblée et sauvegardée. Aucun nouvel accès ni relancement automatique d’un problème de compte, de quota ou de permission. Un refus persistant reste explicite et actionnable.
+- Les spécialistes approuvés rendent leur dossier, prennent une courte pause puis quittent le bureau. Après validation finale, ils repartent sans nouvelle pause ; une correction réelle rappelle uniquement les personnes nécessaires.
+- Le suivi explique les contributions refusées, masque les anciens signaux d’activité lorsque le travail est arrêté, et permet la reprise directement. Le panneau se réduit sans perdre ses actions.
+- Oscar reste accessible depuis son portrait dans le bandeau : réponses immédiates sur l’état réel, dictée et questions libres sur un instantané de la mission. Ces questions ne modifient pas les travaux et leur reçu évite les doubles appels après une réponse perdue.
+- La validation finale ouvre « Travail terminé », avec le résultat, les boutons pour voir, publier et ouvrir le dossier. Cette annonce apparaît aussi après une mission précédemment « À vérifier ».
+
 ## 0.6.17 — 22 octobre 2026
 
 - Le bureau entier s’adapte à la zone libre entre le bandeau et le menu, sur écran carré ou large : fenêtres, lampes et lounge restent visibles, avec des cibles de clic alignées après redimensionnement.

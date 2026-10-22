@@ -171,7 +171,7 @@ export class PixelWorld {
     this.ctx.imageSmoothingEnabled=true;
     this.onSelect=onSelect;this.onStatus=onStatus;this.onEvent=onEvent;this.onInteract=onInteract;this.onAmbience=onAmbience;
     this.getCharacterLine=getCharacterLine;
-    this.mission=null;this.missionId=null;this.agents=new Map();
+    this.mission=null;this.missionId=null;this.agents=new Map();this._departedActors=new Map();
     this.frame=0;this.time=0;this.oscarState='idle';this._oscarBubble='Explique-moi ce que tu veux faire';this._oscarBubbleUntil=4;
     this.oscar={...OSCAR_WELCOME,id:'oscar',key:'oscar',role:'oscar',name:'Oscar',direction:'down',path:[],place:'welcome',destination:'welcome',nextVisitAt:18,visitUntil:0,visits:0};
     this._reviewOwner=null;this._raf=null;this._lastTick=null;this._lastPaint=0;
@@ -265,18 +265,27 @@ export class PixelWorld {
         let a=this.agents.get(key);
         if(!a) {
           if(mission.status==='cancelled'||task.status==='cancelled') return;
+          const departed=this._departedActors?.get(key);
+          if(departed&&task.status==='approved'&&taskAttempt(task)===departed.attempt)return;
           const random=seeded(hash(key));
           a={key,id:task.id,missionId:nextId,role,name,roleIndex,task,index,slot:-1,
             x:DOOR.x,y:DOOR.y,direction:'down',walkFrame:0,state:'waiting_entry',visible:false,
             target:null,path:[],afterTravel:null,deadline:0,hireAt:this.time+index*.35,
-            workSince:0,handoffAttempt:0,handoffAttempts:new Set(),paper:false,mug:false,
+            workSince:0,handoffAttempt:departed?.handoffAttempt||0,handoffAttempts:new Set(departed?.handoffAttempts),approvedAttempts:new Set(departed?.approvedAttempts),paper:false,mug:false,
             retiring:false,random,bubble:'',bubbleUntil:0,visited:[],speed:165+random()*25,
             nextIdleAt:0,reviewRequestedAt:0,lastAttempt:taskAttempt(task)};
           this.agents.set(key,a);
+          this._departedActors?.delete(key);
         } else {
-          const wasRetiring=a.retiring||a.state==='leaving';
+          const wasRetiring=(a.retiring||a.state==='leaving')&&a.departureReason!=='approved';
+          const recalled=a.departureReason==='approved'&&(task.status!=='approved'||taskAttempt(task)!==a.departureAttempt);
           a.task=task;a.index=index;a.name=name;a.roleIndex=roleIndex;
-          if(wasRetiring&&!EXIT_TASKS.has(task.status)&&!['failed','cancelled'].includes(mission.status)) this._reactivate(a);
+          if((wasRetiring||recalled)&&!EXIT_TASKS.has(task.status)&&!['failed','cancelled'].includes(mission.status)) this._reactivate(a);
+        }
+        if(mission.status==='completed'&&task.status==='approved'&&a.handoffAttempts.has(taskAttempt(task))){
+          // Once the complete delivery is genuinely validated, only Oscar and
+          // Zoé remain. A tiny stagger separates the colleagues' departures.
+          a.homeAfterApprovalAt=Math.min(a.homeAfterApprovalAt??Infinity,this.time+(index%20)*.075);
         }
       });
       for(const a of this.agents.values()) if(a.missionId===nextId&&!keys.has(a.key)) a.retiring=true;
@@ -474,6 +483,7 @@ export class PixelWorld {
     return other;
   }
   _waitForReview(a) {
+    a.homeAfterApprovalAt=null;this._departedActors?.delete(a.key);
     this._releaseReview(a);a.paper=false;a.mug=false;a.coffeePending=false;
     a.reviewWaitReason=this._reviewWaitLine(a);this._bubble(a,a.reviewWaitReason);
     this._travel(a,'to_review_wait',this._socialPoint(a),'waiting_review');
@@ -487,6 +497,7 @@ export class PixelWorld {
     this._travel(a,state==='chat'?'to_chat':'to_lounge',point,state);
   }
   _reactivate(a) {
+    a.homeAfterApprovalAt=null;a.departureReason=null;a.departureAttempt=null;this._departedActors?.delete(a.key);
     a.retiring=false;a.reactivations=(a.reactivations||0)+1;
     this._releaseReview(a);a.path=[];a.target=null;a.afterTravel=null;a.paper=false;a.mug=false;
     if(!a.visible||a.slot<0) {
@@ -508,6 +519,7 @@ export class PixelWorld {
     }
   }
   _returnToDesk(a) {
+    a.homeAfterApprovalAt=null;a.departureReason=null;a.departureAttempt=null;this._departedActors?.delete(a.key);
     this._releaseReview(a);a.paper=false;a.mug=false;a.coffeePending=false;a.socialGestureUntil=0;
     this._bubble(a,a.task.status==='needs_review'?'Je reprends ce point.':'On améliore ça !');
     this._travel(a,'returning',DESKS[a.slot].stand,'working');
@@ -530,12 +542,33 @@ export class PixelWorld {
   _startCoffee(a) {
     const attempt=taskAttempt(a.task);if(a.task.status!=='approved'||!a.handoffAttempts.has(attempt)) return;
     this._releaseReview(a);a.paper=false;a.mug=false;
-    this._bubble(a,'Validé ! Pause café.');
     a.approvedAttempts??=new Set();if(!a.approvedAttempts.has(attempt)){a.approvedAttempts.add(attempt);this._event('approved',a);}
+    if(a.missionId===this.missionId&&this.mission?.status==='completed'){
+      a.homeAfterApprovalAt??=this.time;
+      if(this.time>=a.homeAfterApprovalAt)this._goHome(a);
+      else {a.nextIdleAt=a.homeAfterApprovalAt;a.direction='down';this._visit(a,'resting');this._bubble(a,'À bientôt, l’atelier.');}
+      return;
+    }
+    this._bubble(a,'Validé ! Pause café.');
+    // A short break, then home. Refreshes never extend the same approval's
+    // deadline; real corrections clear it when the colleague returns to work.
+    a.homeAfterApprovalAt??=this.time+24+(a.index%8)*.65;
     const slot=this._coffeePlace(a);
     if(slot<0){a.coffeePending=true;this._goLounge(a);return;}
     a.coffeePending=false;a.coffeeSlot=slot;
     this._travel(a,'to_coffee',COFFEE[slot],'coffee');
+  }
+  _goHome(a) {
+    const attempt=taskAttempt(a.task);
+    if(a.task.status!=='approved'||!a.handoffAttempts.has(attempt)||a.departureReason==='approved')return;
+    if(a.collaboration)this._finishCollaboration(a.collaboration);
+    a.approvedAttempts??=new Set();if(!a.approvedAttempts.has(attempt)){a.approvedAttempts.add(attempt);this._event('approved',a);}
+    this._releaseReview(a);a.paper=false;a.mug=false;a.coffeePending=false;a.socialGestureUntil=0;
+    a.departureReason='approved';a.departureAttempt=attempt;
+    this._departedActors??=new Map();
+    this._departedActors.set(a.key,{attempt,handoffAttempt:a.handoffAttempt,handoffAttempts:[...a.handoffAttempts],approvedAttempts:[...(a.approvedAttempts||[])]});
+    this._bubble(a,'À bientôt, l’atelier.');
+    this._travel(a,'leaving',DOOR,'home');
   }
   _startSocial(a) {
     if(a.task.status!=='approved'||!a.handoffAttempts.has(taskAttempt(a.task)))return;
@@ -622,11 +655,13 @@ export class PixelWorld {
       this._bubble(a,other?(bothApproved?['Joli travail !','Et ta prochaine idée ?','Bien joué, l’équipe !'][Math.floor(a.random()*3)]:'On regarde ça ensemble ?'):'On se retrouve ici ?',3.6);
       if(other){this._bubble(other,bothApproved?['Merci !','On forme une belle équipe.','Je suis partant !'][Math.floor(a.random()*3)]:'J’ai une idée à te montrer.',3.2);this._event('chat',a);}
     } else if(state==='resting') {a.direction='down';a.mug=false;a.nextIdleAt=this.time+3+a.random()*4;}
+    else if(state==='home') {a.visible=false;a.slot=-1;a.socialSlot=null;a.coffeeSlot=null;this._releaseReview(a);this._event('exit',a);}
     else if(state==='gone') {a.visible=false;this._releaseReview(a);this.agents.delete(a.key);this._event('exit',a);}
   }
 
   _stepAgent(a,dt) {
     const activeMission=a.missionId===this.missionId;
+    if(a.departureReason==='approved'&&!a.retiring&&!EXIT_TASKS.has(a.task.status)&&(a.task.status!=='approved'||taskAttempt(a.task)!==a.departureAttempt))this._reactivate(a);
     const pendingHandoff=this._pendingDelivery(a);
     const cancelled=a.task.status==='cancelled'||activeMission&&this.mission?.status==='cancelled';
     const exit=cancelled||(!pendingHandoff&&a.state!=='handoff'&&(a.retiring||a.task.status==='failed'||activeMission&&this.mission?.status==='failed'));
@@ -649,6 +684,7 @@ export class PixelWorld {
     else if(pendingHandoff&&['to_coffee','coffee','to_chat','chat','to_lounge','lounge','to_stroll','strolling','resting','to_collaboration','collaboration'].includes(a.state))this._startReview(a);
     else if(['reviewing','needs_review'].includes(a.task.status)&&a.handoffAttempts.has(attempt)&&['to_coffee','coffee','to_chat','chat','to_lounge','lounge','to_stroll','strolling','resting'].includes(a.state))this._waitForReview(a);
     else if(a.task.status==='approved'&&a.handoffAttempts.has(attempt)&&(a.state==='to_review_wait'||a.coffeePending&&SOCIAL_STATES.has(a.state)&&this._coffeePlace(a)>=0))this._startCoffee(a);
+    if(a.task.status==='approved'&&a.handoffAttempts.has(attempt)&&!HANDOFF_STATES.has(a.state)&&Number.isFinite(a.homeAfterApprovalAt)&&this.time>=a.homeAfterApprovalAt)this._goHome(a);
     a.lastAttempt=attempt;
     if(TRAVEL_STATES.has(a.state)) {
       let remaining=a.speed*dt;

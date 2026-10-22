@@ -31,14 +31,16 @@ test('une correction doit être revue avant livraison et conserver la trace du r
   assert(done.events.some(e => e.text.includes('Il manque la date.')));
   assert.equal(readFileSync(path.join(app.workDir(m.id),'Livraison.md'),'utf8'),done.result);
 });
-test('deux refus restent à revoir et ne déclenchent pas de synthèse approuvée', async t => {
+test('deux refus puis une seule reprise ciblée restent à revoir sans synthèse approuvée', async t => {
   let calls = 0;
   const app = setup(t, async ({schema}) => {
     calls++;
+    if(schema?.properties.reviews)return{text:JSON.stringify({reviews:[{taskId:'t1',approved:false,feedback:'Critère toujours non satisfait après relecture réelle.'}]})};
     return {text: schema?.properties.tasks ? JSON.stringify(plan) : schema?.properties.approved ? JSON.stringify({approved:false,feedback:'Critère non satisfait.'}) : 'Rapport incomplet'};
   });
   const m = app.start({prompt:'Écris un message.'}); const done = await app.wait(m.id);
-  assert.equal(done.status,'needs_review'); assert.equal(calls,5);
+  assert.equal(done.status,'needs_review'); assert.equal(calls,8);
+  assert.equal(done.recovery.used,1); assert.equal(done.tasks[0].attempt,3);
   assert.equal(done.tasks[0].status,'needs_review'); assert(!done.files.some(f=>f.path==='Livraison.md'));
 });
 test('une panne du moteur ne devient jamais un travail livré', async t => {

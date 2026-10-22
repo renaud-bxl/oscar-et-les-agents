@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { BrowserPreviews } from './lib/browser-preview.mjs';
 import { AppUpdates } from './lib/app-updates.mjs';
 import { UpdateMaintenance, updateBlockers } from './lib/update-maintenance.mjs';
+import { MissionQuestions } from './lib/mission-questions.mjs';
 import { assertUpdateStartup } from './lib/update-startup.mjs';
 import { resolveInstallationDataLocation, dataDirectoryHash } from './lib/installation-paths.mjs';
 import { Atelier } from './lib/orchestrator.mjs';
@@ -254,6 +255,8 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
       engine.scanFiles(mission); engine.save(mission);
     },
   });
+  const questions = new MissionQuestions({dataDir:engine.dataDir,runner});
+  await questions.ready;
   const automations = automationFactory({ engine, dataDir: engine.dataDir, resolveConnectorPlan: options => connectors.readPlan(options), isMaintenance: () => maintenance.active || Boolean(updates?.isBusy) });
   const voice = voiceFactory({ dataDir: engine.dataDir });
   await voice.ready;
@@ -269,7 +272,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
   const archives = new MissionArchives({ openFile: (directory, relative) => openMissionDownload(checkedMissionDirectory(directory), relative) });
   const archiveTasks = new Set();
   let activeArchive = null;
-  const getBusyReasons = () => updateBlockers({engine,calendar,login,connectors,publishing,automations,documents,voice,dictation,preparations,secretaryPending,activeArchive,archiveTasks,requests:maintenance.requests,responses:maintenance.responses});
+  const getBusyReasons = () => updateBlockers({engine,calendar,login,connectors,publishing,automations,documents,voice,dictation,questions,preparations,secretaryPending,activeArchive,archiveTasks,requests:maintenance.requests,responses:maintenance.responses});
   updates = updatesFactory({root:ROOT,currentVersion:version,dataDir:engine.dataDir,getBusyReasons,getPort:()=>server.address()?.port||port,autoCheck:enableUpdates,onChange:snapshot=>{if(snapshot?.status==='error'&&!snapshot.maintenance){maintenance.release();updateResponse=null;}engine.emit('change',engine.state());},
     ...(typeof updateShutdown === 'function' ? {requestShutdown:async()=>{
       // Reply to the explicit click before closing sockets. The updater waits
@@ -307,6 +310,14 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
         stateStream.add(res, engine.state()); return;
       }
       if (pathname === '/api/state' && req.method === 'GET') { json(res, 200, publicSnapshot(engine.state())); return; }
+      const questionReceipt=pathname.match(/^\/api\/missions\/([^/]+)\/questions\/([^/]+)$/u);
+      if(questionReceipt&&req.method==='GET'){
+        if(url.search)throw fileError('L’identifiant de cette question est invalide.','QUESTION_INVALID');
+        const receipt=await questions.get(questionReceipt[1],questionReceipt[2]);
+        if(!receipt){json(res,404,{error:'Cette réponse est introuvable.'});return;}
+        if(receipt.status==='failed'){json(res,400,{error:receipt.error?.message||'Oscar n’a pas pu répondre à cette question.',code:receipt.error?.code||'QUESTION_FAILED'});return;}
+        json(res,receipt.status==='running'?202:200,receipt);return;
+      }
       const missionReceipt=pathname.match(/^\/api\/mission-requests\/([^/]+)$/u);
       if(missionReceipt&&req.method==='GET'){
         if(url.search)throw fileError('L’identifiant de reprise de cette mission n’est pas valide.','MISSION_REQUEST_INVALID');
@@ -399,6 +410,16 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
           if (action === 'pause' && req.method === 'POST') { json(res, 200, automations.update(id, { enabled: false })); return; }
         }
         if (req.method !== 'POST') { json(res, 404, { error: 'Action inconnue.' }); return; }
+        const missionQuestion=pathname.match(/^\/api\/missions\/([^/]+)\/questions$/u);
+        if(missionQuestion){
+          if(url.search||Object.keys(body).some(key=>!['question','requestId','locale'].includes(key)))throw fileError('Cette question contient des options inattendues.','QUESTION_INVALID');
+          const mission=engine.get(missionQuestion[1]);
+          if(!mission){json(res,404,{error:'Mission inconnue.'});return;}
+          const provider=engine.providers.find(row=>row.id===mission.provider);
+          if(!provider?.available||provider.auth?.loggedIn!==true||provider.auth?.method==='api')throw fileError('Connectez le moteur de cette mission pour poser une question libre. Les points de suivi restent disponibles.','QUESTION_CONNECTION');
+          if(connectors.active?.has(mission.provider)||['installing','connecting'].includes(engine.logins?.[mission.provider]?.status))throw fileError('Ce moteur est en cours de préparation. Attendez sa connexion.','QUESTION_MISSION_BUSY');
+          json(res,200,await questions.ask({mission,question:body.question,requestId:body.requestId,locale:body.locale||mission.locale||'fr'}));return;
+        }
         if (pathname === '/api/dictation/install') { json(res, 202, await dictation.install(body)); return; }
         if (pathname === '/api/dictation/transcribe') {
           const controller = new AbortController(), disconnected = () => { if (!res.writableEnded) controller.abort(); };
@@ -635,13 +656,13 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
       if (!['GET', 'HEAD'].includes(req.method)) { json(res, 405, { error: 'Méthode non prise en charge.' }); return; }
       const staticName = pathname === '/' ? 'index.html' : pathname.replace(/^\//, '');
       if(pdfVendor.assets.has(staticName)){res.writeHead(200,{'Content-Type':MIME[path.extname(staticName)],'Content-Security-Policy':CSP,'Cache-Control':'public, max-age=31536000, immutable'});res.end(req.method==='HEAD'?undefined:pdfVendor.assets.get(staticName));return;}
-      if (!['index.html', 'style.css', 'immersive.css', 'app.js', 'pixel-world.js', 'pixel-scene.css', 'mission-catalog.js', 'mission-catalog.css', 'mission-extras.js', 'coffee-dialog.js', 'coffee-dialog.css', 'ambience.js', 'welcome-guide.js', 'welcome-guide.css', 'i18n.js', 'translations-catalog.js', 'translations-interface.js', 'translations-guide.js', 'publication-dialog.js', 'publication-dialog.css', 'office-speech.js', 'office-notice.js', 'clock-dialog.js', 'clock-dialog.css', 'creative-studio.js', 'creative-studio.css', 'automations-dialog.js', 'automations-dialog.css', 'connectors-dialog.js', 'connectors-dialog.css', 'completion-dialog.js', 'completion-dialog.css', 'artifact-viewer.js', 'artifact-viewer.css', 'office-viewer.js', 'office-viewer.css', 'translations-office.js', 'pdf-preview.js', 'secretary-dialog.js', 'secretary-dialog.css', 'voice-dialog.js', 'voice-preview-oscar-paul-v2-fr.wav', 'voice-preview-oscar-paul-v2-en.wav', 'voice-preview-oscar-paul-v2-nl.wav', 'voice-preview-zoe-vera-v2-fr.wav', 'voice-preview-zoe-vera-v2-en.wav', 'voice-preview-zoe-vera-v2-nl.wav', 'voice-preview-zoe-fr.wav', 'voice-preview-zoe-en.wav', 'voice-preview-zoe-nl.wav', 'voice-dialog.css', 'voice-preview-oscar-2-fr.wav', 'voice-preview-oscar-2-en.wav', 'voice-preview-oscar-2-nl.wav', 'personalization-dialog.js', 'personalization-dialog.css', 'character-lines.js', 'document-library.js', 'document-library.css', 'dictation-dialog.js', 'dictation-dialog.css', 'office-theme.js', 'office-theme-init.js', 'office-theme.css', 'translations-theme.js', 'mission-timing.js', 'mission-timing.css', 'translations-performance.js', 'translations-team.js', 'translations-voices.js', 'dictation-entry.js', 'calendar-event-dialog.js', 'calendar-event-dialog.css', 'translations-calendar.js', 'draft-storage.js','delivery-progress.js','translations-delivery-progress.js','delivery-preview.js','translations-delivery-preview.js','delivery-experience.css','delivery-library.js','delivery-library.css','delivery-navigation.js','translations-delivery-library.js','mission-recovery.js','translations-recovery.js','app-updates.js','app-updates.css','translations-updates.js'].includes(staticName)) { res.writeHead(404); res.end('Introuvable'); return; }
+      if (!['index.html', 'style.css', 'immersive.css', 'app.js', 'pixel-world.js', 'pixel-scene.css', 'mission-catalog.js', 'mission-catalog.css', 'mission-extras.js', 'coffee-dialog.js', 'coffee-dialog.css', 'ambience.js', 'welcome-guide.js', 'welcome-guide.css', 'i18n.js', 'translations-catalog.js', 'translations-interface.js', 'translations-guide.js', 'publication-dialog.js', 'publication-dialog.css', 'office-speech.js', 'office-notice.js', 'oscar-assistant.js', 'oscar-assistant.css', 'translations-oscar-assistant.js', 'clock-dialog.js', 'clock-dialog.css', 'creative-studio.js', 'creative-studio.css', 'automations-dialog.js', 'automations-dialog.css', 'connectors-dialog.js', 'connectors-dialog.css', 'completion-dialog.js', 'completion-dialog.css', 'artifact-viewer.js', 'artifact-viewer.css', 'office-viewer.js', 'office-viewer.css', 'translations-office.js', 'pdf-preview.js', 'secretary-dialog.js', 'secretary-dialog.css', 'voice-dialog.js', 'voice-preview-oscar-paul-v2-fr.wav', 'voice-preview-oscar-paul-v2-en.wav', 'voice-preview-oscar-paul-v2-nl.wav', 'voice-preview-zoe-vera-v2-fr.wav', 'voice-preview-zoe-vera-v2-en.wav', 'voice-preview-zoe-vera-v2-nl.wav', 'voice-preview-zoe-fr.wav', 'voice-preview-zoe-en.wav', 'voice-preview-zoe-nl.wav', 'voice-dialog.css', 'voice-preview-oscar-2-fr.wav', 'voice-preview-oscar-2-en.wav', 'voice-preview-oscar-2-nl.wav', 'personalization-dialog.js', 'personalization-dialog.css', 'character-lines.js', 'document-library.js', 'document-library.css', 'dictation-dialog.js', 'dictation-dialog.css', 'office-theme.js', 'office-theme-init.js', 'office-theme.css', 'translations-theme.js', 'mission-timing.js', 'mission-timing.css', 'translations-performance.js', 'translations-team.js', 'translations-voices.js', 'dictation-entry.js', 'calendar-event-dialog.js', 'calendar-event-dialog.css', 'translations-calendar.js', 'draft-storage.js','delivery-progress.js','translations-delivery-progress.js','delivery-preview.js','translations-delivery-preview.js','delivery-experience.css','delivery-library.js','delivery-library.css','delivery-navigation.js','translations-delivery-library.js','mission-recovery.js','translations-recovery.js','app-updates.js','app-updates.css','translations-updates.js'].includes(staticName)) { res.writeHead(404); res.end('Introuvable'); return; }
       const content = await readFile(path.join(ROOT, 'public', staticName));
       res.writeHead(200, { 'Content-Type': MIME[path.extname(staticName)], 'Content-Security-Policy': CSP, 'Cache-Control': 'no-cache' }); res.end(req.method === 'HEAD' ? undefined : content);
     } catch (error) {
       if (res.destroyed) return;
       if (!res.headersSent&&error.code?.startsWith('BROWSER_PREVIEW_')) {json(res,error.status||400,{error:error.message?.slice(0,2000),code:error.code,...(Array.isArray(error.entries)?{entries:error.entries}:{})});return;}
-      if (!res.headersSent) json(res, ['PUBLICATION_NOT_FOUND', 'AUTOMATION_NOT_FOUND', 'MISSION_FILE_NOT_FOUND', 'VOICE_AUDIO_NOT_FOUND', 'CALENDAR_NOT_FOUND'].includes(error.code) ? 404 : ['MISSION_FILE_FORBIDDEN', 'ARCHIVE_FORBIDDEN'].includes(error.code) ? 403 : ['UPDATE_BUSY', 'UPDATE_CHANGED', 'SERVER_CLOSING', 'MISSION_CAPACITY', 'PUBLICATION_BUSY', 'PUBLICATION_CHANGED', 'CONNECTOR_BUSY', 'AUTOMATION_BUSY', 'AUTOMATION_REQUEST_CHANGED', 'AUTOMATION_REQUEST_DELETED', 'VOICE_BUSY', 'DICTATION_BUSY', 'DOCUMENT_BUSY', 'DOCUMENT_CHANGED', 'SECRETARY_REQUEST_CHANGED', 'SECRETARY_RETRY', 'ARCHIVE_BUSY', 'ARCHIVE_CHANGED', 'MISSION_REQUEST_CHANGED', 'MISSION_REQUEST_RETRY', 'CALENDAR_BUSY', 'CALENDAR_CHANGED', 'CALENDAR_UNCERTAIN', 'MISSION_RECOVERY_LIMIT', 'MISSION_RECOVERY_UNAVAILABLE', 'MISSION_RECOVERY_PROVIDER', 'MISSION_RECHECK_LIMIT', 'MISSION_RECHECK_UNAVAILABLE'].includes(error.code) ? 409 : 400, { error: error.message?.slice(0, 2000) ?? 'La demande a échoué.', ...(/^(?:UPDATE|DICTATION|DOCUMENT|CALENDAR|MISSION_RECOVERY|MISSION_RECHECK)_[A-Z_]{1,50}$/u.test(error.code||'') ? {code:error.code} : {}) });
+      if (!res.headersSent) json(res, ['PUBLICATION_NOT_FOUND', 'AUTOMATION_NOT_FOUND', 'MISSION_FILE_NOT_FOUND', 'VOICE_AUDIO_NOT_FOUND', 'CALENDAR_NOT_FOUND','QUESTION_NOT_FOUND'].includes(error.code) ? 404 : ['MISSION_FILE_FORBIDDEN', 'ARCHIVE_FORBIDDEN'].includes(error.code) ? 403 : ['UPDATE_BUSY', 'UPDATE_CHANGED', 'SERVER_CLOSING', 'MISSION_CAPACITY', 'PUBLICATION_BUSY', 'PUBLICATION_CHANGED', 'CONNECTOR_BUSY', 'AUTOMATION_BUSY', 'AUTOMATION_REQUEST_CHANGED', 'AUTOMATION_REQUEST_DELETED', 'VOICE_BUSY', 'DICTATION_BUSY', 'DOCUMENT_BUSY', 'DOCUMENT_CHANGED', 'SECRETARY_REQUEST_CHANGED', 'SECRETARY_RETRY', 'ARCHIVE_BUSY', 'ARCHIVE_CHANGED', 'MISSION_REQUEST_CHANGED', 'MISSION_REQUEST_RETRY', 'CALENDAR_BUSY', 'CALENDAR_CHANGED', 'CALENDAR_UNCERTAIN', 'MISSION_RECOVERY_LIMIT', 'MISSION_RECOVERY_UNAVAILABLE', 'MISSION_RECOVERY_PROVIDER', 'MISSION_RECHECK_LIMIT', 'MISSION_RECHECK_UNAVAILABLE','QUESTION_CAPACITY','QUESTION_MISSION_BUSY','QUESTION_REQUEST_CONFLICT'].includes(error.code) ? 409 : 400, { error: error.message?.slice(0, 2000) ?? 'La demande a échoué.', ...(/^(?:UPDATE|DICTATION|DOCUMENT|CALENDAR|MISSION_RECOVERY|MISSION_RECHECK|QUESTION)_[A-Z_]{1,50}$/u.test(error.code||'') ? {code:error.code} : {}) });
       else res.destroy();
     } finally { releaseUpdateOperation?.(); }
   });
@@ -651,12 +672,14 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
     if (closePromise) return closePromise;
     closing = true;
     const updatesClosed = updates.close();
+    const questionsClosed = questions.close();
     const automationsClosed = automations.close();
     activeArchive?.abort();
     closePromise = (async () => {
     await Promise.allSettled([...archiveTasks]);
     await automationsClosed;
     await updatesClosed;
+    await questionsClosed;
     for (const m of engine.missions.values()) if (engine.runs.has(m.id)) engine.stop(m.id);
     await personalization.close();
     await officePreview.close();
@@ -677,7 +700,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
     })();
     return closePromise;
   };
-  return { server, engine, publishing, connectors, automations, voice, personalization, documents, officePreview, dictation, archives, calendar, browserPreviews, updates, maintenance, close };
+  return { server, engine, publishing, connectors, automations, voice, personalization, documents, officePreview, dictation, archives, calendar, browserPreviews, questions, updates, maintenance, close };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

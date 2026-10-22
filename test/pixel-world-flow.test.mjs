@@ -46,7 +46,7 @@ test('a terminal mission reopened from the entrance stays available at Oscar’s
   for(const status of ['completed','needs_review']){
     const s=scene([{id:'approved',role:'design',status:'approved'}]);s.mission.status=status;s.mission.phase='L’équipe m’a rendu ses dossiers. Je vérifie les résultats et je prépare votre livraison.';s.world.update(s.mission);const original=JSON.stringify(s.mission);s.advance(240);
     assert.equal(s.world.oscar.place,'desk');assert.equal(s.world.oscar.destination,'desk');assert.equal(s.world.oscarState,'idle');assert.equal(JSON.stringify(s.mission),original);
-    assert.ok(s.world.agents.get('isolated-flow:approved').leisureStep>0,'the new office anchor does not interrupt the colleagues’ lounge life');
+    assert.equal(s.world.agents.get('isolated-flow:approved').state,'home','a validated colleague goes home while Oscar remains available');
   }
 });
 
@@ -170,25 +170,72 @@ test('the furniture cache rebuilds once per real theme change instead of on each
   assert.equal(world._setTheme('dark'),true);for(let i=0;i<240;i++)assert.equal(world._setTheme('dark'),false);assert.equal(built,1);assert.equal(drawn,1);assert.equal(world._setTheme('light'),true);assert.equal(built,2);assert.equal(world._setTheme('invalid'),false);
 });
 
-test('an already completed mission stays alive socially without replaying delivery or approval on every refresh',()=>{
+test('a completed mission sends its colleague home after handoff, without replaying on every refresh',()=>{
   const task={id:'alma',role:'design',status:'approved',attempt:1},s=scene([task]);s.mission.status='completed';s.world.update(s.mission);const original=JSON.stringify(s.mission);
-  let socialSamples=0;for(let i=0;i<480;i++){s.advance(.5);s.world.update(structuredClone(s.mission));if(i>=80&&['chat','lounge','strolling'].includes(s.world.agents.get('isolated-flow:alma')?.state))socialSamples++;}
+  for(let i=0;i<480;i++){s.advance(.5);s.world.update(structuredClone(s.mission));}
   const a=s.world.agents.get('isolated-flow:alma'),states=s.transitions.filter(event=>event.id===task.id).map(event=>event.state);
-  for(const state of ['handoff','coffee','lounge','strolling'])assert.ok(states.includes(state),state);
-  assert.ok(states.filter(state=>state==='coffee').length>=2,'the terminal agent continues its breaks');assert.ok(a.leisureStep>=4);assert.equal(s.events.filter(event=>event.kind==='handoff').length,1);assert.equal(s.events.filter(event=>event.kind==='approved').length,1);assert.equal(JSON.stringify(s.mission),original);
-  assert.equal(states.includes('resting'),false,'validated colleagues do not cycle back into sitting at their desks');assert.ok(socialSamples>200,'most of the completed colleague’s time is spent with the lounge, not walking or sitting');
+  for(const state of ['handoff','leaving','home'])assert.ok(states.includes(state),state);
+  assert.equal(states.includes('coffee'),false,'a completed delivery does not add a new coffee break');
+  assert.equal(a.state,'home');assert.equal(a.visible,false);assert.equal(a.slot,-1);
+  for(const kind of ['hire','handoff','approved','exit'])assert.equal(s.events.filter(event=>event.kind===kind).length,1,kind);
+  const approved=s.events.find(event=>event.kind==='approved'),exit=s.events.find(event=>event.kind==='exit');
+  assert.ok(exit.time-approved.time>0&&exit.time-approved.time<15,'the colleague walks straight home after the required handoff');
+  assert.ok(s.transitions.find(event=>event.state==='leaving').time-s.transitions.find(event=>event.state==='handoff').time>=1.3,'final validation still allows the folder handoff to finish');
+  assert.equal(states.includes('resting'),false);assert.equal(JSON.stringify(s.mission),original);assert.equal(s.world.oscar.place,'desk');
+  s.world.update(null);s.advance(20);s.world.update(s.mission);s.advance(120);
+  assert.equal(s.world.agents.size,0,'returning to the delivered project does not recruit its departed colleague again');
+  assert.equal(s.events.filter(event=>event.kind==='hire').length,1);
 });
 
-test('working then approved then completed frees colleagues for coffee, chat and walks without overbooking their desks',()=>{
-  const tasks=Array.from({length:4},(_,i)=>({id:`alma-${i}`,role:'design',status:'working',attempt:1})),s=scene(tasks);s.advance(25);for(const task of tasks)task.status='approved';s.world.update(s.mission);s.advance(20);s.mission.status='completed';s.world.update(s.mission);const original=JSON.stringify(s.mission);s.advance(200);
-  for(const task of tasks){const states=s.transitions.filter(event=>event.id===task.id).map(event=>event.state);assert.ok(states.includes('coffee'));assert.ok(states.includes('chat'));assert.ok(states.includes('strolling'));assert.equal(s.events.filter(event=>event.id===task.id&&event.kind==='handoff').length,1);assert.equal(s.events.filter(event=>event.id===task.id&&event.kind==='approved').length,1);}
-  const agents=[...s.world.agents.values()];assert.equal(agents.length,4);assert.equal(new Set(agents.map(a=>a.slot)).size,4);assert.ok(agents.every(a=>a.visible&&a.task.status==='approved'));assert.equal(JSON.stringify(s.mission),original);
+test('approved colleagues take a break and leave their desks free after mission completion',()=>{
+  const tasks=Array.from({length:4},(_,i)=>({id:`alma-${i}`,role:'design',status:'working',attempt:1})),s=scene(tasks);s.advance(25);for(const task of tasks)task.status='approved';s.world.update(s.mission);s.advance(30);s.mission.status='completed';s.world.update(s.mission);const original=JSON.stringify(s.mission);s.advance(200);
+  for(const task of tasks){const states=s.transitions.filter(event=>event.id===task.id).map(event=>event.state);assert.ok(states.includes('leaving'));assert.ok(states.includes('home'));assert.equal(s.events.filter(event=>event.id===task.id&&event.kind==='handoff').length,1);assert.equal(s.events.filter(event=>event.id===task.id&&event.kind==='approved').length,1);assert.equal(s.events.filter(event=>event.id===task.id&&event.kind==='exit').length,1);}
+  assert.ok(s.events.some(event=>event.kind==='coffee'),'approved colleagues can still take a break before final validation');
+  const agents=[...s.world.agents.values()];assert.equal(agents.length,4);assert.ok(agents.every(a=>!a.visible&&a.slot===-1&&a.task.status==='approved'));assert.equal(JSON.stringify(s.mission),original);
+  const departures=s.transitions.filter(event=>event.state==='leaving').map(event=>event.time);assert.ok(new Set(departures).size>1,'the team does not leave as one superposed sprite');
 });
 
-test('pause freezes leisure and reduced motion avoids repeated decorative walks after a completed result',()=>{
-  const task={id:'alma',role:'design',status:'approved'},s=scene([task]);s.mission.status='completed';s.world.reducedMotion=true;s.world.update(s.mission);s.advance(180);const a=s.world.agents.get('isolated-flow:alma');
+test('pause freezes the short break and reduced motion avoids repeated decorative walks before going home',()=>{
+  const task={id:'alma',role:'design',status:'approved'},s=scene([task]);s.world.reducedMotion=true;s.world.update(s.mission);
+  const a=s.world.agents.get('isolated-flow:alma');for(let i=0;i<1000&&a.state!=='lounge';i++)s.advance(.1);
   assert.equal(a.state,'lounge');assert.equal(a.path.length,0);assert.equal(s.events.filter(event=>event.kind==='handoff').length,1);assert.equal(s.transitions.some(event=>event.state==='to_stroll'),false);
   s.world._manualPaused=true;const before={time:s.world.time,x:a.x,y:a.y,state:a.state,events:s.events.length};s.world._tick(1000000);assert.deepEqual({time:s.world.time,x:a.x,y:a.y,state:a.state,events:s.events.length},before);
+  s.world._manualPaused=false;s.mission.status='completed';s.world.update(s.mission);s.advance(30);assert.equal(a.state,'home');assert.equal(a.visible,false);assert.equal(s.events.filter(event=>event.kind==='exit').length,1);
+});
+
+test('a genuine new correction recalls a departed colleague and hands in only the new result',()=>{
+  const task={id:'alma',role:'design',status:'approved',attempt:1},s=scene([task]);s.advance(100);
+  const a=s.world.agents.get('isolated-flow:alma');assert.equal(a.state,'home');assert.equal(a.visible,false);
+  task.status='revising';task.attempt=2;s.world.update(s.mission);s.advance(25);
+  assert.equal(a.visible,true);assert.equal(a.state,'working');assert.ok(a.slot>=0);assert.deepEqual([...a.handoffAttempts],[1]);
+  assert.equal(s.events.filter(event=>event.kind==='handoff').length,1,'returning to work is not a delivery');
+  task.status='reviewing';s.world.update(s.mission);s.advance(30);assert.equal(a.state,'waiting_review');
+  assert.deepEqual([...a.handoffAttempts],[1,2]);assert.equal(s.events.filter(event=>event.kind==='exit').length,1);
+  task.status='approved';s.world.update(s.mission);s.advance(90);assert.equal(a.state,'home');assert.equal(a.visible,false);
+  for(const kind of ['hire','handoff','approved','exit'])assert.equal(s.events.filter(event=>event.kind===kind).length,2,kind);
+  for(let index=0;index<30;index++){s.world.update(structuredClone(s.mission));s.advance(.2);}
+  assert.equal(a.state,'home');assert.equal(s.events.filter(event=>event.kind==='hire').length,2);
+});
+
+test('revoking approval during the walk home recalls the colleague without a fake new delivery',()=>{
+  const task={id:'alma',role:'design',status:'approved',attempt:1},s=scene([task]),a=s.world.agents.get('isolated-flow:alma');
+  for(let index=0;index<1000&&a.state!=='leaving';index++)s.advance(.1);
+  assert.equal(a.state,'leaving');assert.equal(a.departureReason,'approved');
+  task.status='needs_review';s.mission.status='needs_review';s.world.update(s.mission);s.advance(60);
+  assert.equal(a.visible,true);assert.equal(a.state,'needs_review');assert.equal(a.mug,false);assert.equal(a.homeAfterApprovalAt,null);
+  assert.equal(s.events.filter(event=>event.kind==='handoff').length,1);assert.equal(s.events.filter(event=>event.kind==='exit').length,0);
+  s.advance(300);assert.equal(a.state,'needs_review','an unapproved result never sends its colleague home');
+});
+
+test('a real correction recalls an approved colleague before the departure deadline, and cancellation remains an exit',()=>{
+  const task={id:'alma',role:'design',status:'approved',attempt:1},s=scene([task]),a=s.world.agents.get('isolated-flow:alma');
+  for(let index=0;index<1000&&a.state!=='lounge';index++)s.advance(.1);
+  assert.equal(a.state,'lounge');assert.ok(a.homeAfterApprovalAt>s.world.time);
+  task.status='revising';task.attempt=2;s.world.update(s.mission);s.advance(60);
+  assert.equal(a.state,'working');assert.equal(a.homeAfterApprovalAt,null);assert.equal(s.events.filter(event=>event.kind==='exit').length,0);
+  task.status='cancelled';s.world.update(s.mission);s.advance(60);
+  assert.equal(s.world.agents.size,0);assert.equal(s.events.filter(event=>event.kind==='exit').length,1);
+  assert.equal(s.events.filter(event=>event.kind==='handoff').length,1);assert.equal(s.events.filter(event=>event.kind==='approved').length,1);
 });
 
 test('Oscar takes the rear aisles around every desk instead of crossing chairs or keyboards',()=>{
@@ -279,7 +326,7 @@ test('approval during the lounge trip goes to coffee, and invalidation removes t
 
 test('lounge exchanges never involve unrelated roles or postpone a new result for Oscar',()=>{
   const tasks=[{id:'art',role:'design',status:'approved'},{id:'integration',role:'code',status:'working',dependsOn:[]}],s=scene(tasks);s.mission.executionMode='local-game-team';s.world.update(s.mission);s.advance(70);assert.equal(s.world._collaboration,undefined);
-  tasks[1].dependsOn=['art'];s.world.update(s.mission);for(let i=0;i<1200&&!s.world._collaboration?.until;i++)s.advance(.1);assert.ok(s.world._collaboration?.until);
+  tasks[1].dependsOn=['art'];tasks[0].status='revising';tasks[0].attempt=2;s.world.update(s.mission);s.advance(20);tasks[0].status='approved';s.world.update(s.mission);for(let i=0;i<1200&&!s.world._collaboration?.until;i++)s.advance(.1);assert.ok(s.world._collaboration?.until);
   tasks[1].status='reviewing';s.world.update(s.mission);s.advance(.2);assert.equal(s.world._collaboration,null);s.advance(40);assert.equal(s.events.filter(event=>event.id==='integration'&&event.kind==='handoff').length,1);assert.equal(s.world.agents.get('isolated-flow:integration').state,'waiting_review');
 });
 

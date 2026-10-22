@@ -48,6 +48,7 @@ export default {
   'L’aperçu n’a pas pu être ouvert. Vos fichiers restent dans le dossier.':{en:'The preview could not be opened. Your files stay in the folder.',nl:'Het voorbeeld kon niet worden geopend. Je bestanden blijven in de map bewaard.'},
   'Fermer l’aperçu du résultat':{en:'Close the result preview',nl:'Het voorbeeld van het resultaat sluiten'},
   'Bravo, c’est prêt !':{en:'Well done, it’s ready!',nl:'Hoera, het is klaar!'},
+  'Travail terminé':{en:'Work completed',nl:'Werk voltooid'},
   'Mission interrompue':{en:'Mission interrupted',nl:'Opdracht onderbroken'},
   'Mission arrêtée':{en:'Mission stopped',nl:'Opdracht gestopt'},
   'Le travail n’est pas terminé. Les fichiers déjà créés sont conservés.':{en:'The work is not finished. The files already created are kept.',nl:'Het werk is nog niet af. De reeds gemaakte bestanden blijven bewaard.'},
