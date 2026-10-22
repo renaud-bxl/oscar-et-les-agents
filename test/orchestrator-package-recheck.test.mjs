@@ -26,7 +26,7 @@ async function fixture(t){
   trace.push({kind:'creation',id:current.id});
   const write=(file,value)=>{mkdirSync(path.dirname(path.join(input.cwd,file)),{recursive:true});writeFileSync(path.join(input.cwd,file),value);};
   if(current.id==='t1')write('assets/building.svg',svg);
-  if(current.id==='t2'){write('js/renderer.js',renderer);write('tests/rendu.html','<script type="module">import {fallback} from "../js/renderer.js";</script>');}
+  if(current.id==='t2'){write('js/renderer.js',renderer+([...app.missions.values()][0].recovery?.packagePolicyRecheck?'\n// A real specialist rewrite during the technical review wave.':''));write('tests/rendu.html','<script type="module">import {fallback} from "../js/renderer.js";</script>');}
   if(current.id==='t3'){
    write('assets/building.svg',readFileSync(path.join(input.cwd,'Contributions/t1-design/assets/building.svg')));write('js/renderer.js',readFileSync(path.join(input.cwd,'Contributions/t2-code/js/renderer.js')));
    write('index.html','<script type="module" src="js/main.js"></script>');write('js/main.js','import "./renderer.js";');
@@ -146,4 +146,23 @@ test('linked or altered checkpoints, invalid current files and changed approved 
 test('external reservation rollback is safe and a change before validation consumes its receipt without any model call',async t=>{
  const f=await externalFixture(t);f.correct();const save=f.app.save.bind(f.app);f.app.save=()=>{throw Object.assign(new Error('Disk full fixture'),{code:'ENOSPC'});};assert.throws(()=>f.app.recheck(f.m.id),{code:'ENOSPC'});assert.equal(f.app.get(f.m.id).recovery.externalCorrectionRechecksUsed,0);assert.equal(f.app.get(f.m.id).recovery.canRecheck,true);f.app.save=save;
  f.app.recheck(f.m.id);writeFileSync(path.join(f.app.workDir(f.m.id),'t2-code/js/renderer.js'),'An otherwise safe but different file after reservation.');const done=await f.app.wait(f.m.id);assert.equal(done.status,'failed');assert.equal(done.errorInfo.code,'MISSION_RECHECK_EXTERNAL_CHANGED');assert.equal(done.recovery.externalCorrectionRechecksUsed,1);assert.equal(f.trace.length,0);assert.equal(done.tasks[1].recoveryWriteRemaining,0);assert.equal(done.tasks[2].recoveryWriteRemaining,1);
+});
+
+test('a specialist rewrite during package-policy-v2 is never mistaken for a later external correction after another refusal',async t=>{
+ const f=await fixture(t);f.m.tasks[1].recoveryWriteRemaining=1;f.setDeny(true);f.app.recheck(f.m.id);const done=await f.app.wait(f.m.id),root=f.app.workDir(f.m.id);
+ assert.equal(done.status,'needs_review');assert.equal(done.tasks[1].review.materialFailure,undefined);assert.equal(done.tasks[1].recoveryWriteRemaining,0);assert.equal(done.recovery.packagePolicyRechecksUsed,1);
+ assert.equal(f.trace.filter(row=>row.kind==='creation'&&row.id==='t2').length,1);assert.ok(done.performance.calls.some(call=>call.stage==='creation'&&call.startedAt>=done.recovery.packagePolicyRecheck.startedAt));
+ assert.notDeepEqual(readFileSync(path.join(root,'t2-code/js/renderer.js')),readFileSync(path.join(f.app.missionDir(f.m.id),'recovery/package-policy-v2/files/t2-code/js/renderer.js')));
+ assert.equal(f.app.externalCorrectionRecheckProof(f.m),null);assert.equal(f.app.get(f.m.id).recovery.canRecheck,false);assert.equal(f.app.get(f.m.id).recovery.externalCorrectionRechecksUsed,0);assert.throws(()=>f.app.recheck(f.m.id),{code:'MISSION_RECHECK_LIMIT'});
+});
+
+test('external proof requires completed read-only post-checkpoint review history with no overlapping write or unknown call',async t=>{
+ const f=await externalFixture(t);f.correct();const original=structuredClone(f.m.performance),checkpoint=f.m.recovery.packagePolicyRecheck.startedAt;
+ const histories=[undefined,{calls:[]},{calls:original.calls.filter(call=>call.startedAt<checkpoint)},
+  {calls:[...original.calls,{agent:'Sam',stage:'creation',startedAt:checkpoint-10,durationMs:20,status:'completed'}]},
+  {calls:[...original.calls,{agent:'Oscar',stage:'review',startedAt:checkpoint,durationMs:null,status:'running'}]},
+  {calls:[...original.calls,{agent:'Oscar',stage:'unrecognized',startedAt:checkpoint,durationMs:0,status:'completed'}]},
+  {calls:original.calls.map(call=>call.startedAt>=checkpoint?{...call,status:'failed'}:call)}];
+ for(const history of histories){f.m.performance=structuredClone(history);assert.equal(f.app.externalCorrectionRecheckProof(f.m),null);assert.equal(f.app.get(f.m.id).recovery.canRecheck,false);}
+ f.m.performance=original;assert.ok(f.app.externalCorrectionRecheckProof(f.m));assert.equal(f.trace.length,0);
 });
