@@ -12,6 +12,24 @@ const finite=value=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
 const clean=(value,max=320)=>typeof value==='string'?value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu,'').replace(/\s+/gu,' ').trim().slice(0,max):'';
 export const deliveryProgressText=(source,locale=getLocale())=>messages[source]?.[locale]||translate(source,locale);
 
+/** A failed response is a stopped operation, never a progress update or a model dump. */
+export function missionProblemSummary(mission,{locale=getLocale()}={}){
+  if(!mission||!['failed','needs_review'].includes(mission.status))return null;
+  const formatCodes=new Set(['MISSION_REVIEW_FORMAT','PROVIDER_STRUCTURED_OUTPUT_INVALID']);
+  const interrupted=(Array.isArray(mission.tasks)?mission.tasks:[]).find(task=>task?.status!=='approved'&&formatCodes.has(task?.runtimeError?.code));
+  const code=formatCodes.has(mission.errorInfo?.code)?mission.errorInfo.code:interrupted?.runtimeError?.code;
+  const raw=typeof mission.error==='string'&&mission.error?mission.error:typeof interrupted?.review?.feedback==='string'?interrupted.review.feedback:'';
+  if(!raw&&!code&&mission.status!=='failed')return null;
+  const calls=Array.isArray(mission.performance?.calls)?mission.performance.calls:[];
+  const stage=interrupted?.runtimeError?.stage||[...calls].reverse().find(call=>call?.status==='failed')?.stage||(code==='MISSION_REVIEW_FORMAT'?'review':null);
+  const unreadable=Boolean(code)||/\bJSON\b|Unexpected (?:token|end)|réponse[^.\n]*(?:illisible|structurée|invalide|incomplète)/iu.test(raw);
+  const source=unreadable?(['review','final-review'].includes(stage)?'Oscar n’a pas pu lire sa réponse de vérification.':'Oscar n’a pas pu lire la réponse du moteur.'):'Une erreur a interrompu la mission.';
+  // Public errors are bounded again here. Keep the first diagnostic line only,
+  // excluding response objects, stacks and possible credential-shaped values.
+  const detail=clean([code,raw.split(/\r?\n/u).find(line=>line.trim())||''].filter(Boolean).join(' · '),1000).replace(/\bsk-[a-zA-Z0-9_-]+/gu,'[secret]').replace(/\bBearer\s+\S+/giu,'Bearer [secret]').replace(/\s*[\[{][\s\S]*$/u,'').slice(0,600);
+  return{message:deliveryProgressText(source,locale),detail};
+}
+
 /** Only persisted mission/task/call facts produce progress; scenery is never evidence. */
 export function deliveryProgressSnapshot(mission,{now=Date.now(),locale=getLocale()}={}){
   if(!mission||typeof mission!=='object')return null;
@@ -35,10 +53,11 @@ export function deliveryProgressSnapshot(mission,{now=Date.now(),locale=getLocal
   const tasks=Array.isArray(mission.tasks)?mission.tasks.filter(task=>task&&typeof task==='object'):[];
   const counts={submitted:tasks.filter(task=>SUBMITTED.has(task.status)).length,approved:tasks.filter(task=>task.status==='approved').length,total:tasks.length};
   const tr=source=>deliveryProgressText(source,locale);
-  const unapproved=mission.status==='needs_review'?tasks.filter(task=>task.status!=='approved').slice(0,20).map(task=>({id:clean(task.id,80),name:clean(task.agentName,60)||tr('Un collègue'),title:clean(task.title,180)||tr('Contribution à vérifier'),feedback:clean(task.review?.feedback,360)||tr('Cette contribution n’est pas encore validée.')})):[];
+  const problem=missionProblemSummary(mission,{locale});
+  const unapproved=['needs_review','failed'].includes(mission.status)?tasks.filter(task=>task.status!=='approved'&&(mission.status==='needs_review'||task.review?.approved===false||task.runtimeError)).slice(0,20).map(task=>({id:clean(task.id,80),name:clean(task.agentName,60)||tr('Un collègue'),title:clean(task.title,180)||tr('Contribution à vérifier'),feedback:['MISSION_REVIEW_FORMAT','PROVIDER_STRUCTURED_OUTPUT_INVALID'].includes(task.runtimeError?.code)?tr('Oscar n’a pas pu lire sa réponse de vérification.'):clean(task.review?.feedback,360)||tr('Cette contribution n’est pas encore validée.')})):[];
   const finalFeedback=mission.status==='needs_review'&&mission.finalReview?.approved===false?clean(mission.finalReview.feedback,500):'';
   const recoveryKind=terminal&&mission.recovery?.canRecheck===true?'recheck':terminal&&mission.recovery?.canResume===true?'resume':null;
-  const recoveryAction=recoveryKind?{kind:recoveryKind,label:tr(recoveryKind==='recheck'?'Faire relire les corrections':'Reprendre avec Oscar'),key:JSON.stringify([mission.id,recoveryKind,mission.recovery?.used??0,mission.recovery?.rechecksUsed??0,mission.recovery?.packagePolicyRechecksUsed??0,mission.recovery?.externalCorrectionRechecksUsed??0,mission.recovery?.remainingCorrectionPassesUsed??0])}:null;
+  const recoveryAction=recoveryKind?{kind:recoveryKind,label:tr(recoveryKind==='recheck'?'Faire relire les corrections':'Reprendre avec Oscar'),key:JSON.stringify([mission.id,recoveryKind,mission.recovery?.used??0,mission.recovery?.rechecksUsed??0,mission.recovery?.packagePolicyRechecksUsed??0,mission.recovery?.externalCorrectionRechecksUsed??0,mission.recovery?.remainingCorrectionPassesUsed??0,mission.recovery?.reviewFormatRechecksUsed??0])}:null;
   let title,phase,note;
   if(terminal){
     title={completed:'Votre livraison est disponible',needs_review:'Votre livraison demande une reprise',failed:'La mission a rencontré un problème',cancelled:'La mission a été arrêtée'}[mission.status];
@@ -49,7 +68,7 @@ export function deliveryProgressSnapshot(mission,{now=Date.now(),locale=getLocal
     phase=clean(mission.phase,500)||({review:'Relecture des contributions',assembly:'Assemblage de la livraison','final-review':'Contrôle final de la livraison'})[stage]||'Oscar prépare la suite du contrôle.';
     note=demo?'Démonstration : cette étape est simulée, sans appel du moteur.':silent?(stage==='assembly'?'L’assemblage est toujours en cours. Aucun nouveau retour du moteur depuis le dernier signal.':'Le contrôle est toujours en cours. Aucun nouveau retour du moteur depuis le dernier signal.'):current?'Temps mesuré, sans estimation de fin.':'Aucun appel d’Oscar en cours n’est enregistré.';
   }
-  return{missionId:mission.id??null,state:active?'active':mission.status,active,terminal,demo,stage,title:tr(title),phase:phase?translate(phase,locale):'',note:[note?tr(note):'',terminal?tr('Aucun appel du moteur n’est en cours pour cette mission.'):''].filter(Boolean).join(' '),counts,unapproved,finalFeedback,recoveryAction,
+  return{missionId:mission.id??null,state:active?'active':mission.status,active,terminal,demo,stage,title:tr(title),phase:problem?.message||(phase?translate(phase,locale):''),problem,note:[note?tr(note):'',terminal?tr('Aucun appel du moteur n’est en cours pour cette mission.'):''].filter(Boolean).join(' '),counts,unapproved,finalFeedback,recoveryAction,
     call:current?{stage:current.stage,startedAt:current.startedAt,elapsedMs}:null,elapsedMs,lastActivity,silenceMs,silent,
     action:mission.status==='completed'?'delivery':'progress',actionLabel:tr(mission.status==='completed'?'Voir la livraison':'Ouvrir le suivi'),dismissible:terminal};
 }
@@ -76,6 +95,7 @@ export class DeliveryProgress{
     this.timing=node('div','delivery-progress-timing');this.timingLabel=node('span');this.elapsed=node('output');this.elapsed.setAttribute('aria-live','off');this.timing.append(this.timingLabel,this.elapsed);
     this.activity=node('div','delivery-progress-activity');this.activityLabel=node('span');this.activityText=node('p');this.activityAge=node('output');this.activityAge.setAttribute('aria-live','off');this.activity.append(this.activityLabel,this.activityText,this.activityAge);
     this.issues=node('section','delivery-progress-issues');this.issues.hidden=true;this.issuesTitle=node('h4');this.issuesTitle.textContent=deliveryProgressText('Ce qui reste à corriger');this.issueList=node('div','delivery-progress-issue-list');this.issues.append(this.issuesTitle,this.issueList);this.issueNodes=[];
+    this.diagnostic=node('details','delivery-progress-diagnostic');this.diagnostic.hidden=true;this.diagnosticSummary=node('summary');this.diagnosticText=node('p');this.diagnostic.append(this.diagnosticSummary,this.diagnosticText);
     this.note=node('p','delivery-progress-note');this.note.setAttribute('role','status');this.recoveryError=node('p','delivery-progress-error');this.recoveryError.setAttribute('role','alert');this.recoveryError.hidden=true;this.actions=node('div','delivery-progress-actions');
     this.recoveryButton=node('button','delivery-progress-recover');this.recoveryButton.type='button';this.recoveryButton.hidden=true;
     this.openButton=node('button','delivery-progress-open');this.openButton.type='button';this.dismissButton=node('button','delivery-progress-dismiss');this.dismissButton.type='button';this.actions.append(this.recoveryButton,this.openButton,this.dismissButton);
@@ -84,7 +104,7 @@ export class DeliveryProgress{
     this.onToggle=()=>{if(this.destroyed||!this.data)return;this.collapsed=!this.collapsed;this.collapseChoice=this.collapsed?'collapsed':'expanded';this.render();this.schedule();};
     this.onRecover=()=>this.recover();
     this.openButton.addEventListener('click',this.onOpenClick);this.dismissButton.addEventListener('click',this.onDismiss);this.toggleButton.addEventListener('click',this.onToggle);this.recoveryButton.addEventListener('click',this.onRecover);
-    this.details.append(this.stats,this.timing,this.activity,this.issues,this.note);this.root.append(this.header,this.details,this.recoveryError,this.actions);container.append(this.root);
+    this.details.append(this.stats,this.timing,this.activity,this.issues,this.note,this.diagnostic);this.root.append(this.header,this.details,this.recoveryError,this.actions);container.append(this.root);
     this.onVisibility=()=>this.refresh();this.onLanguage=()=>this.refresh();
     this.document.addEventListener('visibilitychange',this.onVisibility);this.document.addEventListener('oscar:language',this.onLanguage);
   }
@@ -93,7 +113,7 @@ export class DeliveryProgress{
     if(this.destroyed)return;
     const previous=this.data,next=deliveryProgressSnapshot(mission,{now:this.now()});
     const changedMission=(mission?.id??null)!==(this.mission?.id??null);
-    if(changedMission){this.contextEpoch++;this.errorMessage='';this.dismissed=false;this.collapsed=false;this.collapseChoice=null;this.collapseSince=null;this.collapseRemainingMs=this.autoCollapseMs;this.importantKey=null;}
+    if(changedMission){this.contextEpoch++;this.errorMessage='';this.dismissed=false;this.collapsed=false;this.collapseChoice=null;this.collapseSince=null;this.collapseRemainingMs=this.autoCollapseMs;this.importantKey=null;this.diagnostic.open=false;}
     else if(next?.active&&!previous?.active){this.dismissed=false;this.errorMessage='';}
     const importantKey=next&&IMPORTANT.has(next.state)?`${next.missionId}:${next.state}`:null;
     if(importantKey&&importantKey!==this.importantKey){this.dismissed=false;if(this.collapseChoice===null){this.collapsed=false;this.collapseSince=null;this.collapseRemainingMs=this.autoCollapseMs;}}
@@ -119,6 +139,7 @@ export class DeliveryProgress{
     while(this.issueNodes.length<issueRows.length){const item=this.document.createElement('article'),name=this.document.createElement('strong'),title=this.document.createElement('span'),feedback=this.document.createElement('p');item.className='delivery-progress-issue';item.append(name,title,feedback);this.issueList.append(item);this.issueNodes.push({item,name,title,feedback});}
     for(let index=0;index<this.issueNodes.length;index++){const row=issueRows[index],nodes=this.issueNodes[index];nodes.item.hidden=!row;if(row){text(nodes.name,row.name);text(nodes.title,row.title);text(nodes.feedback,row.feedback);}}
     text(this.note,data.note);this.note.hidden=!data.note;this.root.dataset.silent=String(data.silent);
+    text(this.diagnosticSummary,tr('Détail technique'));text(this.diagnosticText,data.problem?.detail||'');this.diagnostic.hidden=!data.problem?.detail;
     text(this.recoveryError,this.errorMessage||'');this.recoveryError.hidden=!this.errorMessage;
     this.recoveryButton.hidden=!data.recoveryAction||typeof this.onResume!=='function';text(this.recoveryButton,data.recoveryAction?.label||'');this.recoveryButton.disabled=!!data.recoveryAction&&(this.pendingRecoveries.has(data.recoveryAction.key)||this.sentRecoveries.has(data.recoveryAction.key));
     text(this.openButton,this.collapsed&&data.action!=='delivery'?tr('Suivi'):data.actionLabel);this.openButton.setAttribute('aria-label',data.actionLabel);text(this.dismissButton,tr('Masquer'));this.dismissButton.hidden=!data.dismissible;
@@ -126,8 +147,8 @@ export class DeliveryProgress{
   async recover(){
     const action=this.data?.recoveryAction,mission=this.mission;
     if(this.destroyed||this.root.hidden||!action||typeof this.onResume!=='function'||this.pendingRecoveries.has(action.key)||this.sentRecoveries.has(action.key))return;
-    const epoch=this.contextEpoch,token={},counter=action.kind==='recheck'?'rechecksUsed':'used',previousUsed=Number(mission.recovery?.[counter]||0);this.pendingRecoveries.set(action.key,token);this.errorMessage='';this.render();this.schedule();
-    try{const result=await this.onResume(mission);if(result?.id===mission.id&&(ACTIVE.has(result.status)||Number(result.recovery?.[counter])>previousUsed))this.sentRecoveries.add(action.key);}
+    const epoch=this.contextEpoch,token={},receipts=action.kind==='recheck'?['rechecksUsed','packagePolicyRechecksUsed','externalCorrectionRechecksUsed','remainingCorrectionPassesUsed','reviewFormatRechecksUsed']:['used'];this.pendingRecoveries.set(action.key,token);this.errorMessage='';this.render();this.schedule();
+    try{const result=await this.onResume(mission);if(result?.id===mission.id&&(ACTIVE.has(result.status)||receipts.some(counter=>Number(result.recovery?.[counter])>Number(mission.recovery?.[counter]||0))))this.sentRecoveries.add(action.key);}
     catch(cause){if(!this.destroyed&&epoch===this.contextEpoch&&this.mission?.id===mission.id)this.errorMessage=clean(cause?.message,400)||deliveryProgressText('La reprise n’a pas abouti. Les fichiers sont conservés.');}
     finally{if(this.pendingRecoveries.get(action.key)===token)this.pendingRecoveries.delete(action.key);if(!this.destroyed){this.render();this.schedule();}}
   }

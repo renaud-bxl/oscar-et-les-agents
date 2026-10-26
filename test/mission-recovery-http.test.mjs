@@ -68,6 +68,13 @@ test('a lost remaining-budget correction pass is confirmed by its own receipt wi
   await assert.rejects(requestMissionRecovery(async(_route,options)=>{if(options)throw new Error('Lost response');return item;},item),/n’a pas pu être confirmée/u);
 });
 
+test('a lost review-format recheck is confirmed by its own receipt without resetting normal budgets',async()=>{
+  const item={id:'project',status:'needs_review',recovery:{used:1,rechecksUsed:1,reviewFormatRechecksUsed:0,canResume:false,canRecheck:true}},calls=[];
+  const result=await requestMissionRecovery(async(route,options)=>{calls.push({route,options});if(options)throw new Error('Lost response');return{...item,recovery:{...item.recovery,reviewFormatRechecksUsed:1,canRecheck:false}};},item);
+  assert.equal(result.status,'needs_review');assert.equal(result.recovery.used,1);assert.equal(result.recovery.rechecksUsed,1);assert.equal(result.recovery.reviewFormatRechecksUsed,1);assert.equal(calls.filter(call=>call.options?.method==='POST').length,1);assert.equal(calls.length,2);
+  await assert.rejects(requestMissionRecovery(async(_route,options)=>{if(options)throw new Error('Lost response');return item;},item),/n’a pas pu être confirmée/u);
+});
+
 test('HTTP repair requires its explicit action, preserves the project and rejects duplicates',async t=>{
   const dataDir=await mkdtemp(path.join(os.tmpdir(),'oscar-http-recovery-'));
   const id=randomUUID(),folder=path.join(dataDir,'missions','Projet conservé'),work=path.join(folder,'travail');

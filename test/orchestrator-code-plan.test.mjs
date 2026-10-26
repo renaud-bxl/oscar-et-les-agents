@@ -146,7 +146,7 @@ test('chaque contrôle groupé exige exactement un avis par tâche réellement s
   for (const malformed of ['missing', 'duplicate', 'unknown']) await t.test(malformed, async t => {
     const runner = gameRunner({ review: ({ reviews }) => malformed === 'missing' ? reviews.slice(1) : malformed === 'duplicate' ? [reviews[0], reviews[0], ...reviews.slice(2)] : [{ ...reviews[0], taskId: 't20' }, ...reviews.slice(1)] });
     const app = setup(t, runner.run), started = app.start({ prompt: brief }), done = await app.wait(started.id);
-    assert.equal(done.status, 'failed'); assert.match(done.error, /validation distincte/);
+    assert.equal(done.status, 'needs_review'); assert.equal(done.errorInfo.code, 'MISSION_REVIEW_FORMAT');
     assert.equal([...runner.counts.values()].reduce((sum, n) => sum + n, 0), 6); assert.ok(!done.tasks.some(item => item.status === 'approved'));
     assert.ok(!existsSync(path.join(app.workDir(started.id), 'Livraison')));
   });

@@ -1,5 +1,13 @@
 # Historique des versions
 
+## 0.6.22 — 26 octobre 2026
+
+- Corrige l’arrêt de missions de jeu lorsque la réponse de vérification d’Oscar arrive en prose au lieu du JSON attendu. Le format est demandé explicitement, contrôlé avant usage et corrigé une seule fois en lecture seule.
+- Une vérification illisible ne fait plus abandonner les collègues indépendants. Les fichiers et les budgets de correction restent conservés ; les contributions ne sont jamais approuvées sans contrôle.
+- Permet une relecture technique unique et sauvegardée des dossiers bloqués par ce défaut précis, après vérification des fichiers complets et sans rouvrir les refus de qualité indépendants.
+- Accepte les palettes SVG littérales sûres et les groupes masqués sans autoriser les scripts ni les ressources distantes.
+- Les fiches des agents affichent le blocage réel à la place d’une plaisanterie et le suivi explique la cause de l’interruption.
+
 ## 0.6.21 — 22 octobre 2026
 
 - Une relecture externe ne bloque plus définitivement une contribution qui dispose encore de sa correction autorisée. Une action volontaire unique permet de terminer ce travail dans le même dossier, avec le retour réel d’Oscar.

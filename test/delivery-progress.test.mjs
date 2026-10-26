@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DeliveryProgress,deliveryProgressSnapshot} from '../public/delivery-progress.js';
+import {DeliveryProgress,deliveryProgressSnapshot,missionProblemSummary} from '../public/delivery-progress.js';
 import {setLocale} from '../public/i18n.js';
 
 const call=(values={})=>({agent:'Oscar',stage:'review',startedAt:2000,status:'running',durationMs:null,...values});
@@ -87,6 +87,28 @@ test('terminal states are honest and a legacy or demo review never claims a meas
   const demo=snapshot(mission({status:'reviewing',provider:'demo'}));assert.equal(demo.demo,true);assert.equal(demo.elapsedMs,null);assert.match(demo.note,/simulée, sans appel/u);
   const finished=mission({status:'completed',updatedAt:10000,performance:{calls:[call({status:'completed',durationMs:6000})]},events:[{at:6000,who:'Oscar',kind:'activity',text:'Final check'},{at:9500,who:'Oscar',kind:'activity',text:'After call'}]});
   assert.equal(snapshot(finished,20000).lastActivity,null);assert.equal(snapshot(finished,90000).lastActivity,null);assert.match(snapshot(finished).note,/Aucun appel du moteur n’est en cours/u);
+});
+
+test('a failed verification explains the unreadable response and keeps bounded diagnostics behind a disclosure',()=>{
+  setLocale('fr');const source=mission({status:'failed',phase:'La mission demande ton attention',error:'Le moteur n’a pas renvoyé de JSON valide.\n{"private":"do not display"}',performance:{calls:[call({status:'failed',durationMs:5000})]},tasks:[{id:'t1',agentName:'Lina',title:'Vérifier les règles',status:'needs_review',runtimeError:{code:'PROVIDER_OUTPUT_INVALID'},review:{approved:false,feedback:'La réponse de contrôle est illisible.'}},{id:'t2',status:'blocked',title:'Intégrer'}]}),before=JSON.stringify(source);
+  const data=snapshot(source);assert.equal(data.phase,'Oscar n’a pas pu lire sa réponse de vérification.');assert.equal(data.problem.detail,'Le moteur n’a pas renvoyé de JSON valide.');assert.equal(data.active,false);assert.equal(data.call,null);assert.equal(data.unapproved.length,1);assert.equal(data.unapproved[0].name,'Lina');assert.equal(data.recoveryAction,null);assert.match(data.note,/Aucun appel du moteur n’est en cours/u);assert.equal(JSON.stringify(source),before);
+  const{container}=dom(),time=clock(),widget=new DeliveryProgress({container,now:time.now,timers:time.timers});widget.update(source);assert.equal(widget.diagnostic.tagName,'DETAILS');assert.equal(widget.diagnostic.hidden,false);assert.equal(widget.diagnostic.open,false);assert.equal(widget.diagnosticSummary.textContent,'Détail technique');assert.doesNotMatch(widget.diagnosticText.textContent,/private|do not display/u);
+  widget.diagnostic.open=true;widget.update(structuredClone(source));assert.equal(widget.diagnostic.open,true,'unchanged snapshots preserve the disclosure');widget.update({...source,id:'different'});assert.equal(widget.diagnostic.open,false);widget.update(mission({status:'completed'}));assert.equal(widget.diagnostic.hidden,true);assert.equal(widget.diagnosticText.textContent,'');widget.destroy();
+  for(const locale of['en','nl']){const info=missionProblemSummary(source,{locale});assert.notEqual(info.message,data.problem.message);assert.ok(info.message);}
+});
+
+test('diagnostics never render a response object, stack or credential-shaped token and cannot become a recovery',()=>{
+  const source=mission({status:'failed',error:'Invalid JSON sk-FAKE_TEST_VALUE Bearer fake-token {"secret":"payload"}\n at privateStack()',performance:{calls:[call({stage:'planning',status:'failed',durationMs:100})]}}),data=snapshot(source);
+  assert.equal(data.problem.message,'Oscar n’a pas pu lire la réponse du moteur.');assert.doesNotMatch(data.problem.detail,/FAKE_TEST_VALUE|fake-token|payload|privateStack/u);assert.equal(data.recoveryAction,null);assert.equal(missionProblemSummary(mission()),null);
+});
+
+test('a saved review-format interruption remains explained when the mission has no top-level error',async()=>{
+  setLocale('fr');const error='Oscar n’a pas pu lire sa réponse de vérification. Les fichiers sont conservés ; les collègues indépendants peuvent terminer leur travail.';
+  const source=mission({status:'needs_review',error:null,errorInfo:{code:'MISSION_REVIEW_FORMAT'},tasks:[{id:'t1',agentName:'Lina',title:'Règles',status:'needs_review',runtimeError:{code:'MISSION_REVIEW_FORMAT',stage:'review'},review:{approved:false,feedback:error}},{id:'t2',agentName:'Alma',status:'approved'},{id:'t3',agentName:'Alex',status:'blocked'}],recovery:{used:1,rechecksUsed:1,reviewFormatRechecksUsed:0,canRecheck:true}}),before=JSON.stringify(source),data=snapshot(source);
+  assert.equal(data.problem.message,'Oscar n’a pas pu lire sa réponse de vérification.');assert.match(data.problem.detail,/MISSION_REVIEW_FORMAT/u);assert.equal(data.unapproved[0].feedback,data.problem.message);assert.equal(data.recoveryAction.kind,'recheck');assert.equal(data.active,false);assert.equal(JSON.stringify(source),before);
+  const{container}=dom(),time=clock();let calls=0;const widget=new DeliveryProgress({container,now:time.now,timers:time.timers,onResume:async item=>{calls++;return{...item,recovery:{...item.recovery,reviewFormatRechecksUsed:1,canRecheck:false}};}});widget.update(source);
+  assert.equal(widget.phase.textContent,data.problem.message);assert.equal(widget.recoveryButton.hidden,false);await widget.recover();assert.equal(calls,1);assert.equal(widget.recoveryButton.disabled,true);await widget.recover();assert.equal(calls,1,'the returned durable format-review receipt prevents a duplicate click');
+  const consumed={...source,recovery:{...source.recovery,reviewFormatRechecksUsed:1}};assert.notEqual(snapshot(consumed).recoveryAction.key,data.recoveryAction.key);widget.update({...consumed,recovery:{...consumed.recovery,canRecheck:false}});assert.equal(widget.recoveryButton.hidden,true);widget.destroy();
 });
 
 test('visible updates preserve nodes, focus and actions while durations keep advancing',()=>{

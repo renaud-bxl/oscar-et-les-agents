@@ -24,7 +24,7 @@ import { MissionTiming } from '/mission-timing.js';
 import { DeliveryLibrary } from '/delivery-library.js';
 import { AppUpdates } from '/app-updates.js';
 import { DeliveryNavigation } from '/delivery-navigation.js';
-import { DeliveryProgress } from '/delivery-progress.js';
+import { DeliveryProgress, missionProblemSummary } from '/delivery-progress.js';
 import { DeliveryPreview, ResultPreviewDialog, deliveryPreviewCandidate, deliveryPreviewEntries } from '/delivery-preview.js';
 import { requestMissionRecovery } from '/mission-recovery.js';
 import { CalendarEventDialog,calendarCommand,calendarQuestion } from '/calendar-event-dialog.js';
@@ -714,14 +714,23 @@ function renderMember(role,taskId) {
   oscarAssistant.setVisible(role==='oscar');
   const info=getRole(role);
   const selected=(mission?.tasks || []).find(t=>t.id===taskId&&roleOf(t.role)===role);
+  const stopped=['failed','needs_review','cancelled'].includes(mission?.status);
+  const problem=missionProblemSummary(mission);
+  const statusLabel=task=>stopped&&['working','revising'].includes(task.status)?'Travail interrompu':stopped&&task.status==='reviewing'?'Vérification à reprendre':taskStatus[task.status]||task.status;
   const dependencyStates=selected?(Array.isArray(selected.dependsOn)?selected.dependsOn:[]).map(id=>{const task=mission.tasks.find(item=>item.id===id);return task?[id,task.agentName,task.role,task.title,task.status]:[id,null];}):null;
-  const signature=JSON.stringify([mission?.id,role,taskId,selected||mission?.tasks,dependencyStates,role==='oscar'?[mission?.title,mission?.status,mission?.prompt,mission?.result]:null,openedQuip]);
+  const signature=JSON.stringify([mission?.id,mission?.status,problem,role,taskId,selected||mission?.tasks,dependencyStates,role==='oscar'?[mission?.title,mission?.prompt,mission?.result]:null,openedQuip]);
   if(signature===lastMemberSignature)return;lastMemberSignature=signature;
   $('member-title').textContent=selected?agentName(selected):role==='oscar'?'Oscar':`L’îlot ${info.label.toLowerCase()}`;
   $('member-role').textContent=info.label;
-  $('member-quip').textContent=openedQuip;
+  $('member-quip').textContent=problem?.message||(stopped?translate(mission.status==='cancelled'?'La mission est arrêtée. Les fichiers déjà produits sont conservés.':'Oscar n’a pas encore validé la livraison.'):selected?.status==='blocked'?translate('Cette contribution attend les apports indiqués ci-dessous.'):selected?.status==='needs_review'?translate('Oscar demande une correction de cette contribution.'):openedQuip);
   $('member-intro').textContent=selected?`${agentName(selected)} · ${info.label}. Une tâche à soi, une équipe pour avancer et Oscar pour relire le résultat.`:role==='oscar'?info.intro:`Jusqu’à quatre spécialistes de ${info.label.toLowerCase()} peuvent travailler ici. Chacun garde son prénom, sa tâche et ses fichiers.`;
   $('member-expertise').replaceChildren();
+  if(stopped){
+    const incident=node('section','role-service');
+    incident.append(node('p','','Les fichiers déjà produits sont conservés. Aucun appel du moteur n’est en cours pour cette mission.'));
+    if(problem?.detail){const details=node('details','member-diagnostic');details.append(node('summary','','Détail technique'),node('p','',problem.detail));incident.append(details);}
+    const follow=node('button','text-button','Ouvrir le suivi');follow.type='button';follow.addEventListener('click',()=>{closeMemberForNavigation();openPanel('progress');});incident.append(follow);$('member-expertise').append(incident);
+  }
   const descriptions=ROLE_DETAILS[role]||ROLE_DETAILS.oscar;
   ['Ce que nous faisons','Exemples de livrables','Ce qu’Oscar vérifie'].forEach((title,index)=>{const section=node('section','role-service');section.append(node('h3','',title),node('p','',descriptions[index]));$('member-expertise').append(section);});
   const list=$('member-tasks');list.replaceChildren();
@@ -735,14 +744,14 @@ function renderMember(role,taskId) {
   }
   for(const task of tasks) {
     const section=node('section','dialog-task');section.dataset.task=task.id;
-    section.append(node('h3','',task.title || info.label),node('span',`task-state ${task.status || ''}`,taskStatus[task.status] || task.status));
+    section.append(node('h3','',task.title || info.label),node('span',`task-state ${task.status || ''}`,statusLabel(task)));
     const dependencies=(Array.isArray(task.dependsOn)?task.dependsOn:[]).map(id=>(mission?.tasks||[]).find(item=>item.id===id)).filter(Boolean);
     if(dependencies.length) {
       section.append(node('div','dialog-label','Contributions nécessaires'));
       const contributions=node('div','member-contributions');
       for(const colleague of dependencies) {
         const button=node('button','member-contribution');button.type='button';
-        button.append(node('strong','',agentName(colleague)),node('span','',colleague.title),node('small','',taskStatus[colleague.status]||colleague.status));
+        button.append(node('strong','',agentName(colleague)),node('span','',colleague.title),node('small','',statusLabel(colleague)));
         button.title=translate('Consulter cette contribution');
         button.addEventListener('click',()=>{openedRole=roleOf(colleague.role);openedTaskId=colleague.id;lastMemberSignature='';renderMember(openedRole,openedTaskId);$('member-title').focus({preventScroll:true});});
         contributions.append(button);
@@ -754,7 +763,7 @@ function renderMember(role,taskId) {
       section.append(node('div','dialog-label','Critères de validation'));
       section.append(node('p','',Array.isArray(task.criteria)?task.criteria.join('\n'):typeof task.criteria==='string'?task.criteria:JSON.stringify(task.criteria,null,2)));
     }
-    if(task.activity) section.append(node('p','',`${translate('Activité :')} ${translate(task.activity)}`));
+    if(task.activity) section.append(node('p','',`${translate(stopped?'Dernière activité enregistrée :':'Activité :')} ${translate(task.activity)}`));
     if(task.report) { section.append(node('div','dialog-label','Compte rendu'),node('pre','report-content',task.report)); }
     if(task.review?.feedback) section.append(node('p',task.review.approved?'':'report-review',`Retour d’Oscar : ${task.review.feedback}`));
     list.append(section);
@@ -769,7 +778,7 @@ function openMember(role,taskId,spokenLine) {
   const dialog=$('member-dialog');
   if(!dialog.open) dialog.showModal();
   oscarAssistant.setVisible(role==='oscar');
-  if(role==='oscar'||role==='secretaire')officeSpeech?.speak(role,openedQuip);
+  if(role==='oscar'||role==='secretaire')officeSpeech?.speak(role,$('member-quip').textContent);
 }
 function setConnection(connected) {
   $('connection-dot').classList.toggle('connected',connected);

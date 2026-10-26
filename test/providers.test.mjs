@@ -34,6 +34,18 @@ if (args.includes('--version')) {
     fs.writeFileSync(process.env.FAKE_CAPTURE, JSON.stringify({ provider, args, input, cwd: process.cwd(), apiKeysPresent: ['OPENAI_API_KEY','CODEX_API_KEY','ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN','CLAUDE_CODE_OAUTH_TOKEN'].some(key => Boolean(process.env[key])), schema: schemaIndex >= 0 ? JSON.parse(fs.readFileSync(args[schemaIndex + 1], 'utf8')) : null }));
     const emit = value => console.log(JSON.stringify(value));
     const mode = process.env.FAKE_MODE || 'ok';
+    if (mode === 'structured-response' || mode === 'structured-before-prose') {
+      const text = process.env.FAKE_RESPONSE || '';
+      if (provider === 'codex') {
+        if (mode === 'structured-before-prose') emit({ type: 'item.completed', item: { type: 'agent_message', text: '{"reviews":[{"taskId":"t1","approved":true,"feedback":"Earlier message only"}]}' } });
+        emit({ type: 'item.completed', item: { type: 'agent_message', text } });
+        emit({ type: 'turn.completed', usage: { input_tokens: 2, output_tokens: 3 } });
+      } else {
+        emit({ type: 'assistant', message: {content:[{type:'text',text:mode==='structured-before-prose'?'{"reviews":[{"taskId":"t1","approved":true,"feedback":"Earlier message only"}]}':text}]} });
+        emit({ type: 'result', subtype: 'success', result: text, usage: { input_tokens: 2, output_tokens: 3 } });
+      }
+      return;
+    }
     if(mode==='classified-error'){
       if(process.env.FAKE_STDERR)console.error(process.env.FAKE_STDERR);
       const message=process.env.FAKE_DIAGNOSTIC;
@@ -120,7 +132,7 @@ if (args.includes('--version')) {
       emit({ type: 'turn.started' });
       emit({ type: 'item.started', item: {type:'reasoning',text:'private thought never shown'} });
       emit({ type: 'item.started', item: {type:'web_search',query:'private query never shown'} });
-      emit({ type: 'item.completed', item: {type:'agent_message',text:'Livrable prêt'} });
+      emit({ type: 'item.completed', item: {type:'agent_message',text:args.includes('--output-schema')?'{"answer":"structuré"}':'Livrable prêt'} });
       emit({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } });
     } else {
       emit({ type: 'system', subtype: 'init' });
@@ -149,12 +161,13 @@ async function fixture(fn) {
   const cwd = join(directory, 'mission');
   await Promise.all([mkdir(bin), mkdir(cwd)]);
   await Promise.all(['codex', 'claude'].map(name => writeFile(join(bin, name), `#!${process.execPath}\n${fakeSource}`, { mode: 0o700 })));
-  const keys = ['PATH', 'FAKE_CAPTURE', 'FAKE_MODE', 'FAKE_PID', 'FAKE_OLD', 'FAKE_NO_SEARCH', 'FAKE_CONNECTOR_EVENTS', 'FAKE_DIAGNOSTIC', 'FAKE_STDERR', 'FAKE_SLOW_PROBE', 'FAKE_PROBE_CAPTURE', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'];
+  const keys = ['PATH', 'FAKE_CAPTURE', 'FAKE_MODE', 'FAKE_RESPONSE', 'FAKE_PID', 'FAKE_OLD', 'FAKE_NO_SEARCH', 'FAKE_CONNECTOR_EVENTS', 'FAKE_DIAGNOSTIC', 'FAKE_STDERR', 'FAKE_SLOW_PROBE', 'FAKE_PROBE_CAPTURE', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'];
   const original = Object.fromEntries(keys.map(key => [key, process.env[key]]));
   process.env.PATH = bin;
   process.env.FAKE_CAPTURE = join(directory, 'capture.json');
   process.env.FAKE_PID = join(directory, 'worker.pid');
   delete process.env.FAKE_MODE;
+  delete process.env.FAKE_RESPONSE;
   delete process.env.FAKE_OLD;
   delete process.env.FAKE_NO_SEARCH;
   delete process.env.FAKE_DIAGNOSTIC;
@@ -203,9 +216,11 @@ test('Codex : prompt stdin, configuration par défaut, sandbox, nettoyage du sch
     const activities = [];
     const schema = {type:'object',properties:{answer:{type:'string'}},required:['answer'],additionalProperties:false};
     const result = await runAgent({provider:'codex',cwd,prompt:'Une mission avec $() et `texte` littéraux.',schema,onActivity:value => activities.push(value)});
-    assert.deepEqual(result, {text:'Livrable prêt',usage:{input_tokens:10,output_tokens:5}});
+    assert.deepEqual(result, {text:'{"answer":"structuré"}',usage:{input_tokens:10,output_tokens:5}});
     const invocation = await capture();
-    assert.equal(invocation.input, 'Une mission avec $() et `texte` littéraux.');
+    assert.ok(invocation.input.startsWith('Une mission avec $() et `texte` littéraux.\n\nFORMAT DE LA RÉPONSE FINALE\n'));
+    assert.ok(invocation.input.endsWith(JSON.stringify(schema)));
+    assert.match(invocation.input,/N’invente aucun résultat/u);
     assert.equal(invocation.cwd, await realpath(cwd));
     assert.equal(invocation.apiKeysPresent, false);
     assert.deepEqual(invocation.args.slice(0, 8), ['-c','model_reasoning_effort="medium"','-a','never','--search','--disable','apps','exec']);
@@ -220,6 +235,47 @@ test('Codex : prompt stdin, configuration par défaut, sandbox, nettoyage du sch
     assert.doesNotMatch(activities.join(' '), /private|thought|query/);
   });
 });
+
+for (const provider of ['codex', 'claude']) {
+  test(`${provider} : un contrôle structuré garde les refus et explique son contrat JSON au moteur`, async () => {
+    await fixture(async ({ cwd, capture }) => {
+      const schema = { type:'object', additionalProperties:false, properties:{reviews:{type:'array',minItems:1,maxItems:20,items:{type:'object',additionalProperties:false,properties:{taskId:{type:'string',pattern:'^t[1-9][0-9]?$'},approved:{type:'boolean'},feedback:{type:'string'}},required:['taskId','approved','feedback']}}},required:['reviews'] };
+      const answer = {reviews:[{taskId:'t1',approved:false,feedback:'Une correction réelle reste nécessaire.'}]};
+      process.env.FAKE_MODE = 'structured-response';
+      for (const response of [JSON.stringify(answer), '```json\n'+JSON.stringify(answer)+'\n```']) {
+        process.env.FAKE_RESPONSE = response;
+        const result = await runAgent({provider,cwd,prompt:'Vérifie la contribution réellement produite.',readOnly:true,schema});
+        assert.deepEqual(JSON.parse(result.text), answer);
+        const invocation = await capture();
+        assert.ok(invocation.input.startsWith('Vérifie la contribution réellement produite.\n\nFORMAT DE LA RÉPONSE FINALE\n'));
+        assert.ok(invocation.input.endsWith(JSON.stringify(schema)));
+        if (provider === 'codex') {
+          assert.equal(invocation.args[invocation.args.indexOf('-a')+1],'never');
+          assert.equal(invocation.args[invocation.args.indexOf('--sandbox')+1],'read-only');
+        } else assert.ok(invocation.args.includes('--restricted'));
+      }
+      assert.equal((await readdir(cwd)).some(file => file.startsWith('.oscar-schema-')), false);
+    });
+  });
+
+  test(`${provider} : une prose de relecture ou un mauvais contrat JSON échoue sans reprise ni approbation implicite`, async () => {
+    await fixture(async ({ cwd, directory }) => {
+      const schema = { type:'object',additionalProperties:false,properties:{reviews:{type:'array',minItems:1,maxItems:1,items:{type:'object',additionalProperties:false,properties:{taskId:{type:'string',enum:['t1']},approved:{type:'boolean'},feedback:{type:'string',minLength:1,maxLength:200}},required:['taskId','approved','feedback']}}},required:['reviews'] };
+      const valid = {taskId:'t1',approved:false,feedback:'À corriger'};
+      const responses = ['20 contributions vérifiées', '**t1 : Validé** sk-NEVER-LEAK private@example.test', '[]', 'null', '{"reviews":', JSON.stringify({reviews:[]}), JSON.stringify({reviews:[valid,valid]}), JSON.stringify({reviews:[{...valid,approved:'true'}]}), JSON.stringify({reviews:[{taskId:'t1',approved:true}]}), JSON.stringify({reviews:[{...valid,taskId:'t2'}]}), JSON.stringify({reviews:[{...valid,feedback:''}]}), JSON.stringify({reviews:[{...valid,extra:true}]}), JSON.stringify({reviews:[valid],approved:true})];
+      process.env.FAKE_PROBE_CAPTURE = join(directory,'probes.jsonl');
+      for (const response of responses) {
+        process.env.FAKE_MODE = 'structured-response'; process.env.FAKE_RESPONSE = response;
+        await assert.rejects(runAgent({provider,cwd,prompt:'Contrôle réel, sans modification.',readOnly:true,schema}), error => error.code==='PROVIDER_STRUCTURED_OUTPUT_INVALID' && error.provider===provider && error.recoverable===false && error.action==='review-output' && !/NEVER-LEAK|private@example|SyntaxError/u.test(error.message));
+      }
+      process.env.FAKE_MODE = 'structured-before-prose'; process.env.FAKE_RESPONSE = 'Le contrôle semble terminé.';
+      await assert.rejects(runAgent({provider,cwd,prompt:'Contrôle réel, sans modification.',readOnly:true,schema}),{code:'PROVIDER_STRUCTURED_OUTPUT_INVALID'});
+      const calls = (await readFile(process.env.FAKE_PROBE_CAPTURE,'utf8')).trim().split('\n').map(line=>JSON.parse(line)).filter(args=>args.includes(provider==='codex'?'exec':'-p')&&!args.includes('--help'));
+      assert.equal(calls.length, responses.length+1, 'Chaque demande lance seulement son appel, sans reprise implicite.');
+      assert.equal((await readdir(cwd)).some(file => file.startsWith('.oscar-schema-')), false);
+    });
+  });
+}
 
 test('Codex reasoning effort is a bounded per-call override and keeps model, prompt and protections',async()=>{
   await fixture(async({cwd,capture})=>{

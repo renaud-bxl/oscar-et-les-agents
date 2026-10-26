@@ -11,7 +11,7 @@ export async function requestMissionRecovery(request, mission) {
     if (Number.isInteger(error.status)) throw error;
     let current;
     try { current=await request(route); } catch {}
-    const receipts=recheck?['rechecksUsed','packagePolicyRechecksUsed','externalCorrectionRechecksUsed','remainingCorrectionPassesUsed']:['used'];
+    const receipts=recheck?['rechecksUsed','packagePolicyRechecksUsed','externalCorrectionRechecksUsed','remainingCorrectionPassesUsed','reviewFormatRechecksUsed']:['used'];
     const accepted=receipts.some(key=>Number(current?.recovery?.[key])>Number(mission.recovery?.[key]||0));
     if (current?.id===mission.id && (accepted || current.recovery?.reason==='active' && ['planning','running','reviewing'].includes(current.status))) return current;
     throw new Error(translate('La reprise n’a pas pu être confirmée. Actualisez ce dossier pour vérifier son état avant de réessayer.'));

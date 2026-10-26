@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import messages from '../public/translations-delivery-progress.js';
 import {translate} from '../public/i18n.js';
 import {deliveryProgressSnapshot,deliveryProgressText} from '../public/delivery-progress.js';
+import recoveryMessages from '../public/translations-recovery.js';
 
 test('every delivery progress label is available through the shared French English Dutch translation path',()=>{
   for(const[source,targets]of Object.entries(messages)){
@@ -14,6 +15,13 @@ test('every delivery progress label is available through the shared French Engli
       assert.equal(deliveryProgressText(source,locale),targets[locale]);
     }
   }
+});
+
+test('review-format failures and their safe retry messages are translated without translating private diagnostics',()=>{
+  const sources=['Les fichiers ou le diagnostic ont changé avant la relecture du contrôle. Aucun appel n’a été lancé.','Oscar n’a pas pu lire sa réponse de vérification. Les fichiers sont conservés ; les collègues indépendants peuvent terminer leur travail.','Je reprends uniquement le format de ma vérification, sans faire recommencer les spécialistes.','Le moteur n’a pas respecté le format JSON demandé. Aucun résultat n’a été validé ; les fichiers déjà créés sont conservés.'];
+  for(const source of sources)for(const locale of['en','nl']){assert.ok(recoveryMessages[source]?.[locale]);assert.equal(translate(source,locale),recoveryMessages[source][locale]);}
+  const item={id:'format',status:'needs_review',error:null,errorInfo:{code:'MISSION_REVIEW_FORMAT'},tasks:[{id:'t1',status:'needs_review',runtimeError:{code:'MISSION_REVIEW_FORMAT',stage:'review'},review:{approved:false,feedback:sources[1]}}],recovery:{canRecheck:true}},french=deliveryProgressSnapshot(item,{locale:'fr'});
+  for(const locale of['en','nl']){const translated=deliveryProgressSnapshot(item,{locale});assert.notEqual(translated.phase,french.phase);assert.equal(translated.problem.detail,french.problem.detail);assert.notEqual(translated.unapproved[0].feedback,french.unapproved[0].feedback);}
 });
 
 test('actual review assembly final and terminal snapshots localize their fixed text without rewriting model activity',()=>{
