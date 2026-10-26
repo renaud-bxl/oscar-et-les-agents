@@ -14,7 +14,7 @@ function fixturePdf(){
  let text='%PDF-1.4\n';const offsets=[0];for(let index=0;index<objects.length;index++){offsets.push(Buffer.byteLength(text));text+=`${index+1} 0 obj\n${objects[index]}\nendobj\n`;}
  const xref=Buffer.byteLength(text);text+=`xref\n0 ${objects.length+1}\n0000000000 65535 f \n${offsets.slice(1).map(offset=>String(offset).padStart(10,'0')+' 00000 n \n').join('')}trailer\n<< /Size ${objects.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;return Buffer.from(text);
 }
-export async function startOfficeFixture({demoDelay=30,runnerDelay=30,updatesFactory}={}){
+export async function startOfficeFixture({demoDelay=30,runnerDelay=30,updatesFactory,documentFactory}={}){
  const dataDir=await mkdtemp(path.join(os.tmpdir(),'oscar-office-qa-'));
  const metrics={calls:0,openedFolders:[],openedFiles:[],dictationInstalls:0,transcriptions:0,connectorReads:0,sseOpened:0,sseActive:0};
  const eventStreams=new Set();
@@ -31,7 +31,7 @@ export async function startOfficeFixture({demoDelay=30,runnerDelay=30,updatesFac
   else{await mkdir(path.join(input.cwd,'Livraison'),{recursive:true});await writeFile(path.join(input.cwd,'Livraison','index.html'),'<!doctype html><html lang="fr"><title>Contrôle isolé</title><h1>Oscar et les Agents</h1><p>Fichier local de test.</p></html>');await writeFile(path.join(input.cwd,'Livraison','controle.pdf'),fixturePdf());}
   return{text:'# Livraison du contrôle\n\nUn fichier réel a été créé et contrôlé dans ce bureau isolé.'};
  };
- const app=await createAtelierServer({port:0,dataDir,providers:structuredClone(providers),detect:async()=>structuredClone(providers),runner,demoDelay,...(updatesFactory?{updatesFactory}:{}),
+ const app=await createAtelierServer({port:0,dataDir,providers:structuredClone(providers),detect:async()=>structuredClone(providers),runner,demoDelay,...(updatesFactory?{updatesFactory}:{}),...(documentFactory?{documentFactory}:{}),
   openFolder:async folder=>metrics.openedFolders.push(folder),openFile:async file=>metrics.openedFiles.push(file),
   connectorsFactory:()=>({ready:Promise.resolve(),active:new Set(),disabledNames:()=>[],state:async()=>({catalog:[],connections:structuredClone(connections),jobs:[],clients:{codex:{available:true,status:'ready'},claude:{available:true,status:'ready'}}}),readPlan:async({client,name})=>{metrics.connectorReads++;const match=connections.find(row=>row.client===client&&row.name===name);if(!match)throw new Error('Service simulé introuvable.');return Object.freeze({client,name,type:match.type,source:'chatgpt',enabledTools:['read']});},close:async()=>{}}),
   automationFactory:options=>new Automations({...options,now:()=>clock,pollMs:1000}),

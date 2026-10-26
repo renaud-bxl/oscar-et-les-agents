@@ -1,6 +1,6 @@
 # Oscar et les Agents
 
-Version 0.6.22 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
+Version 0.6.23 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
 
 ## Installer et lancer pour une personne
 
@@ -174,9 +174,15 @@ La dictée partagée s’ouvre uniquement sur clic ; l’insertion nécessite re
 - Réserve remaining-correction-1 et une sauvegarde distincte avant l’appel. Les tâches refusées éligibles passent directement en correction avec leur vrai retour ; les dépendants attendent les approbations réelles. Une écriture consommée demeure consommée et un nouveau refus sans budget reste un refus. Les comptes, permissions, quotas et erreurs de moteur ne sont pas concernés.
 
 
-## Réponses de contrôle structurées (0.6.22)
+## Réponses de contrôle structurées (0.6.23)
 
 - Les appels à schéma donnent le contrat JSON explicitement au moteur et contrôlent localement la réponse entière avant son usage. Ne déduis jamais une approbation d’une phrase ni d’un fragment de JSON extrait d’un rapport. Les contrôles métier et les empreintes restent obligatoires.
 - Une réponse de contrôle mal formatée autorise une seule nouvelle demande en lecture seule pour ce lot ; elle ne consomme pas les écritures des spécialistes. Si le format reste inutilisable, conserve les contributions concernées à vérifier et laisse terminer les collègues indépendants. Aucune nouvelle tentative de compte, permission ou quota n’est ajoutée.
 - La relecture technique volontaire `review-format-v1` exige la preuve du défaut précis de contrôle, des fichiers désormais complets et des apports approuvés intacts. Elle réserve un reçu durable et une sauvegarde, conserve les compteurs et ne réouvre aucun refus de qualité indépendant. Un dépendant jamais démarré utilise seulement son écriture déjà disponible.
 - Les palettes SVG `:root` acceptent uniquement des propriétés personnalisées de couleur littérale bornées. `display` accepte `none` et `inline` ; même cachés, les éléments sont contrôlés et restent soumis aux limites de références, de cycles et de ressources.
+
+
+## Plans et réponses finales (0.6.23)
+
+- Pour un appel Codex à schéma, utilise le fichier officiel --output-last-message si le client le propose. Contrôle sa taille, sa nature, son identité et son encodage avant le JSON. Les commentaires intermédiaires ne sont jamais des verdicts. Les fichiers temporaires sont privés et nettoyés, y compris après annulation.
+- Un plan local mal formé et les contrôles locaux en lecture seule disposent d’une seule correction de format ; aucune création ni lecture de compte n’est répétée. Un ancien échec prouvé du plan avant toute tâche et tout fichier peut utiliser la reprise manuelle existante, avec sauvegarde et compteur durable inchangé. Aucune erreur de permission, compte ou quota n’est rendue récupérable par cette règle.

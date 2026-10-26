@@ -49,16 +49,22 @@ test('runner and connector command timeouts retain their group escalation until 
   const directory=await mkdtemp(join(tmpdir(),'oscar-runner-group-'));
   const bin=join(directory,'bin'),mission=join(directory,'mission');
   await Promise.all([mkdir(bin),mkdir(mission)]);
-  const fake=String.raw`const fs=require('node:fs'),{spawn}=require('node:child_process'),args=process.argv.slice(2);
-if(args.includes('--version'))console.log('codex-cli 0.162.0');
-else if(args.includes('--help'))console.log('--json --sandbox --color --skip-git-repo-check --search');
-else{process.stdin.resume();process.stdin.on('end',()=>{spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});require("node:fs").writeFileSync(process.argv[1],String(process.pid));setInterval(()=>{},1000)',process.env.TEST_WORKER_PID],{stdio:'ignore'});setInterval(()=>{},1000);});}`;
-  await writeFile(join(bin,'codex'),`#!${process.execPath}\n${fake}`,{mode:0o700});
+  const fake=String.raw`const {spawn}=require('node:child_process');
+process.stdin.resume();process.stdin.on('end',()=>{
+  const worker=spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});require("node:fs").writeFileSync(process.argv[1],String(process.pid));process.send("ready");setInterval(()=>{},1000)',process.env.TEST_WORKER_PID],{stdio:['ignore','ignore','ignore','ipc']});
+  worker.once('message',()=>worker.disconnect());setInterval(()=>{},1000);
+});`;
+  const fakeModel=join(directory,'fake-model.cjs'),shellQuote=value=>`'${value.replace(/'/gu,"'\\''")}'`;
+  await writeFile(fakeModel,fake,{mode:0o700});
+  // Cheap probes keep this test focused on a started command's timeout, even
+  // while the full suite runs many Node subprocesses. The runner deadline also
+  // covers detection; a 1.2s budget could expire before any descendant existed.
+  await writeFile(join(bin,'codex'),`#!/bin/sh\nfor arg do\n  case "$arg" in\n    --version) printf '%s\\n' 'codex-cli 0.162.0'; exit 0;;\n    --help) printf '%s\\n' '--json --sandbox --color --skip-git-repo-check --search'; exit 0;;\n  esac\ndone\nexec ${shellQuote(process.execPath)} ${shellQuote(fakeModel)} "$@"\n`,{mode:0o700});
   const providersURL=new URL('../lib/providers.mjs',import.meta.url).href,connectorsURL=new URL('../lib/connectors.mjs',import.meta.url).href,pids=[];
   t.after(async()=>{for(const pid of pids)try{process.kill(pid,'SIGKILL');}catch{}await rm(directory,{recursive:true,force:true});});
   const sources={
-    runner:`import {runAgent} from ${JSON.stringify(providersURL)};try{await runAgent({provider:'codex',cwd:${JSON.stringify(mission)},prompt:'Mission simulée',timeoutMs:1200});throw new Error('Expected timeout');}catch(error){if(error.name!=='TimeoutError')throw error;}`,
-    connector:`import {Connectors} from ${JSON.stringify(connectorsURL)};const manager=new Connectors({dataDir:${JSON.stringify(mission)}});try{await manager.process(${JSON.stringify(join(bin,'codex'))},[],{cwd:${JSON.stringify(mission)},timeoutMs:1000});throw new Error('Expected interruption');}catch(error){if(error.code!=='CONNECTOR_INVALID')throw error;}finally{await manager.close();}`,
+    runner:`import {runAgent} from ${JSON.stringify(providersURL)};try{await runAgent({provider:'codex',cwd:${JSON.stringify(mission)},prompt:'Mission simulée',timeoutMs:4000});throw new Error('Expected timeout');}catch(error){if(error.name!=='TimeoutError')throw error;}`,
+    connector:`import {Connectors} from ${JSON.stringify(connectorsURL)};const manager=new Connectors({dataDir:${JSON.stringify(mission)}});try{await manager.process(${JSON.stringify(join(bin,'codex'))},[],{cwd:${JSON.stringify(mission)},timeoutMs:3000});throw new Error('Expected interruption');}catch(error){if(error.code!=='CONNECTOR_INVALID')throw error;}finally{await manager.close();}`,
   };
   for(const[name,source]of Object.entries(sources)){
     const helper=join(directory,name+'.mjs'),pidFile=join(directory,name+'.pid');await writeFile(helper,source);

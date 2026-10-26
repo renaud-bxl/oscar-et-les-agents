@@ -1,5 +1,12 @@
 # Historique des versions
 
+## 0.6.23 — 26 octobre 2026
+
+- Utilise la réponse finale officielle de Codex pour les plans et contrôles à schéma, lorsqu’elle est disponible. Les commentaires intermédiaires ne peuvent plus remplacer le verdict final.
+- Corrige une seule fois le format des plans et des contrôles locaux en lecture seule, sans relancer les créations ni les accès aux comptes. Un refus de qualité reste un refus.
+- Permet la reprise volontaire et sauvegardée d’un ancien plan interrompu avant toute création, dans le même dossier et avec le budget de reprise existant. Le suivi explique que les spécialistes n’ont pas démarré.
+- Corrige les commandes du lecteur de fichiers pendant une ouverture en cours et étend les contrôles des lecteurs Word, Excel et PDF, des modèles et des exports réels.
+
 ## 0.6.22 — 26 octobre 2026
 
 - Corrige l’arrêt de missions de jeu lorsque la réponse de vérification d’Oscar arrive en prose au lieu du JSON attendu. Le format est demandé explicitement, contrôlé avant usage et corrigé une seule fois en lecture seule.

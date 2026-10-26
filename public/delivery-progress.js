@@ -15,7 +15,7 @@ export const deliveryProgressText=(source,locale=getLocale())=>messages[source]?
 /** A failed response is a stopped operation, never a progress update or a model dump. */
 export function missionProblemSummary(mission,{locale=getLocale()}={}){
   if(!mission||!['failed','needs_review'].includes(mission.status))return null;
-  const formatCodes=new Set(['MISSION_REVIEW_FORMAT','PROVIDER_STRUCTURED_OUTPUT_INVALID']);
+  const formatCodes=new Set(['MISSION_REVIEW_FORMAT','PROVIDER_STRUCTURED_OUTPUT_INVALID','MISSION_PLAN_FORMAT']);
   const interrupted=(Array.isArray(mission.tasks)?mission.tasks:[]).find(task=>task?.status!=='approved'&&formatCodes.has(task?.runtimeError?.code));
   const code=formatCodes.has(mission.errorInfo?.code)?mission.errorInfo.code:interrupted?.runtimeError?.code;
   const raw=typeof mission.error==='string'&&mission.error?mission.error:typeof interrupted?.review?.feedback==='string'?interrupted.review.feedback:'';
@@ -23,7 +23,7 @@ export function missionProblemSummary(mission,{locale=getLocale()}={}){
   const calls=Array.isArray(mission.performance?.calls)?mission.performance.calls:[];
   const stage=interrupted?.runtimeError?.stage||[...calls].reverse().find(call=>call?.status==='failed')?.stage||(code==='MISSION_REVIEW_FORMAT'?'review':null);
   const unreadable=Boolean(code)||/\bJSON\b|Unexpected (?:token|end)|réponse[^.\n]*(?:illisible|structurée|invalide|incomplète)/iu.test(raw);
-  const source=unreadable?(['review','final-review'].includes(stage)?'Oscar n’a pas pu lire sa réponse de vérification.':'Oscar n’a pas pu lire la réponse du moteur.'):'Une erreur a interrompu la mission.';
+  const source=code==='MISSION_PLAN_FORMAT'?'Oscar n’a pas pu préparer un plan exploitable. Aucun spécialiste n’a commencé.':unreadable?(['review','final-review'].includes(stage)?'Oscar n’a pas pu lire sa réponse de vérification.':'Oscar n’a pas pu lire la réponse du moteur.'):'Une erreur a interrompu la mission.';
   // Public errors are bounded again here. Keep the first diagnostic line only,
   // excluding response objects, stacks and possible credential-shaped values.
   const detail=clean([code,raw.split(/\r?\n/u).find(line=>line.trim())||''].filter(Boolean).join(' · '),1000).replace(/\bsk-[a-zA-Z0-9_-]+/gu,'[secret]').replace(/\bBearer\s+\S+/giu,'Bearer [secret]').replace(/\s*[\[{][\s\S]*$/u,'').slice(0,600);

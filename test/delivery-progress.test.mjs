@@ -102,6 +102,11 @@ test('diagnostics never render a response object, stack or credential-shaped tok
   assert.equal(data.problem.message,'Oscar n’a pas pu lire la réponse du moteur.');assert.doesNotMatch(data.problem.detail,/FAKE_TEST_VALUE|fake-token|payload|privateStack/u);assert.equal(data.recoveryAction,null);assert.equal(missionProblemSummary(mission()),null);
 });
 
+test('an unusable planning response cannot promise a restart after its real recovery is consumed',()=>{
+  const item=mission({status:'failed',tasks:[],error:'Oscar n’a pas pu préparer un plan exploitable. Aucun spécialiste n’a commencé.',errorInfo:{code:'MISSION_PLAN_FORMAT'},performance:{calls:[call({stage:'planning',status:'failed',durationMs:100})]},recovery:{used:1,canResume:false,canRecheck:false}}),data=snapshot(item);
+  assert.equal(data.problem.message,item.error);assert.equal(data.phase,item.error);assert.equal(data.recoveryAction,null);assert.deepEqual(data.counts,{submitted:0,approved:0,total:0});assert.doesNotMatch(data.phase,/pouvez reprendre/u);for(const locale of['en','nl'])assert.notEqual(missionProblemSummary(item,{locale}).message,data.phase);
+});
+
 test('a saved review-format interruption remains explained when the mission has no top-level error',async()=>{
   setLocale('fr');const error='Oscar n’a pas pu lire sa réponse de vérification. Les fichiers sont conservés ; les collègues indépendants peuvent terminer leur travail.';
   const source=mission({status:'needs_review',error:null,errorInfo:{code:'MISSION_REVIEW_FORMAT'},tasks:[{id:'t1',agentName:'Lina',title:'Règles',status:'needs_review',runtimeError:{code:'MISSION_REVIEW_FORMAT',stage:'review'},review:{approved:false,feedback:error}},{id:'t2',agentName:'Alma',status:'approved'},{id:'t3',agentName:'Alex',status:'blocked'}],recovery:{used:1,rechecksUsed:1,reviewFormatRechecksUsed:0,canRecheck:true}}),before=JSON.stringify(source),data=snapshot(source);

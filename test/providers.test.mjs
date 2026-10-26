@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { detectProviders, runAgent, MAX_AGENT_TIMEOUT_MS, isTrustedConnectorReadReceipt } from '../lib/providers.mjs';
 import {Connectors,GMAIL_MCP_URL} from '../lib/connectors.mjs';
@@ -22,7 +22,7 @@ if (args.includes('--version')) {
   if(process.env.FAKE_SLOW_PROBE)setTimeout(()=>console.log('codex-cli 0.162.0-alpha.17.2'),2000);
   else console.log(provider === 'codex' ? 'codex-cli 0.162.0-alpha.17.2' : (process.env.FAKE_OLD ? '2.1.200' : '2.1.303 (Claude Code)'));
 } else if (args.includes('--help')) {
-  console.log(provider === 'codex' ? '--json --sandbox --color --skip-git-repo-check --output-schema' + (process.env.FAKE_NO_SEARCH ? '' : ' --search') : '--restricted --output-format --verbose --permission-mode "manual" "dontAsk" --permission-prompts --tools --allowedTools --strict-mcp-config --json-schema --input-format --no-session-persistence --setting-sources');
+  console.log(provider === 'codex' ? '--json --sandbox --color --skip-git-repo-check --output-schema' + (process.env.FAKE_NO_LAST_MESSAGE ? '' : ' --output-last-message') + (process.env.FAKE_NO_SEARCH ? '' : ' --search') : '--restricted --output-format --verbose --permission-mode "manual" "dontAsk" --permission-prompts --tools --allowedTools --strict-mcp-config --json-schema --input-format --no-session-persistence --setting-sources');
 } else if (args.includes('status')) {
   if (provider === 'codex') console.error('Logged in using ChatGPT');
   else console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', neverExpose: 'sk-status-secret' }));
@@ -31,9 +31,32 @@ if (args.includes('--version')) {
   process.stdin.setEncoding('utf8');
   const respond = () => {
     const schemaIndex = args.indexOf('--output-schema');
-    fs.writeFileSync(process.env.FAKE_CAPTURE, JSON.stringify({ provider, args, input, cwd: process.cwd(), apiKeysPresent: ['OPENAI_API_KEY','CODEX_API_KEY','ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN','CLAUDE_CODE_OAUTH_TOKEN'].some(key => Boolean(process.env[key])), schema: schemaIndex >= 0 ? JSON.parse(fs.readFileSync(args[schemaIndex + 1], 'utf8')) : null }));
-    const emit = value => console.log(JSON.stringify(value));
+    const outputIndex = args.indexOf('--output-last-message'), outputFile = outputIndex >= 0 ? args[outputIndex + 1] : null;
+    fs.writeFileSync(process.env.FAKE_CAPTURE, JSON.stringify({ provider, args, input, cwd: process.cwd(), apiKeysPresent: ['OPENAI_API_KEY','CODEX_API_KEY','ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN','CLAUDE_CODE_OAUTH_TOKEN'].some(key => Boolean(process.env[key])), schema: schemaIndex >= 0 ? JSON.parse(fs.readFileSync(args[schemaIndex + 1], 'utf8')) : null, outputMode:outputFile?fs.statSync(outputFile).mode&0o777:null, outputDirectoryMode:outputFile?fs.statSync(require('node:path').dirname(outputFile)).mode&0o777:null }));
+    const emit = value => {
+      if (outputFile && value.type === 'item.completed' && value.item?.type === 'agent_message' && value.item.phase !== 'commentary') fs.writeFileSync(outputFile, value.item.text);
+      console.log(JSON.stringify(value));
+    };
     const mode = process.env.FAKE_MODE || 'ok';
+    if (mode === 'phased-response' || mode === 'canonical-response' || mode === 'only-commentary' || mode.startsWith('canonical-unsafe-')) {
+      emit({type:'item.completed',item:{type:'agent_message',phase:'commentary',text:'{"approved":true,"feedback":"Intermediate message only"}'}});
+      if (mode !== 'only-commentary') {
+        emit({type:'item.completed',item:{type:'agent_message',phase:'final_answer',text:mode==='canonical-response'?'{"approved":true,"feedback":"Stream response"}':'{"approved":false,"feedback":"Final response needs a correction"}'}});
+        emit({type:'item.completed',item:{type:'agent_message',phase:'commentary',text:'A later intermediate note must not replace the final response.'}});
+        emit({type:'item.completed',item:{type:'agent_message',text:'Legacy unphased commentary after the explicit final response.'}});
+      }
+      if (mode === 'canonical-response' && outputFile) fs.writeFileSync(outputFile, process.env.FAKE_RESPONSE);
+      if (mode.startsWith('canonical-unsafe-') && outputFile) {
+        fs.unlinkSync(outputFile);
+        const target = process.env.FAKE_FINAL_TARGET;
+        if (mode === 'canonical-unsafe-symlink') fs.symlinkSync(target,outputFile);
+        if (mode === 'canonical-unsafe-hardlink') fs.linkSync(target,outputFile);
+        if (mode === 'canonical-unsafe-directory') fs.mkdirSync(outputFile);
+        if (mode === 'canonical-unsafe-large') fs.writeFileSync(outputFile,Buffer.alloc(8*1024*1024+1));
+        if (mode === 'canonical-unsafe-utf8') fs.writeFileSync(outputFile,Buffer.from([0xc3,0x28]));
+      }
+      emit({type:'turn.completed',usage:{input_tokens:2,output_tokens:3}}); return;
+    }
     if (mode === 'structured-response' || mode === 'structured-before-prose') {
       const text = process.env.FAKE_RESPONSE || '';
       if (provider === 'codex') {
@@ -161,7 +184,7 @@ async function fixture(fn) {
   const cwd = join(directory, 'mission');
   await Promise.all([mkdir(bin), mkdir(cwd)]);
   await Promise.all(['codex', 'claude'].map(name => writeFile(join(bin, name), `#!${process.execPath}\n${fakeSource}`, { mode: 0o700 })));
-  const keys = ['PATH', 'FAKE_CAPTURE', 'FAKE_MODE', 'FAKE_RESPONSE', 'FAKE_PID', 'FAKE_OLD', 'FAKE_NO_SEARCH', 'FAKE_CONNECTOR_EVENTS', 'FAKE_DIAGNOSTIC', 'FAKE_STDERR', 'FAKE_SLOW_PROBE', 'FAKE_PROBE_CAPTURE', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'];
+  const keys = ['PATH', 'FAKE_CAPTURE', 'FAKE_MODE', 'FAKE_RESPONSE', 'FAKE_PID', 'FAKE_OLD', 'FAKE_NO_SEARCH', 'FAKE_NO_LAST_MESSAGE', 'FAKE_FINAL_TARGET', 'FAKE_CONNECTOR_EVENTS', 'FAKE_DIAGNOSTIC', 'FAKE_STDERR', 'FAKE_SLOW_PROBE', 'FAKE_PROBE_CAPTURE', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'];
   const original = Object.fromEntries(keys.map(key => [key, process.env[key]]));
   process.env.PATH = bin;
   process.env.FAKE_CAPTURE = join(directory, 'capture.json');
@@ -170,6 +193,8 @@ async function fixture(fn) {
   delete process.env.FAKE_RESPONSE;
   delete process.env.FAKE_OLD;
   delete process.env.FAKE_NO_SEARCH;
+  delete process.env.FAKE_NO_LAST_MESSAGE;
+  delete process.env.FAKE_FINAL_TARGET;
   delete process.env.FAKE_DIAGNOSTIC;
   delete process.env.FAKE_STDERR;
   delete process.env.FAKE_SLOW_PROBE;
@@ -233,6 +258,52 @@ test('Codex : prompt stdin, configuration par défaut, sandbox, nettoyage du sch
     assert.ok(invocation.args.includes('model_reasoning_effort="medium"'));
     assert.ok(activities.includes('Recherche sur le Web'));
     assert.doesNotMatch(activities.join(' '), /private|thought|query/);
+  });
+});
+
+test('Codex : la réponse finale canonique prime sur un verdict intermédiaire et reste dans un dossier temporaire privé',async()=>{
+  await fixture(async({cwd,capture})=>{
+    const schema={type:'object',additionalProperties:false,properties:{approved:{type:'boolean'},feedback:{type:'string'}},required:['approved','feedback']};
+    process.env.FAKE_MODE='canonical-response';
+    const answer={approved:false,feedback:'Ce vrai refus final doit rester un refus.'};
+    process.env.FAKE_RESPONSE=JSON.stringify(answer);
+    const result=await runAgent({provider:'codex',cwd,prompt:'Contrôle sans modification.',readOnly:true,schema});
+    assert.deepEqual(JSON.parse(result.text),answer);
+    const invocation=await capture(),file=invocation.args[invocation.args.indexOf('--output-last-message')+1];
+    assert.notEqual(dirname(file),cwd);assert.match(dirname(file),/oscar-final-response-/u);
+    assert.equal(invocation.outputMode,0o600);assert.equal(invocation.outputDirectoryMode,0o700);
+    assert.equal(invocation.args[invocation.args.indexOf('--sandbox')+1],'read-only');
+    assert.equal(invocation.args[invocation.args.indexOf('-a')+1],'never');
+    await assert.rejects(readdir(dirname(file)),{code:'ENOENT'});
+    process.env.FAKE_RESPONSE='Une réponse finale en prose, malgré le JSON du flux.';
+    await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Contrôle sans modification.',readOnly:true,schema}),{code:'PROVIDER_STRUCTURED_OUTPUT_INVALID'});
+    const invalid=await capture();await assert.rejects(readdir(dirname(invalid.args[invalid.args.indexOf('--output-last-message')+1])),{code:'ENOENT'});
+  });
+});
+
+test('Codex : les clients sans fichier final gardent le repli JSONL et ignorent les phases commentary',async()=>{
+  await fixture(async({cwd,capture})=>{
+    process.env.FAKE_NO_LAST_MESSAGE='1';process.env.FAKE_MODE='phased-response';
+    const schema={type:'object',properties:{approved:{type:'boolean'},feedback:{type:'string'}},required:['approved','feedback']};
+    const result=await runAgent({provider:'codex',cwd,prompt:'Relire sans outil de compte.',readOnly:true,schema});
+    assert.deepEqual(JSON.parse(result.text),{approved:false,feedback:'Final response needs a correction'});
+    assert.equal((await capture()).args.includes('--output-last-message'),false);
+    process.env.FAKE_MODE='only-commentary';
+    await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Relire sans outil de compte.',readOnly:true,schema}),{code:'PROVIDER_NO_RESULT'});
+  });
+});
+
+test('Codex : un fichier final absent, lié, démesuré ou invalide ne se replie jamais sur un autre verdict du flux',async()=>{
+  await fixture(async({cwd,directory,capture})=>{
+    const target=join(directory,'outside.json'),contents='{"approved":true,"feedback":"sk-NEVER-LEAK private@example.test"}';
+    await writeFile(target,contents);process.env.FAKE_FINAL_TARGET=target;
+    const schema={type:'object',properties:{approved:{type:'boolean'},feedback:{type:'string'}},required:['approved','feedback']};
+    for(const mode of ['missing','symlink','hardlink','directory','large','utf8']){
+      process.env.FAKE_MODE='canonical-unsafe-'+mode;
+      await assert.rejects(runAgent({provider:'codex',cwd,prompt:'Contrôle sans modification.',readOnly:true,schema}),error=>error.code==='PROVIDER_OUTPUT_INVALID'&&error.recoverable===false&&!/NEVER-LEAK|private@example/u.test(error.message));
+      const invocation=await capture();await assert.rejects(readdir(dirname(invocation.args[invocation.args.indexOf('--output-last-message')+1])),{code:'ENOENT'});
+      assert.equal(await readFile(target,'utf8'),contents);
+    }
   });
 });
 
@@ -603,7 +674,7 @@ test('un signal déjà annulé ne lance pas de CLI', async () => {
 });
 
 test('annulation : termine le processus dédié et son descendant, puis nettoie le schéma', async () => {
-  await fixture(async ({ cwd }) => {
+  await fixture(async ({ cwd, capture }) => {
     process.env.FAKE_MODE = 'hang';
     const controller = new AbortController();
     const run = runAgent({provider:'codex',cwd,prompt:'Mission',schema:{type:'object'},signal:controller.signal});
@@ -626,6 +697,8 @@ test('annulation : termine le processus dédié et son descendant, puis nettoie 
     }
     assert.equal(alive, false, 'Le descendant reçoit aussi la terminaison.');
     assert.equal((await readdir(cwd)).length, 0);
+    const invocation=await capture(),file=invocation.args[invocation.args.indexOf('--output-last-message')+1];
+    await assert.rejects(readdir(dirname(file)),{code:'ENOENT'});
   });
 });
 
