@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import os from 'node:os';
+import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
+import {createAtelierServer} from '../server.mjs';
+
+test('the explicit named HTML HTTP action retains known-file, local-client, origin and terminal-state guards',async t=>{
+  const dataDir=await mkdtemp(path.join(os.tmpdir(),'oscar-named-html-http-'));
+  let modelCalls=0;
+  const app=await createAtelierServer({port:0,dataDir,providers:[],demoDelay:0,runner:async()=>{modelCalls++;throw Error('No model should be called.');}});
+  await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  t.after(async()=>{await app.close();await rm(dataDir,{recursive:true,force:true});});
+  const mission=app.engine.start({prompt:'Fixture de mise en page, sans modèle réel.',provider:'demo'});await app.engine.wait(mission.id);
+  const work=app.engine.workDir(mission.id),folder=path.join(work,'Livraison');await mkdir(folder,{recursive:true});
+  await writeFile(path.join(folder,'template.html'),'<!doctype html><link rel="stylesheet" href="style.css"><main>Question publique</main>');
+  await writeFile(path.join(folder,'style.css'),'main{color:navy}');await writeFile(path.join(folder,'unlisted.html'),'PRIVATE UNLISTED');
+  const live=app.engine.missions.get(mission.id);live.status='completed';live.files=[{path:'Livraison/template.html'},{path:'Livraison/style.css'}];
+  const base=`http://127.0.0.1:${app.server.address().port}`,route=`/api/missions/${mission.id}/browser-preview`;
+  const post=(body,headers={})=>fetch(base+route,{method:'POST',headers:{'Content-Type':'application/json','X-Oscar-Client':'1',...headers},body:JSON.stringify(body)});
+  const automatic=await post({});assert.equal(automatic.status,400);assert.equal((await automatic.json()).code,'BROWSER_PREVIEW_NO_ENTRY');
+  const response=await post({entry:'Livraison/template.html'});assert.equal(response.status,200);const prepared=await response.json();assert.equal(prepared.entry,'Livraison/template.html');assert.equal(prepared.root,'Livraison');
+  const page=await fetch(prepared.url);assert.equal(page.status,200);assert.match(await page.text(),/Question publique/u);assert.ok(page.headers.get('content-security-policy').includes("sandbox allow-scripts"));
+  assert.equal((await fetch(new URL('style.css',prepared.url))).status,200);assert.equal((await fetch(new URL('unlisted.html',prepared.url))).status,404);
+  for(const body of [{entry:'Livraison/unlisted.html'},{entry:'../template.html'},{entry:'/etc/template.html'},{entry:'Livraison/style.css'},{entry:'Livraison/template.html',publish:true},{entry:[]}])assert.equal((await post(body)).status,400);
+  assert.equal((await post({entry:'Livraison/template.html'},{Origin:'https://outside.invalid'})).status,403);
+  assert.equal((await fetch(base+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entry:'Livraison/template.html'})})).status,403);
+  live.status='running';assert.equal((await post({entry:'Livraison/template.html'})).status,409);live.status='completed';app.engine.runs.set(mission.id,{});assert.equal((await post({entry:'Livraison/template.html'})).status,409);app.engine.runs.delete(mission.id);
+  assert.equal(modelCalls,0);
+});

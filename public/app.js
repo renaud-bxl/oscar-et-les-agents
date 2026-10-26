@@ -25,7 +25,7 @@ import { DeliveryLibrary } from '/delivery-library.js';
 import { AppUpdates } from '/app-updates.js';
 import { DeliveryNavigation } from '/delivery-navigation.js';
 import { DeliveryProgress, missionProblemSummary } from '/delivery-progress.js';
-import { DeliveryPreview, ResultPreviewDialog, deliveryPreviewCandidate, deliveryPreviewEntries } from '/delivery-preview.js';
+import { DeliveryPreview, ResultPreviewDialog, deliveryPreviewCandidate, deliveryPreviewEntries, deliveryHtmlEntries } from '/delivery-preview.js';
 import { requestMissionRecovery } from '/mission-recovery.js';
 import { CalendarEventDialog,calendarCommand,calendarQuestion } from '/calendar-event-dialog.js';
 import { DraftStorage, draftScope } from '/draft-storage.js';
@@ -499,7 +499,7 @@ function renderDeliveries() {
 
   $('delivery-folder-card').hidden=!mission;
   $('delivery-folder-path').textContent=mission?.workDirectory||mission?.folderName||'';
-  const previewCandidate=deliveryPreviewCandidate(mission),previewEntries=deliveryPreviewEntries(mission);$('delivery-view-result').hidden=(!previewCandidate&&!previewEntries.length)||isRunning(mission);$('delivery-view-result').textContent=previewCandidate?.kind==='browser'||previewEntries.length?(mission?.status==='completed'?'Lancer le jeu ou le site ↗':'Tester l’aperçu partiel ↗'):'Voir le résultat ↗';
+  const previewCandidate=deliveryPreviewCandidate(mission),previewEntries=deliveryPreviewEntries(mission),htmlPages=deliveryHtmlEntries(mission);$('delivery-view-result').hidden=(!previewCandidate&&!htmlPages.length)||isRunning(mission);$('delivery-view-result').textContent=previewCandidate?.kind==='browser'||previewEntries.length?(mission?.status==='completed'?'Lancer le jeu ou le site ↗':'Tester l’aperçu partiel ↗'):previewCandidate?.kind==='image'?'Voir le résultat ↗':htmlPages.length?'Consulter les pages HTML ↗':'Voir le résultat ↗';
   const repairing=recoveryPending.has(mission?.id);
   const recheck=mission?.recovery?.canRecheck===true;
   $('mission-recovery').hidden=mission?.recovery?.canResume!==true&&!recheck&&!repairing;
@@ -845,7 +845,7 @@ creativeStudio=new CreativeStudio({onDictate:target=>dictateInto(target),getMiss
 for(const id of ['open-creative-studio','settings-creative-studio','delivery-creative-studio'])$(id).addEventListener('click',()=>openUtility(creativeStudio));
 connectorsDialog=new ConnectorsDialog({onDictate:target=>dictateInto(target),request,getMission:()=>mission,onClose:()=>returnFromUtility(connectorsDialog),onSecretary:(mode,connection)=>{utilityReturns.delete(connectorsDialog);openSecretary(mode,undefined,connection);}});
 automationsDialog=new AutomationsDialog({onDictate:target=>dictateInto(target),request,getState:()=>state,onClose:()=>returnFromUtility(automationsDialog),onMission:id=>{automationsDialog.close();selectMission(id);openPanel('progress');}});
-artifactViewer=new ArtifactViewer({request,onClose:showDeliveryDetail});
+artifactViewer=new ArtifactViewer({request,onClose:showDeliveryDetail,onTest:(item,file)=>{if(isRunning(item)||!deliveryHtmlEntries(item).some(entry=>entry.path===file.path))throw new Error(translate('Choisissez un fichier HTML présent dans la livraison.'));artifactViewer.close();closeOfficePanel({restoreFocus:false});return resultPreviewDialog.open(item,{entry:file.path});}});
 deliveryLibrary=new DeliveryLibrary({container:$('delivery-library'),onOpen:id=>deliveryNavigation.open(id)});
 deliveryNavigation=new DeliveryNavigation({load:(id,{signal})=>request(`/api/missions/${encodeURIComponent(id)}`,{signal}),onSelect:activateDeliveryProject,onChange:view=>{renderDeliveryNavigation();if(view.mode==='detail')$('delivery-title').focus({preventScroll:true});}});
 $('delivery-back-library').addEventListener('click',()=>{const id=deliveryNavigation.state.id;deliveryNavigation.library();if(!deliveryLibrary.focusProject?.(id))deliveryLibrary.focusSearch?.();});
@@ -889,7 +889,7 @@ async function viewResult(item){
   closeOfficePanel({restoreFocus:false});
   if(selectedId!==item.id)activateDeliveryProject(item);deliveryNavigation?.show(item);
   const candidate=deliveryPreviewCandidate(item);
-  if(candidate||deliveryPreviewEntries(item).length)return resultPreviewDialog.open(item);
+  if(candidate||deliveryHtmlEntries(item).length)return resultPreviewDialog.open(item);
   if(selectedId!==item.id)activateDeliveryProject(item);showDeliveryDetail();
 }
 async function resumeMission(item){

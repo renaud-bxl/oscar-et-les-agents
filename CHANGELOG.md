@@ -1,5 +1,10 @@
 # Historique des versions
 
+## 0.6.24 — 26 octobre 2026
+
+- Permet de tester volontairement une page HTML livrée sous un autre nom que index.html, notamment un modèle de document. La détection automatique des sites conserve ses entrées index.html prioritaires.
+- Le lecteur HTML reste passif à l’ouverture ; une commande distincte lance la page dans l’aperçu local isolé. Les limites de fichiers, le contrôle des ressources et le refus des accès externes restent appliqués.
+
 ## 0.6.23 — 26 octobre 2026
 
 - Utilise la réponse finale officielle de Codex pour les plans et contrôles à schéma, lorsqu’elle est disponible. Les commentaires intermédiaires ne peuvent plus remplacer le verdict final.

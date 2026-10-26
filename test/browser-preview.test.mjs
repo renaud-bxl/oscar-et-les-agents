@@ -101,6 +101,39 @@ test('entry selection prefers delivery then root, and requires a choice between 
   for(const entry of ['site-a','site-a/../site-b/index.html','../index.html','/tmp/index.html','site-a\\index.html','References/index.html','site-a/other.html','site-a/index.html?x=1'])await assert.rejects(previews.prepare(mission.id,{entry}),{code:'BROWSER_PREVIEW_INVALID'});
 });
 
+test('named HTML pages require an explicit known choice and preserve their isolated immutable assets',async t=>{
+  const{previews,file,mission,directory}=await fixture(t);
+  const html='<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><main>Question parlementaire</main><script src="layout.js"></script></body></html>';
+  await file('Livraison/template.html',html);await file('Livraison/style.css','body{color:navy}');await file('Livraison/layout.js','console.log("Layout only");');await file('autre-secret.txt','OUTSIDE ROOT');
+  await assert.rejects(previews.prepare(mission.id),{code:'BROWSER_PREVIEW_NO_ENTRY'});
+  assert.equal(previews.server,null,'named HTML is never launched by automatic discovery');
+  const result=await previews.prepare(mission.id,{entry:'Livraison/template.html'});
+  assert.equal(result.entry,'Livraison/template.html');assert.equal(result.root,'Livraison');assert.equal(result.count,3);
+  assert.match(result.url,/^http:\/\/127\.0\.0\.1:\d+\/[a-f\d]{64}\/template\.html$/u);
+  const response=await fetch(result.url),page=await response.text();assert.equal(response.status,200);assert.match(page,/data-oscar-preview-diagnostics/u);assert.match(page,/Question parlementaire/u);
+  const csp=response.headers.get('content-security-policy');assert.ok(csp.includes("sandbox allow-scripts"));assert.ok(!csp.includes('allow-same-origin'));assert.ok(csp.includes("frame-src 'none'"));assert.ok(csp.includes("form-action 'none'"));
+  assert.equal(await(await fetch(new URL('style.css',result.url))).text(),'body{color:navy}');
+  await writeFile(path.join(directory,'Livraison/template.html'),'CHANGED');await writeFile(path.join(directory,'Livraison/style.css'),'CHANGED');
+  assert.equal(await readFile(path.join(directory,'Livraison/template.html'),'utf8'),'CHANGED');assert.match(await(await fetch(result.url)).text(),/Question parlementaire/u);assert.equal(await(await fetch(new URL('style.css',result.url))).text(),'body{color:navy}');
+  for(const target of ['../autre-secret.txt','index.html','/api/state'])assert.equal((await fetch(new URL(target,result.url))).status,404,target);
+  await file('Livraison/index.html','INDEX');const automatic=await previews.prepare(mission.id);assert.equal(automatic.entry,'Livraison/index.html');assert.equal(await(await fetch(automatic.url)).text(),'INDEX');
+});
+
+test('explicit HTML supports encoded page names and HTM without weakening file identity or resource checks',async t=>{
+  const{previews,file,mission,directory,setActive}=await fixture(t);
+  await file('Livraison/fiche modèle.HTML','<!doctype html><main>Modèle choisi</main>');await file('autre/page.htm','<!doctype html><main>Autre page</main>');
+  const chosen=await previews.prepare(mission.id,{entry:'Livraison/fiche modèle.HTML'});assert.ok(chosen.url.endsWith('/fiche%20mod%C3%A8le.HTML'));assert.equal((await fetch(chosen.url)).status,200);
+  const htm=await previews.prepare(mission.id,{entry:'autre/page.htm'});assert.ok(htm.url.endsWith('/page.htm'));assert.match(await(await fetch(htm.url)).text(),/Autre page/u);
+  await file('Livraison/template.js','PRIVATE SCRIPT');await file('References/template.html','PRIVATE REFERENCE');await file('Livraison/secrets.html','PRIVATE SECRET');
+  await writeFile(path.join(directory,'Livraison/unlisted.html'),'UNLISTED');
+  for(const entry of ['Livraison/unlisted.html','Livraison/template.js','References/template.html','Livraison/secrets.html','Livraison/fiche%20mod%C3%A8le.HTML','../autre/page.htm','/autre/page.htm','Livraison/../autre/page.htm','autre/page.htm?x=1','autre/page.htm#fragment'])await assert.rejects(previews.prepare(mission.id,{entry}),{code:'BROWSER_PREVIEW_INVALID'});
+  mission.files=mission.files.filter(file=>!['Livraison/template.js','References/template.html','Livraison/secrets.html'].includes(file.path));
+  await file('Livraison/absent.html','<!doctype html><link rel="stylesheet" href="missing.css">');await assert.rejects(previews.prepare(mission.id,{entry:'Livraison/absent.html'}),{code:'BROWSER_PREVIEW_MISSING_ASSETS'});
+  await file('Livraison/source.html','<!doctype html><script src="source.tsx"></script>');await assert.rejects(previews.prepare(mission.id,{entry:'Livraison/source.html'}),{code:'BROWSER_PREVIEW_BUILD_REQUIRED'});
+  await symlink(path.join(directory,'Livraison/fiche modèle.HTML'),path.join(directory,'linked.html'));mission.files.push({path:'linked.html'});await assert.rejects(previews.prepare(mission.id,{entry:'linked.html'}),/lien/u);
+  setActive(true);await assert.rejects(previews.prepare(mission.id,{entry:'autre/page.htm'}),{code:'BROWSER_PREVIEW_BUSY'});setActive(false);
+});
+
 test('symlink roots, symlink parents and symlink assets are refused before serving any bytes',async t=>{
   const {previews,file,directory,mission}=await fixture(t);await file('Livraison/index.html','play');await file('outside.js','PRIVATE');
   await symlink(path.join(directory,'outside.js'),path.join(directory,'Livraison','linked.js'));mission.files.push({path:'Livraison/linked.js'});await assert.rejects(previews.prepare(mission.id),/lien/u);assert.equal(previews.server,null);

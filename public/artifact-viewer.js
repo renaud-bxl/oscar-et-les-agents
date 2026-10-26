@@ -3,6 +3,7 @@ import {sanitizeStudioSvg} from './creative-studio.js';
 import {PdfCanvasPreview} from './pdf-preview.js';
 import {OfficeViewer} from './office-viewer.js';
 import {officeText} from './translations-office.js';
+import {deliveryHtmlEntries} from './delivery-preview.js';
 
 const MAX_BYTES=20*1024*1024,MAX_TEXT=512*1024;
 const TEXT_TYPES=new Set('txt md markdown csv tsv json jsonl log py js mjs cjs ts tsx jsx html htm css scss sass less yaml yml toml ini cfg conf sql xml rst tex ipynb c cpp h hpp java rs go sh bash zsh ps1 bat'.split(' '));
@@ -28,8 +29,8 @@ function isPdf(bytes) {
 const jsonRequest=async(url,options={})=>{const response=await fetch(url,{credentials:'same-origin',...options});let data;try{data=await response.json();}catch{throw new Error('Le bureau a renvoyé une réponse inattendue.');}if(!response.ok)throw new Error(data.error||'Cette action n’a pas pu être réalisée.');return data;};
 
 export class ArtifactViewer {
-  constructor({request=jsonRequest,onClose=()=>{}}={}) {
-    Object.assign(this,{request,onClose});this.epoch=0;this.urls=new Set();this.destroyed=false;this.opened=false;this.nativeBusy=false;this.folderBusy=false;this.current=null;
+  constructor({request=jsonRequest,onClose=()=>{},onTest}={}) {
+    Object.assign(this,{request,onClose,onTest});this.epoch=0;this.urls=new Set();this.destroyed=false;this.opened=false;this.nativeBusy=false;this.folderBusy=false;this.current=null;
     this.build();
     this._onClose=()=>{if(!this.dialog.open)this.finishedClosing();};this._onCancel=event=>{event.preventDefault();this.close();};
     this._onBackdrop=event=>{if(event.target!==this.dialog)return;const box=this.dialog.getBoundingClientRect();if(event.clientX<box.left||event.clientX>box.right||event.clientY<box.top||event.clientY>box.bottom)this.close();};
@@ -51,7 +52,8 @@ export class ArtifactViewer {
     this.native=node('button','artifact-native','Ouvrir dans mon application ↗');this.native.type='button';this.native.addEventListener('click',()=>this.openNative());
     this.folder=node('button','artifact-folder','Ouvrir le dossier ↗');this.folder.type='button';this.folder.addEventListener('click',()=>this.openFolder());
     this.retry=node('button','artifact-retry','Réessayer l’aperçu');this.retry.type='button';this.retry.hidden=true;this.retry.addEventListener('click',()=>this.load());
-    footer.append(this.download,this.native,this.folder,this.retry);this.dialog.append(header,bar,this.error,this.status,this.content,this.hint,footer);document.body.append(this.dialog);
+    this.testButton=node('button','artifact-native','Tester cette page');this.testButton.type='button';this.testButton.hidden=true;this.testButton.addEventListener('click',()=>this.testPage());
+    footer.append(this.testButton,this.download,this.native,this.folder,this.retry);this.dialog.append(header,bar,this.error,this.status,this.content,this.hint,footer);document.body.append(this.dialog);
   }
   updateMeta() {
     if(!this.current)return;const info=this.current.info;
@@ -142,11 +144,20 @@ export class ArtifactViewer {
     catch(error){if(this.active(epoch))this.showError(error.message||'Le dossier n’a pas pu être ouvert.');}
     finally{this.folderBusy=false;if(this.opened)this.folder.disabled=false;}
   }
+  async testPage(){
+    const current=this.current,epoch=this.epoch;
+    if(!this.opened||this.testButton.hidden||this.testButton.disabled||typeof this.onTest!=='function'||!current||!['completed','needs_review','failed','cancelled'].includes(current.mission.status)||!deliveryHtmlEntries(current.mission).some(file=>file.path===current.info.path))return;
+    this.testButton.disabled=true;this.showError('');
+    try{await this.onTest(current.mission,{path:current.info.path,size:current.info.size});}
+    catch(error){if(this.active(epoch))this.showError(translate(error.message||'L’aperçu n’a pas pu être ouvert. Vos fichiers restent dans le dossier.'));}
+    finally{if(this.active(epoch))this.testButton.disabled=false;}
+  }
   async open(mission,file) {
     if(this.destroyed)return this;
-    let info;try{info=fileInfo(mission,file);}catch(error){++this.epoch;this.cleanup();this.current=null;if(!this.opened){this.returnFocus=document.activeElement;this.opened=true;this.dialog.showModal();}this.title.removeAttribute('data-no-translate');this.title.textContent='Fichier indisponible';this.path.textContent='';this.meta.textContent='';this.mode.textContent='Aperçu indisponible';this.showError(error.message);this.showStatus('');this.hint.hidden=true;this.retry.hidden=true;this.placeholder('Ce fichier ne peut pas être ouvert.','Revenez à la livraison pour choisir un fichier de cette mission.');this.download.removeAttribute('href');this.native.disabled=true;this.folder.disabled=true;this.closeButton.focus();return this;}
+    let info;try{info=fileInfo(mission,file);}catch(error){++this.epoch;this.cleanup();this.current=null;if(!this.opened){this.returnFocus=document.activeElement;this.opened=true;this.dialog.showModal();}this.title.removeAttribute('data-no-translate');this.title.textContent='Fichier indisponible';this.path.textContent='';this.meta.textContent='';this.mode.textContent='Aperçu indisponible';this.showError(error.message);this.showStatus('');this.hint.hidden=true;this.retry.hidden=true;this.testButton.hidden=true;this.placeholder('Ce fichier ne peut pas être ouvert.','Revenez à la livraison pour choisir un fichier de cette mission.');this.download.removeAttribute('href');this.native.disabled=true;this.folder.disabled=true;this.closeButton.focus();return this;}
     if(!this.opened)this.returnFocus=document.activeElement;this.current={mission,info};this.title.setAttribute('data-no-translate','');this.title.textContent=info.name;this.path.textContent=info.path;
     this.download.href=info.url;this.download.download=info.name;this.native.disabled=this.nativeBusy||!NATIVE_TYPES.has(info.extension);this.native.title=NATIVE_TYPES.has(info.extension)?'Ouvrir avec l’application de cet ordinateur':'Ce type de fichier est consultable en texte ou par téléchargement.';this.folder.disabled=this.folderBusy;this.updateMeta();
+    this.testButton.hidden=typeof this.onTest!=='function'||!['completed','needs_review','failed','cancelled'].includes(mission.status)||!deliveryHtmlEntries(mission).some(item=>item.path===info.path);this.testButton.disabled=false;
     if(!this.opened){this.opened=true;this.dialog.showModal();}this.closeButton.focus();await this.load();return this;
   }
   finishedClosing(){if(!this.opened)return;this.opened=false;this.epoch++;this.cleanup();this.current=null;if(this.returnFocus?.isConnected)this.returnFocus.focus({preventScroll:true});this.onClose();}

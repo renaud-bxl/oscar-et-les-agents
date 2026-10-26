@@ -587,7 +587,7 @@ export async function createAtelierServer({ port = 4850, dataDir = resolveServer
         }
         const browserPreview=pathname.match(/^\/api\/missions\/([^/]+)\/browser-preview$/);
         if(browserPreview){
-          if(Object.keys(body).some(key=>key!=='entry')||body.entry!==undefined&&typeof body.entry!=='string')throw fileError('Choisissez un fichier index.html présent dans la livraison.','BROWSER_PREVIEW_INVALID');
+          if(Object.keys(body).some(key=>key!=='entry')||body.entry!==undefined&&typeof body.entry!=='string')throw fileError('Choisissez un fichier HTML présent dans la livraison.','BROWSER_PREVIEW_INVALID');
           json(res,200,await browserPreviews.prepare(browserPreview[1],body));return;
         }
         const openMissionFolder = pathname.match(/^\/api\/missions\/([^/]+)\/open-folder$/);

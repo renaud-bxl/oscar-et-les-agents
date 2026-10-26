@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ArtifactViewer} from '../public/artifact-viewer.js';
 
-function fixture(t,{request=async()=>({}),fetchImpl=async()=>new Response('Texte public de contrôle')}={}){
+function fixture(t,{request=async()=>({}),fetchImpl=async()=>new Response('Texte public de contrôle'),onTest}={}){
   const previous={document:globalThis.document,fetch:globalThis.fetch},document={activeElement:null,listeners:new Map()};
   class Element{
     constructor(tag){this.tagName=tag.toUpperCase();this.children=[];this.attributes=new Map();this.listeners=new Map();this.style={};this.className='';this._text='';this.open=false;this.isConnected=true;this.classList={add:(value)=>{this.className+=' '+value;},toggle:()=>{}};}
@@ -17,7 +17,7 @@ function fixture(t,{request=async()=>({}),fetchImpl=async()=>new Response('Texte
     remove(){if(this.parentElement)this.parentElement.children=this.parentElement.children.filter(child=>child!==this);this.isConnected=false;}
   }
   document.createElement=tag=>new Element(tag);document.body=new Element('body');document.addEventListener=(name,handler)=>{if(!document.listeners.has(name))document.listeners.set(name,new Set());document.listeners.get(name).add(handler);};document.removeEventListener=(name,handler)=>document.listeners.get(name)?.delete(handler);
-  globalThis.document=document;globalThis.fetch=fetchImpl;const viewer=new ArtifactViewer({request});t.after(()=>{viewer.destroy();globalThis.fetch=previous.fetch;if(previous.document===undefined)delete globalThis.document;else globalThis.document=previous.document;});return{viewer,document};
+  globalThis.document=document;globalThis.fetch=fetchImpl;const viewer=new ArtifactViewer({request,onTest});t.after(()=>{viewer.destroy();globalThis.fetch=previous.fetch;if(previous.document===undefined)delete globalThis.document;else globalThis.document=previous.document;});return{viewer,document};
 }
 const mission=(id='preview-test')=>({id,status:'completed'}),word={kind:'word',status:'ready',warnings:[],blocks:[{kind:'paragraph',heading:1,alignment:'left',runs:[{text:'Texte Word <script> inerte',bold:true,italic:false,underline:false}]}]},book={kind:'spreadsheet',status:'ready',warnings:[],sheets:[{name:'Budget',state:'visible',totalRows:1,totalColumns:1,rows:[{number:1,cells:[{column:1,address:'A1',text:'42',formula:false}]}]}]};
 
@@ -43,4 +43,11 @@ test('native and folder controls remain disabled while a previous file action is
   let finish;const calls=[],{viewer}=fixture(t,{request:async(route)=>{calls.push(route);return new Promise(resolve=>{finish=resolve;});}});
   await viewer.open(mission(),{path:'note.md'});const native=viewer.openNative();assert.equal(viewer.native.disabled,true);await viewer.open(mission('next-project'),{path:'budget.txt'});assert.equal(viewer.native.disabled,true);await viewer.openNative();assert.equal(calls.length,1);finish({});await native;assert.equal(viewer.native.disabled,false);assert.equal(viewer.status.hidden,true,'the old file action must not announce success for a new file');
   const folder=viewer.openFolder();assert.equal(viewer.folder.disabled,true);await viewer.open(mission(),{path:'rapport.json'});assert.equal(viewer.folder.disabled,true);await viewer.openFolder();assert.equal(calls.length,2);finish({});await folder;assert.equal(viewer.folder.disabled,false);assert.equal(viewer.status.hidden,true);
+});
+
+test('an HTML file stays inert text until its known completed page is explicitly tested',async t=>{
+  const tested=[],path='Livraison/template.html',item={...mission(),files:[{path,size:50}]},{viewer}=fixture(t,{onTest:async(...args)=>tested.push(args),fetchImpl:async()=>new Response('<script>must remain text</script><h1>Modèle</h1>')});
+  await viewer.open(item,{path,size:50});assert.equal(tested.length,0);assert.match(viewer.content.textContent,/^<script>/u);assert.equal(viewer.content.querySelectorAll('script').length,0);assert.equal(viewer.testButton.hidden,false);assert.equal(viewer.testButton.textContent,'Tester cette page');await viewer.testPage();assert.equal(tested.length,1);assert.equal(tested[0][0],item);assert.equal(tested[0][1].path,path);assert.equal(viewer.testButton.disabled,false);
+  for(const changed of[{...item,status:'running'},{...item,files:[]},{...item,files:[{path:'References/source.html'}]}]){await viewer.open(changed,{path});assert.equal(viewer.testButton.hidden,true);await viewer.testPage();}assert.equal(tested.length,1);
+  for(const status of['failed','needs_review','cancelled']){await viewer.open({...item,status},{path});assert.equal(viewer.testButton.hidden,false,'an explicit partial test does not approve the mission');}
 });

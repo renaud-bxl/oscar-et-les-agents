@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm,realpath} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {DeliveryPreview,ResultPreviewDialog,deliveryPreviewCandidate,deliveryPreviewEntries,isolatedPreviewUrl} from '../public/delivery-preview.js';
+import {DeliveryPreview,ResultPreviewDialog,deliveryPreviewCandidate,deliveryPreviewEntries,deliveryHtmlEntries,isolatedPreviewUrl} from '../public/delivery-preview.js';
 import {CompletionDialog} from '../public/completion-dialog.js';
 import {createAtelierServer} from '../server.mjs';
 import {Publishing} from '../lib/publishing.mjs';
@@ -55,6 +55,15 @@ test('the delivery chooses its assembled entry over source copies and keeps imag
 test('the frame accepts only the isolated loopback result URL and never an external or credential URL',()=>{
   assert.equal(isolatedPreviewUrl(previewUrl),previewUrl);
   for(const url of ['https://evil.example/index.html','javascript:alert(1)','data:text/html,hello','//127.0.0.1:54321/index.html',previewUrl.replace('127.0.0.1','localhost'),previewUrl.replace('http:','https:'),previewUrl+'?token=secret',previewUrl+'#page',previewUrl.replace('127.0.0.1','user:password@127.0.0.1'),previewUrl.replace('/index.html','/../index.html'),previewUrl.replace('54321','65536')])assert.equal(isolatedPreviewUrl(url),null,url);
+});
+
+test('named HTML documents are explicit choices while the automatic index and image choices stay distinct',async t=>{
+  const document=installDom(t),requests=[],container=document.createElement('div'),url=previewUrl.replace('index.html','fiche%20mod%C3%A8le.HTML'),widget=new DeliveryPreview({container,request:async(route,options)=>{requests.push({route,body:JSON.parse(options.body)});return{url,root:'Livraison'};}}),page={path:'Livraison/fiche modèle.HTML',size:100},image={path:'Livraison/mockup.png',size:200},item=result({files:[page,image,{path:'References/source.html'},{path:'Rapports/rapport.htm'},{path:'tests/fixture.html'},{path:'../bad.html'}]});
+  assert.deepEqual(deliveryHtmlEntries(item),[page]);assert.deepEqual(deliveryPreviewEntries(item),[]);assert.equal(deliveryPreviewCandidate(item).file,image);await widget.open(item);assert.equal(requests.length,0);assert.equal(widget.frame,undefined);assert.equal(widget.chooser.hidden,false);assert.equal(widget.entrySelect.value,page.path);assert.ok(widget.body.querySelector('img'));
+  await widget.chooseButton.click();await Promise.resolve();assert.equal(requests.length,1);assert.equal(requests[0].body.entry,page.path);assert.equal(widget.frame.src,url);assert.equal(widget.frame.getAttribute('sandbox'),'allow-scripts');assert.equal(widget.title.textContent,'Consulter la page HTML');assert.equal(widget.frame.title,'Page HTML à consulter');assert.doesNotMatch(widget.note.textContent,/jeu ou site/u);
+  widget.cleanup();requests.length=0;await widget.open(result({files:[page]}));assert.equal(requests.length,0);assert.equal(widget.chooser.hidden,false);assert.equal(widget.title.textContent,'Une page HTML est disponible');assert.match(widget.body.textContent,/Aucune page n’est lancée automatiquement/u);widget.destroy();
+  for(const file of['template.html','template.htm','fiche%20mod%C3%A8le.HTML'])assert.equal(isolatedPreviewUrl(previewUrl.replace('index.html',file)),previewUrl.replace('index.html',file));
+  for(const file of['script.js','%2Ftemplate.html','.hidden.html','%252e%252e.html','template.html?','template.html#','%00template.html'])assert.equal(isolatedPreviewUrl(previewUrl.replace('index.html',file)),null,file);
 });
 
 test('an image opens inline without a browser preview request and cleanup releases its source',async t=>{

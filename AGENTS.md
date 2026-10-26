@@ -1,6 +1,6 @@
 # Oscar et les Agents
 
-Version 0.6.23 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
+Version 0.6.24 : application locale en français, anglais et néerlandais. Oscar dirige cinq métiers dans un bureau illustré animé ; 84 missions guidées couvrent notamment logiciels, jeux, communication, recherche parlementaire, analyse, livres et design créatif.
 
 ## Installer et lancer pour une personne
 
@@ -174,7 +174,7 @@ La dictée partagée s’ouvre uniquement sur clic ; l’insertion nécessite re
 - Réserve remaining-correction-1 et une sauvegarde distincte avant l’appel. Les tâches refusées éligibles passent directement en correction avec leur vrai retour ; les dépendants attendent les approbations réelles. Une écriture consommée demeure consommée et un nouveau refus sans budget reste un refus. Les comptes, permissions, quotas et erreurs de moteur ne sont pas concernés.
 
 
-## Réponses de contrôle structurées (0.6.23)
+## Réponses de contrôle structurées (0.6.22)
 
 - Les appels à schéma donnent le contrat JSON explicitement au moteur et contrôlent localement la réponse entière avant son usage. Ne déduis jamais une approbation d’une phrase ni d’un fragment de JSON extrait d’un rapport. Les contrôles métier et les empreintes restent obligatoires.
 - Une réponse de contrôle mal formatée autorise une seule nouvelle demande en lecture seule pour ce lot ; elle ne consomme pas les écritures des spécialistes. Si le format reste inutilisable, conserve les contributions concernées à vérifier et laisse terminer les collègues indépendants. Aucune nouvelle tentative de compte, permission ou quota n’est ajoutée.
@@ -186,3 +186,9 @@ La dictée partagée s’ouvre uniquement sur clic ; l’insertion nécessite re
 
 - Pour un appel Codex à schéma, utilise le fichier officiel --output-last-message si le client le propose. Contrôle sa taille, sa nature, son identité et son encodage avant le JSON. Les commentaires intermédiaires ne sont jamais des verdicts. Les fichiers temporaires sont privés et nettoyés, y compris après annulation.
 - Un plan local mal formé et les contrôles locaux en lecture seule disposent d’une seule correction de format ; aucune création ni lecture de compte n’est répétée. Un ancien échec prouvé du plan avant toute tâche et tout fichier peut utiliser la reprise manuelle existante, avec sauvegarde et compteur durable inchangé. Aucune erreur de permission, compte ou quota n’est rendue récupérable par cette règle.
+
+
+## Pages HTML nommées (0.6.24)
+
+- La détection automatique des projets web garde les entrées index.html connues. Un choix explicite peut tester une autre page .html/.htm sûre déjà inventoriée dans la mission, par exemple template.html. Conserve le vrai nom de la page, les ressources relatives, les empreintes et le profil isolé sans comptes ni ressources externes.
+- Ouvrir le lecteur HTML montre uniquement son texte passif. Le lancement nécessite une commande explicite distincte ; ne transforme pas une image de maquette en page utilisable.
